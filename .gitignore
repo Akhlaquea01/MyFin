@@ -1,0 +1,6 @@
+# Claude Code local state (credentials, auth tokens, session data)
+.claude/settings.local.json
+
+# OS / editor
+.DS_Store
+Thumbs.db

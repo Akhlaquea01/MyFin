@@ -1,0 +1,326 @@
+# Personal Finance Manager — PWA (Offline‑First)  
+**A private, single‑user financial operating system for mobile (and desktop) that runs entirely in your browser.**
+
+---
+
+## 1. Why a PWA?
+
+The original spec targets a native Android APK.  
+But you asked for a **PWA** that works on mobile as an app, with **no server**, using **free** technologies.  
+A PWA delivers exactly that:
+
+- **Installable** on Android, iOS, and desktop (Add to Home Screen).
+- **Offline‑first** – all data stays locally in IndexedDB.
+- **No backend** – no server, no cloud, no costs.
+- **Cross‑platform** – one codebase works everywhere.
+- **Privacy‑first** – financial data never leaves your device.
+
+---
+
+## 2. How Does It Compare to the Android Spec?
+
+| Android Concept               | PWA Equivalent                            |
+|-------------------------------|-------------------------------------------|
+| Kotlin + Compose              | HTML5 + CSS3 + TypeScript + React/Vue/Svelte (we’ll use vanilla JS with a lightweight framework) |
+| Room + SQLite                | IndexedDB + Dexie.js (promise‑based wrapper) |
+| SQLCipher + Android Keystore | Web Crypto API + PBKDF2 (for key derivation) + AES‑GCM |
+| Biometric/PIN                | PIN stored as salted hash; WebAuthn for biometric where supported |
+| SMS ingestion                | **Dropped** (browsers can’t read SMS). Replaced by **manual entry**, **CSV import from SMS backup apps**, or **copy‑paste** of SMS text. |
+| Storage Access Framework     | File API (`<input type="file">`) + `FileSaver.js` for exports |
+| WorkManager                  | Service Worker + Background Sync (optional) |
+| Hilt DI                      | Dependency injection via modules (or no DI, just ES modules) |
+
+All other features (accounts, transactions, budgets, recurring, investments, liabilities, analytics, import/export, backup/restore, security) remain **unchanged** in concept.
+
+---
+
+## 3. Architectural Approach (Clean Architecture adapted for Web)
+
+```
+┌──────────────────────────────────────────────────────┐
+│                      UI Layer                        │
+│  (Components / Pages / Screens)                     │
+│  Uses ViewModels / Stores (state management)        │
+└───────────────────────┬──────────────────────────────┘
+                        │
+                        ▼
+┌──────────────────────────────────────────────────────┐
+│                    Domain Layer                      │
+│  Use Cases / Business Rules / Engines               │
+│  (Transaction Engine, Budget Engine, Forecast...)   │
+└───────────────────────┬──────────────────────────────┘
+                        │
+                        ▼
+┌──────────────────────────────────────────────────────┐
+│                    Data Layer                        │
+│  Repositories (interfaces) + Implementations        │
+│  IndexedDB adapter (Dexie)                          │
+│  File import/export (CSV, XLSX, Backup)            │
+│  Encryption service (Web Crypto)                   │
+└───────────────────────┬──────────────────────────────┘
+                        │
+                        ▼
+┌──────────────────────────────────────────────────────┐
+│              Local Storage (IndexedDB)              │
+│  Encrypted at rest (AES‑GCM) using a key derived   │
+│  from a user‑supplied PIN / passphrase.             │
+└──────────────────────────────────────────────────────┘
+```
+
+**Key points**:
+
+- **State management**: Use a simple reactive store (e.g., Redux, MobX, or custom with Svelte stores / React Context).
+- **Encryption**: The **database key** is derived from the user’s PIN using PBKDF2 with a random salt. That key encrypts/decrypts all sensitive data in IndexedDB.
+- **Offline**: Service Worker caches all static assets; after first load, the app works completely offline.
+
+---
+
+## 4. Technology Stack (All Free & Open Source)
+
+| Concern                     | Technology                                                       |
+|-----------------------------|------------------------------------------------------------------|
+| **Framework**               | **Svelte** (or React / Vue) – we'll pick Svelte for minimal bundle and ease. |
+| **Language**                | TypeScript                                                       |
+| **Build tool**              | Vite                                                             |
+| **State management**        | Svelte stores (or Pinia for Vue, Redux Toolkit for React)       |
+| **Routing**                 | SvelteKit (or React Router) – we'll use SvelteKit for full PWA support. |
+| **Database**                | IndexedDB (via **Dexie.js**) – promise‑based, easy to use.       |
+| **Encryption**              | Web Crypto API (AES‑GCM) + PBKDF2 for key derivation.           |
+| **File import/export**      | Papa Parse (CSV), SheetJS (XLSX), FileSaver.js (download).      |
+| **Charts**                  | Chart.js (or ECharts)                                            |
+| **UI Components**           | Material Design Web (MWC) or Tailwind CSS + custom.            |
+| **PWA**                     | Manifest + Service Worker (built with Workbox or Vite plugin).  |
+| **Testing**                 | Vitest + Testing Library                                        |
+| **Hosting**                 | **Free** on Netlify / Vercel / GitHub Pages.                    |
+
+---
+
+## 5. Data Model (Adapted for IndexedDB)
+
+We keep the same entities but store them in **object stores** (like tables) in IndexedDB.  
+IndexedDB is schemaless – we enforce structure in code.
+
+**Core stores** (with indices):
+
+- `accounts`
+- `transactions`
+- `categories`
+- `merchants`
+- `merchantAliases`
+- `tags`
+- `transactionTags`
+- `budgets`
+- `budgetItems`
+- `recurringRules`
+- `expectedEvents`
+- `investmentHoldings`
+- `investmentValuations`
+- `liabilities`
+- `backupHistory`
+- `userProfile`
+
+**Important**:  
+- All monetary values in **paise** (integer).
+- Use UUIDs as primary keys (generate with `crypto.randomUUID()`).
+- Soft delete: `deletedAt` timestamp.
+
+**IndexedDB** supports composite indices for efficient queries (e.g., account_id + date).
+
+---
+
+## 6. Security Implementation
+
+### PIN / Authentication
+
+- User sets a PIN on first launch.
+- Store a **salted hash** of the PIN (using PBKDF2) – never store the PIN itself.
+- On each launch, ask for PIN; if correct, derive the **database encryption key** using the same PBKDF2 with a stored salt.
+- The encryption key is kept in memory (not persisted) and used to decrypt/encrypt data on the fly.
+
+### Biometric (WebAuthn)
+
+- On supported devices (Android with Chrome, iOS with Safari), use WebAuthn to authenticate.
+- The PIN is still the fallback. Biometric just unlocks the app without re‑entering PIN.
+
+### Database Encryption
+
+- IndexedDB stores **all sensitive fields** encrypted as JSON strings.
+- Each record is encrypted individually or we encrypt the entire object store?  
+  **Approach**: Encrypt each record’s JSON representation with AES‑GCM using the derived key.  
+  Store the encrypted payload as a `Blob` or base64 string in IndexedDB.
+- The encryption key is not stored – only derived from PIN + salt.
+
+### Secure Backup
+
+- Export a versioned encrypted container (JSON + AES‑GCM).  
+- Includes schema version, checksum, and all data (encrypted with a separate backup key or the same key? For simplicity, use same key or a new one derived from a backup passphrase).
+
+### No Plaintext
+
+- Never log sensitive data.
+- In production builds, strip console logs.
+
+---
+
+## 7. SMS Ingestion – Alternative
+
+Since browsers cannot access SMS, we replace the SMS feature with:
+
+1. **Manual entry** – user types expense/income.
+2. **Bulk import of SMS logs** – user can export SMS from an Android app (e.g., SMS Backup & Restore) as CSV/XML, then import into the PWA. The parser will read the file and create unreviewed transactions.
+3. **Copy‑paste** – user copies an SMS text and pastes it into a “Quick Add” field; the parser extracts amount, merchant, etc.
+
+The parser logic (rules, confidence, duplicate detection) remains the same, but source is `FILE` or `MANUAL`.
+
+---
+
+## 8. Key Features (as per spec) – All Implemented
+
+We will implement **all** Must‑Have and Should‑Have features from the original spec, except SMS auto‑ingestion.
+
+- **Dashboard** – smart cards, balances, net worth, unreviewed, upcoming, budget status, etc.
+- **Accounts** – full CRUD, types, opening balance, credit limit, billing cycle.
+- **Transactions** – create/edit/delete, split, tags, categories, merchants, search/filter.
+- **Transfers** – atomic pair, no income/expense double count.
+- **Categories** – tree, icons, custom.
+- **Budgets** – monthly/yearly, rollover, sinking funds, actual vs planned.
+- **Recurring** – rules, expected events, matching, missed detection.
+- **Investments** – manual holdings, valuations, cost basis.
+- **Liabilities** – loans, credit cards, EMI, outstanding.
+- **Analytics** – charts for spending, income, net worth, cash flow, budget performance.
+- **Import/Export** – CSV/XLSX with column mapping, duplicate detection.
+- **Backup/Restore** – encrypted, versioned, manual/auto.
+- **Security** – PIN, biometric, auto‑lock, encrypted storage.
+
+---
+
+## 9. Development Plan (Phased)
+
+We follow the same 10 phases as the original, but re‑ordered to suit web development.
+
+### Phase 1 – Foundation (PWA scaffold)
+
+- Set up Vite + Svelte (or React) project with TypeScript.
+- Configure PWA manifest and service worker (offline caching).
+- Implement routing.
+- Set up Dexie.js + IndexedDB.
+- Implement encryption helper (Web Crypto).
+- Implement PIN set/verify and key derivation.
+- Create basic UI shell (Material Design).
+- Write unit tests.
+
+### Phase 2 – Financial Core
+
+- Data models in TypeScript.
+- Dexie stores and repositories.
+- Account, Category, Transaction CRUD.
+- Transaction creation engine (with validation, balance updates).
+- Transfers (atomic).
+- Soft delete and trash.
+- Search/filter/sort.
+
+### Phase 3 – Dashboard
+
+- Build smart dashboard cards.
+- Balance, income, expense, net worth.
+- Recent transactions, upcoming events, budget status, unreviewed count.
+- Use Chart.js for small sparklines.
+
+### Phase 4 – SMS Alternative (Parser + Bulk Import)
+
+- Implement the SMS parser logic (rules, confidence).
+- Create a “Quick Add” input that parses pasted SMS text.
+- Implement bulk import from CSV/XML files (SMS backup format).
+- Duplicate detection.
+- Unreviewed transaction review screen.
+
+### Phase 5 – Budgeting
+
+- Budget engine (periods, items, rollover, sinking funds).
+- Budget UI: set budgets, view progress.
+- Actual vs planned charts.
+- Overspending alerts.
+
+### Phase 6 – Recurring Finance
+
+- Recurring rules, expected events.
+- Scheduler (daily check using browser’s `setInterval` or Service Worker background sync).
+- Matching algorithm.
+- Dashboard notifications.
+
+### Phase 7 – Wealth & Debt
+
+- Investment holdings, valuations.
+- Liabilities (loans, credit cards).
+- Net worth history (take snapshots).
+
+### Phase 8 – Analytics
+
+- Comprehensive charts: monthly/annually, category breakdown, cash flow, net worth trend.
+- Export analytics as PDF? (Could use jsPDF).
+
+### Phase 9 – Import/Export & Backup
+
+- CSV/XLSX import with column mapping.
+- Export CSV/XLSX.
+- Encrypted backup: export entire database as encrypted JSON.
+- Restore from backup.
+- Auto‑backup (optional, using service worker background sync).
+
+### Phase 10 – Hardening & Polish
+
+- Performance optimization (virtual scrolling for large transactions).
+- Database corruption testing.
+- Security audit (no plaintext, proper key handling).
+- Accessibility.
+- Responsive design (mobile first).
+- Add help screens and documentation.
+
+---
+
+## 10. Milestones (Same as original, but for PWA)
+
+| Milestone | Deliverable | Acceptance |
+|-----------|-------------|------------|
+| M1 – Secure Foundation | PWA installable, PIN works, encrypted IndexedDB | Cannot access data without PIN. |
+| M2 – Financial Ledger | Accounts, categories, transactions, transfers, trash | Manual monthly finances possible. |
+| M3 – Smart Dashboard | Dashboard cards with correct numbers | Dashboard reconciles with ledger. |
+| M4 – SMS Parser (Alternative) | Quick Add from text, bulk SMS import, unreviewed transactions | Parser extracts data from sample SMS texts with >95% accuracy. |
+| M5 – Budgeting | Budget engine, rollover, sinking funds | Budget totals match transaction data. |
+| M6 – Recurring Finance | Rules, expected events, matching | Expected salary/EMI correctly match actual transactions. |
+| M7 – Wealth & Debt | Investments, loans, net worth | Net worth = Assets − Liabilities. |
+| M8 – Analytics | Charts, summaries | Data visualisations are accurate. |
+| M9 – Import/Export/Backup | CSV/XLSX, encrypted backup/restore | Round‑trip works without data loss. |
+| M10 – Production Release | PWA deployed on free hosting, fully tested | User can use as primary finance manager. |
+
+---
+
+## 11. Deployment & Hosting (Free)
+
+- Build the PWA with `npm run build`.
+- Deploy to **Netlify** (drag‑and‑drop) or **Vercel** or **GitHub Pages** – all free.
+- The PWA will be available at a public URL, but the user can also install it on their phone.
+- Since all data is local, no server costs.
+
+---
+
+## 12. Testing & Quality
+
+- Unit tests for domain logic (transaction engine, budget engine, parser) using Vitest.
+- Integration tests for Dexie operations.
+- End‑to‑end tests with Playwright (headless browser).
+- Use a test suite with sample data to verify reconciliation.
+- Performance tests: import 10k transactions without UI freeze.
+
+---
+
+## 13. Conclusion
+
+This PWA plan transforms the Android spec into a **cross‑platform, offline‑first, private financial manager** that runs entirely in the browser. It retains all core features (minus auto‑SMS, replaced with manual/bulk import) and leverages **free, open‑source** technologies. The development roadmap is clear, phased, and builds on a solid foundation – exactly as the original spec intended, but now accessible from any device.
+
+**Next steps**:  
+1. Set up the initial project (Vite + Svelte + Dexie).  
+2. Implement the encryption layer.  
+3. Build the account & transaction core.  
+
+If you need detailed implementation guidance for any specific part, I’m happy to dive deeper!
