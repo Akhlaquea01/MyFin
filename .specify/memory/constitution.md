@@ -1,21 +1,31 @@
 <!--
 Sync Impact Report
-- Version change: 1.0.0 → 1.1.0
-- Modified principles: none (Principles I-VI unchanged)
-- Modified sections:
-  - Technology & Platform Constraints: named UI framework updated from "SvelteKit (or an
-    equivalent lightweight framework already in use in the codebase)" to "React (with
-    React Router), using shadcn/ui component primitives on Tailwind CSS". The
-    implementation was rewritten from SvelteKit to React + shadcn/ui at the user's
-    request for a more modern UI/UX; per this section's own rule, a core-stack change is
-    a constitution amendment. Everything else in this section (Dexie.js, Web Crypto,
-    installable/offline requirements, mobile-first/accessibility bar) is unchanged.
-- Added sections: none
-- Removed sections: none
-- Deferred / TODO placeholders: none
-- Templates requiring follow-up: specs/001-personal-finance-manager/plan.md and
-  research.md updated in the same change to reflect the framework switch; tasks.md file
-  paths for already-completed UI tasks likewise updated to their actual .tsx locations.
+- Version change: 1.1.0 → 2.0.0
+- Modified principles:
+  - II. Privacy & Encryption by Default (NON-NEGOTIABLE) — the derived encryption key's
+    persistence rule is redefined from an absolute "MUST be held only in memory and MUST NOT
+    be persisted in any form" to a narrower, conditional rule: it MUST NOT be persisted in any
+    form from which raw key bytes are extractable, but MAY be persisted as a non-extractable
+    Web Crypto `CryptoKey` handle strictly to resume an already-unlocked session across a page
+    reload, bounded by the same auto-lock timeout and cleared on explicit lock. This reconciles
+    the constitution with the already-shipped session-persistence feature
+    (`src/data/dexie/sessionKeyRepository.ts`), which the prior absolute wording forbade. This
+    is a MAJOR bump per this document's own versioning policy: a NON-NEGOTIABLE principle's
+    literal rule is being redefined, even though the underlying guarantee it exists to protect
+    (raw key bytes never reachable by any script, ever) is unchanged and independently
+    verified — see the session's own testing: `crypto.subtle.exportKey('raw', ...)` against
+    the persisted row throws `InvalidAccessError: key is not extractable`.
+- Modified sections: none beyond Principle II's body and rationale above.
+- Added sections: none.
+- Removed sections: none.
+- Deferred / TODO placeholders: none.
+- Templates requiring follow-up (not modified by this command; flagged for a future pass):
+  - specs/001-personal-finance-manager/contracts/repository-interfaces.md line 93-94 and
+    research.md still describe the encryption key as never persisted, held only in an
+    in-memory module singleton — now only true outside the session-resume path. Update when
+    that spec's docs are next touched.
+  - specs/001-personal-finance-manager/plan.md line 54 ("key held only in memory (never
+    persisted)") has the same staleness for the same reason.
 -->
 
 # Personal Finance Manager (PWA) Constitution
@@ -37,13 +47,31 @@ boundary the user explicitly rejected.
 ### II. Privacy & Encryption by Default (NON-NEGOTIABLE)
 
 All financial data at rest MUST be encrypted using AES-GCM with a key derived via PBKDF2
-from a user-supplied PIN/passphrase and a stored random salt. The derived encryption key
-MUST be held only in memory and MUST NOT be persisted in any form. The PIN itself MUST
-NOT be stored; only a salted hash of it may be stored, for verification. No sensitive
-financial data (balances, transactions, account identifiers, PINs, derived keys) may
-appear in logs, console output, error messages, or analytics in plaintext, in any build.
+from a user-supplied PIN/passphrase and a stored random salt. The PIN itself MUST NOT be
+stored; only a salted hash of it may be stored, for verification. No sensitive financial
+data (balances, transactions, account identifiers, PINs, derived keys) may appear in logs,
+console output, error messages, or analytics in plaintext, in any build.
+
+The derived encryption key MUST NOT be persisted in any form from which its raw bytes are
+extractable by JavaScript. By default it MUST be held only in memory for the session's
+lifetime. The sole permitted exception: it MAY be persisted as a non-extractable Web
+Crypto `CryptoKey` object (e.g., via IndexedDB, which supports storing such a handle
+without ever exposing its bytes to script) strictly to let an already-unlocked session
+resume across a page reload without forcing a fresh PIN/biometric prompt. Any such
+persisted handle MUST carry an expiry no later than the user's configured auto-lock
+timeout, MUST be deleted immediately on explicit lock or timeout, and MUST fail if any code
+path ever attempts to mark it extractable or export it. This exception exists to remove
+friction (a reload no longer means re-entering a PIN seconds after unlocking) without
+weakening the actual guarantee this principle protects: a stolen device's storage can never
+yield raw key material, only an opaque handle the browser's own WebCrypto subsystem accepts
+and nothing else can read.
 **Rationale**: Financial records are highly sensitive; the device may be lost, shared, or
 compromised, and the user has no server-side recovery or moderation layer to fall back on.
+The session-resume exception trades a narrow, mechanically-verifiable slice of that posture
+(a live, unlocked browser profile could be reused within the auto-lock window, same as any
+"stay signed in" feature) for meaningfully less friction, while keeping the property that
+actually matters — raw key bytes are never, under any circumstance, readable by script —
+fully intact.
 
 ### III. Layered Clean Architecture
 
@@ -67,7 +95,11 @@ these engines MUST include tests that reconcile against known sample data sets (
 sum of transactions must equal reported balances; budget totals must match underlying
 transactions). Integration tests are required for Dexie repository operations, and
 end-to-end tests (Playwright) are required for the core money-entry and reconciliation
-flows before a milestone is marked complete.
+flows before a milestone is marked complete. This bar has, by established precedent
+(specs 002-004, 006, 007), also been applied to derived/read-only analytics engines that
+don't touch money directly but would silently mislead the user if their arithmetic were
+wrong — new engines in that category MUST follow the same test-first discipline even
+though they fall outside the four named engines above.
 **Rationale**: Silent financial miscalculation is the single most damaging failure mode
 for this product — it erodes the user's trust in their own records.
 
@@ -103,6 +135,12 @@ baseline accessibility expectations (keyboard navigable, sufficient contrast, se
 markup). Any change to this core stack (framework, database layer, or crypto approach)
 is a constitution amendment, not a routine implementation decision.
 
+Biometric unlock (WebAuthn) is an optional, best-effort convenience layer on top of the
+mandatory PIN, never a replacement for it: a device/browser that cannot support it (e.g.,
+lacking the PRF extension) MUST fall back to the PIN cleanly, with a specific, honest
+reason surfaced to the user rather than a silent or generic failure. The PIN remains the
+one credential that can always unlock the app.
+
 ## Development Workflow & Quality Gates
 
 Every feature plan (`/speckit-plan`) MUST identify which architectural layer(s) it
@@ -131,4 +169,4 @@ Versioning policy (semantic versioning applied to governance):
 - MINOR: A new principle or materially expanded section is added.
 - PATCH: Wording clarifications, typo fixes, or non-semantic refinements.
 
-**Version**: 1.1.0 | **Ratified**: 2026-09-06 | **Last Amended**: 2026-09-06
+**Version**: 2.0.0 | **Ratified**: 2026-09-06 | **Last Amended**: 2026-09-07
