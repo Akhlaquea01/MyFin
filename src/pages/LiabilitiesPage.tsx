@@ -156,7 +156,7 @@ export function LiabilitiesPage() {
 				<div className="grid gap-4 sm:grid-cols-2">
 					{liabilities.map((liability) => (
 						<Card key={liability.id}>
-							<CardHeader className="flex-row items-start justify-between space-y-0 pb-2">
+							<CardHeader className="flex items-start justify-between space-y-0 pb-2">
 								<CardTitle className="text-base">{liability.name}</CardTitle>
 								<Badge variant="secondary">
 									{liability.type === 'loan' ? 'Loan' : 'Credit Card'}

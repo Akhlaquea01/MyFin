@@ -24,7 +24,7 @@ export function BudgetProgressCard({
 
 	return (
 		<Card>
-			<CardHeader className="flex-row items-center justify-between space-y-0 pb-2">
+			<CardHeader className="flex items-center justify-between space-y-0 pb-2">
 				<CardTitle className="text-base">{categoryName}</CardTitle>
 				{isOverspent && <Badge variant="destructive">Over budget</Badge>}
 			</CardHeader>

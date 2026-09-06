@@ -189,7 +189,7 @@ export function AccountsPage() {
 				<div className="grid gap-4 sm:grid-cols-2">
 					{accounts.map((account) => (
 						<Card key={account.id} className={account.isArchived ? 'opacity-60' : undefined}>
-							<CardHeader className="flex-row items-start justify-between space-y-0">
+							<CardHeader className="flex items-start justify-between space-y-0">
 								<div>
 									<CardTitle className="text-base">{account.name}</CardTitle>
 									<Badge variant="secondary" className="mt-1">
