@@ -62,12 +62,26 @@ function Gate() {
 
 	useEffect(() => {
 		const stopLock = acquireSingleInstanceLock(setRole);
-		refreshProfileFlags();
 		void isStoragePersisted().then((persisted) => setShowStorageWarning(!persisted));
 
 		const activityEvents = ['click', 'keydown', 'pointerdown'] as const;
 		const onActivity = () => session.recordActivity();
 		for (const evt of activityEvents) window.addEventListener(evt, onActivity);
+
+		// Before ever falling back to LockScreen, try to silently resume a session persisted
+		// before this reload (spec 009) — otherwise every refresh forces PIN/biometric entry
+		// even seconds after the user last unlocked, regardless of their auto-lock timeout.
+		void (async () => {
+			const p = await UserProfileRepository.get();
+			setProfileExists(!!p);
+			setBiometricAlreadyEnrolled(!!p?.webauthn);
+			session.setOnboarded(!!p);
+			if (p) {
+				const restored = await session.restoreSession(p.autoLockTimeoutMs);
+				if (restored) void runNotificationCheck(session.getEncryptionKey());
+			}
+			setCheckingProfile(false);
+		})();
 
 		return () => {
 			stopLock();

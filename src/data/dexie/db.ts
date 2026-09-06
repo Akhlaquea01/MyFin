@@ -138,6 +138,21 @@ export interface CategorizationRuleRow extends EncryptedRow {
 // `id` are needed.
 export type MerchantCategorySignalRow = EncryptedRow;
 
+/**
+ * Holds the derived encryption key across a page reload so the app doesn't have to force a
+ * fresh PIN/biometric entry on every refresh (spec 009). `key` is stored as a *non-extractable*
+ * CryptoKey — IndexedDB's structured-clone support for CryptoKey lets the browser round-trip
+ * the key handle without ever exposing raw key bytes to JS, even from this row. `expiresAt`
+ * mirrors the in-memory auto-lock deadline; a row past that deadline is treated as absent.
+ * Not an EncryptedRow: encrypting a key with itself is meaningless, and non-extractability is
+ * what actually protects it, not app-level ciphertext.
+ */
+export interface SessionKeyRow {
+	id: 'local-session';
+	key: CryptoKey;
+	expiresAt: number;
+}
+
 class MyFinDatabase extends Dexie {
 	accounts!: EntityTable<AccountRow, 'id'>;
 	categories!: EntityTable<CategoryRow, 'id'>;
@@ -166,6 +181,7 @@ class MyFinDatabase extends Dexie {
 	merchantCategorySignals!: EntityTable<MerchantCategorySignalRow, 'id'>;
 	// Unencrypted by design — see research.md #11 "Exception — UserProfile".
 	userProfile!: EntityTable<UserProfile, 'id'>;
+	sessionKeys!: EntityTable<SessionKeyRow, 'id'>;
 
 	constructor() {
 		super('myfin');
@@ -214,6 +230,10 @@ class MyFinDatabase extends Dexie {
 		this.version(6).stores({
 			categorizationRules: 'id, merchantId, deletedAt',
 			merchantCategorySignals: 'id'
+		});
+		// v7: adds the cross-reload session key persistence singleton (spec 009). Additive-only.
+		this.version(7).stores({
+			sessionKeys: 'id'
 		});
 	}
 }
