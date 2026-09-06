@@ -1,6 +1,40 @@
-# Claude Code local state (credentials, auth tokens, session data)
-.claude/settings.local.json
+node_modules
 
-# OS / editor
+# Output
+.output
+.vercel
+.netlify
+.wrangler
+/dist
+dev-dist
+
+# OS
 .DS_Store
 Thumbs.db
+
+# Editor (JetBrains local project state — .vscode/ is tracked deliberately)
+.idea/
+
+# Env
+.env
+.env.*
+!.env.example
+!.env.test
+
+# Vite
+vite.config.js.timestamp-*
+vite.config.ts.timestamp-*
+
+# TypeScript incremental build cache
+*.tsbuildinfo
+
+# Playwright
+test-results
+playwright-report
+blob-report
+playwright/.cache
+
+# Claude Code local state (credentials, auth tokens, session data) — NOT the whole
+# .claude/ or .agents/ dir, since .claude/skills and .agents/skills are checked-in
+# spec-kit / project skills, not local machine state.
+.claude/settings.local.json
