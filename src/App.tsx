@@ -34,6 +34,7 @@ import { SavingsGoalsPage } from './pages/SavingsGoalsPage';
 import { NotificationSettingsPage } from './pages/NotificationSettingsPage';
 import { NetWorthPage } from './pages/NetWorthPage';
 import { AnalyticsPage } from './pages/AnalyticsPage';
+import { FinancialHealthPage } from './pages/FinancialHealthPage';
 import { ImportPage } from './pages/ImportPage';
 import { ExportPage } from './pages/ExportPage';
 import { BackupSettingsPage } from './pages/BackupSettingsPage';
@@ -134,6 +135,7 @@ function Gate() {
 					<Route path="liabilities" element={<LiabilitiesPage />} />
 					<Route path="liabilities/payoff-planner" element={<DebtPayoffPlannerPage />} />
 					<Route path="net-worth" element={<NetWorthPage />} />
+					<Route path="financial-health" element={<FinancialHealthPage />} />
 					<Route path="analytics" element={<AnalyticsPage />} />
 					<Route path="import" element={<ImportPage />} />
 					<Route path="export" element={<ExportPage />} />
