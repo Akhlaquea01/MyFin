@@ -98,6 +98,8 @@ export const LiabilityRepository = {
 			outstandingBalance: number;
 			emiAmount: number | null;
 			emiDueDay: number | null;
+			interestRate?: number | null;
+			minimumPayment?: number | null;
 		}
 	): Promise<Liability> {
 		const now = Date.now();
@@ -108,6 +110,8 @@ export const LiabilityRepository = {
 			outstandingBalance: input.outstandingBalance,
 			emiAmount: input.emiAmount,
 			emiDueDay: input.emiDueDay,
+			interestRate: input.interestRate ?? null,
+			minimumPayment: input.minimumPayment ?? input.emiAmount ?? null,
 			createdAt: now,
 			updatedAt: now,
 			deletedAt: null

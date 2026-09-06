@@ -5,12 +5,14 @@ import { TooltipProvider } from './components/ui/tooltip';
 import { SessionProvider, useSession } from './context/SessionContext';
 import { acquireSingleInstanceLock, type InstanceRole } from './lib/singleInstance';
 import { UserProfileRepository } from './data/dexie/userProfileRepository';
+import { runNotificationCheck } from './domain/notifications/runNotificationCheck';
 import { isStoragePersisted } from './data/storage/persistence';
 import { OnboardingScreen } from './components/OnboardingScreen';
 import { LockScreen } from './components/LockScreen';
 import { BlockedScreen } from './components/BlockedScreen';
 import { StorageWarningBanner } from './components/StorageWarningBanner';
 import { BiometricEnrollmentPrompt } from './components/BiometricEnrollmentPrompt';
+import { NotificationPermissionPrompt } from './components/NotificationPermissionPrompt';
 import { AppShell } from './components/AppShell';
 import { DashboardPage } from './pages/DashboardPage';
 import { AccountsPage } from './pages/AccountsPage';
@@ -27,11 +29,15 @@ import { RecurringPage } from './pages/RecurringPage';
 import { RecurringUpcomingPage } from './pages/RecurringUpcomingPage';
 import { InvestmentsPage } from './pages/InvestmentsPage';
 import { LiabilitiesPage } from './pages/LiabilitiesPage';
+import { DebtPayoffPlannerPage } from './pages/DebtPayoffPlannerPage';
+import { SavingsGoalsPage } from './pages/SavingsGoalsPage';
+import { NotificationSettingsPage } from './pages/NotificationSettingsPage';
 import { NetWorthPage } from './pages/NetWorthPage';
 import { AnalyticsPage } from './pages/AnalyticsPage';
 import { ImportPage } from './pages/ImportPage';
 import { ExportPage } from './pages/ExportPage';
 import { BackupSettingsPage } from './pages/BackupSettingsPage';
+import { CategorizationRulesPage } from './pages/CategorizationRulesPage';
 
 // Root security/availability gate (Constitution Principles I & II, FR-001–006, FR-044,
 // FR-045). Every route renders only after this gate clears: not blocked by another tab,
@@ -73,6 +79,9 @@ function Gate() {
 	function handleUnlock(pin: string) {
 		setTransientPin(pin);
 		refreshProfileFlags();
+		// research.md §3 (spec 004): "app opened" is treated as "just unlocked," the same
+		// hook point BiometricEnrollmentPrompt already uses.
+		void runNotificationCheck(session.getEncryptionKey());
 	}
 
 	if (role === 'secondary') return <BlockedScreen />;
@@ -90,6 +99,7 @@ function Gate() {
 					onDone={() => setTransientPin(null)}
 				/>
 			)}
+			<NotificationPermissionPrompt />
 			<Routes>
 				<Route element={<AppShell />}>
 					<Route index element={<DashboardPage />} />
@@ -103,15 +113,19 @@ function Gate() {
 					<Route path="review" element={<ReviewPage />} />
 					<Route path="import/bulk-text" element={<BulkTextImportPage />} />
 					<Route path="budgets" element={<BudgetsPage />} />
+					<Route path="savings-goals" element={<SavingsGoalsPage />} />
 					<Route path="recurring" element={<RecurringPage />} />
 					<Route path="recurring/upcoming" element={<RecurringUpcomingPage />} />
 					<Route path="investments" element={<InvestmentsPage />} />
 					<Route path="liabilities" element={<LiabilitiesPage />} />
+					<Route path="liabilities/payoff-planner" element={<DebtPayoffPlannerPage />} />
 					<Route path="net-worth" element={<NetWorthPage />} />
 					<Route path="analytics" element={<AnalyticsPage />} />
 					<Route path="import" element={<ImportPage />} />
 					<Route path="export" element={<ExportPage />} />
 					<Route path="backup" element={<BackupSettingsPage />} />
+					<Route path="notification-settings" element={<NotificationSettingsPage />} />
+					<Route path="categorization-rules" element={<CategorizationRulesPage />} />
 				</Route>
 			</Routes>
 		</BrowserRouter>

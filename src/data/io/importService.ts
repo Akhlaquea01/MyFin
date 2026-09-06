@@ -2,6 +2,7 @@ import Papa from 'papaparse';
 import ExcelJS from 'exceljs';
 import { TransactionRepository } from '../dexie/transactionRepository';
 import { TransactionEngine } from '../../domain/transactions/transactionEngine';
+import { resolveMerchant } from '../../domain/parser/merchantResolver';
 
 export interface ColumnMapping {
 	dateColumn: string;
@@ -151,6 +152,9 @@ export async function importRows(
 			dateIso
 		);
 		const notes = mapping.descriptionColumn ? (row[mapping.descriptionColumn] ?? null) : null;
+		// Auto-categorization (spec 006, FR-002) needs a resolved Merchant to match rules/
+		// suggestions against — file import previously never resolved one at all.
+		const resolved = notes?.trim() ? await resolveMerchant(key, notes.trim()) : null;
 
 		await TransactionEngine.recordTransaction(key, {
 			accountId: mapping.accountId,
@@ -158,6 +162,8 @@ export async function importRows(
 			amount: amount.amountPaise,
 			type: amount.amountPaise >= 0 ? 'income' : 'expense',
 			notes,
+			merchantId: resolved?.merchantId ?? null,
+			merchantAliasId: resolved?.aliasId ?? null,
 			source: 'file_import',
 			reviewStatus: 'unreviewed',
 			duplicateOfId: duplicates[0]?.id ?? null

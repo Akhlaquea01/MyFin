@@ -1,8 +1,11 @@
 import { db } from '../dexie/db';
-import { encryptRow, decryptRows } from '../dexie/encryptedTable';
+import { encryptRow, decryptRows, getDecrypted } from '../dexie/encryptedTable';
 import { deletedAtIndex, nullableIdIndex } from '../dexie/indexable';
 import { encrypt, decrypt, sha256Hex, deriveEncryptionKey } from '../crypto/cryptoService';
 import { migrateFromV1 } from './migrations/v1';
+import { migrateFromV1_1 } from './migrations/v1_1';
+import { migrateFromV1_2 } from './migrations/v1_2';
+import { migrateFromV1_3 } from './migrations/v1_3';
 import type {
 	AccountRow,
 	CategoryRow,
@@ -19,7 +22,15 @@ import type {
 	InvestmentHoldingRow,
 	InvestmentValuationRow,
 	LiabilityRow,
-	NetWorthSnapshotRow
+	NetWorthSnapshotRow,
+	DebtPlannerPreferenceRow,
+	SavingsGoalRow,
+	GoalContributionRow,
+	NotificationPreferenceRow,
+	NotifiedItemRow,
+	AttachmentRow,
+	CategorizationRuleRow,
+	MerchantCategorySignalRow
 } from '../dexie/db';
 import type {
 	Account,
@@ -37,12 +48,21 @@ import type {
 	InvestmentValuation,
 	Liability,
 	NetWorthSnapshot,
-	UserProfile
+	UserProfile,
+	DebtPlannerPreference,
+	SavingsGoal,
+	GoalContribution,
+	NotificationPreference,
+	NotifiedItem,
+	Attachment,
+	CategorizationRule,
+	MerchantCategorySignal
 } from '../../domain/entities';
 
 const CONTAINER = 'personal-finance-manager-backup';
 const CONTAINER_VERSION = 1;
-export const CURRENT_SCHEMA_VERSION = '1.0.0';
+export const CURRENT_SCHEMA_VERSION = '1.3.0';
+const PREFERENCE_ID = 'local-user';
 
 /** A join-table row kept verbatim (unencrypted by design; see db.ts). */
 export interface TransactionTagBackup {
@@ -70,6 +90,14 @@ export interface BackupPayload {
 		investmentValuations: InvestmentValuation[];
 		liabilities: Liability[];
 		netWorthSnapshots: NetWorthSnapshot[];
+		debtPlannerPreference: DebtPlannerPreference | null;
+		savingsGoals: SavingsGoal[];
+		goalContributions: GoalContribution[];
+		notificationPreference: NotificationPreference | null;
+		notifiedItems: NotifiedItem[];
+		attachments: Attachment[];
+		categorizationRules: CategorizationRule[];
+		merchantCategorySignals: MerchantCategorySignal[];
 		userProfile: UserProfile | null;
 	};
 }
@@ -86,7 +114,10 @@ export interface BackupFile {
 }
 
 const MIGRATIONS: Record<string, (payload: BackupPayload) => BackupPayload> = {
-	'1.0.0': migrateFromV1
+	'1.0.0': migrateFromV1,
+	'1.1.0': migrateFromV1_1,
+	'1.2.0': migrateFromV1_2,
+	'1.3.0': migrateFromV1_3
 };
 
 /** Gathers every entity behind the encryption boundary into one plaintext payload. */
@@ -108,6 +139,14 @@ async function collectPayload(key: CryptoKey): Promise<BackupPayload> {
 		investmentValuations,
 		liabilities,
 		netWorthSnapshots,
+		debtPlannerPreference,
+		savingsGoals,
+		goalContributions,
+		notificationPreference,
+		notifiedItems,
+		attachments,
+		categorizationRules,
+		merchantCategorySignals,
 		userProfile
 	] = await Promise.all([
 		decryptRows<AccountRow, Account>(key, await db.accounts.toArray()),
@@ -132,6 +171,28 @@ async function collectPayload(key: CryptoKey): Promise<BackupPayload> {
 		),
 		decryptRows<LiabilityRow, Liability>(key, await db.liabilities.toArray()),
 		decryptRows<NetWorthSnapshotRow, NetWorthSnapshot>(key, await db.netWorthSnapshots.toArray()),
+		getDecrypted<DebtPlannerPreferenceRow, DebtPlannerPreference>(
+			db.debtPlannerPreferences,
+			key,
+			PREFERENCE_ID
+		),
+		decryptRows<SavingsGoalRow, SavingsGoal>(key, await db.savingsGoals.toArray()),
+		decryptRows<GoalContributionRow, GoalContribution>(key, await db.goalContributions.toArray()),
+		getDecrypted<NotificationPreferenceRow, NotificationPreference>(
+			db.notificationPreferences,
+			key,
+			PREFERENCE_ID
+		),
+		decryptRows<NotifiedItemRow, NotifiedItem>(key, await db.notifiedItems.toArray()),
+		decryptRows<AttachmentRow, Attachment>(key, await db.attachments.toArray()),
+		decryptRows<CategorizationRuleRow, CategorizationRule>(
+			key,
+			await db.categorizationRules.toArray()
+		),
+		decryptRows<MerchantCategorySignalRow, MerchantCategorySignal>(
+			key,
+			await db.merchantCategorySignals.toArray()
+		),
 		db.userProfile.get('local-user')
 	]);
 
@@ -154,6 +215,14 @@ async function collectPayload(key: CryptoKey): Promise<BackupPayload> {
 			investmentValuations,
 			liabilities,
 			netWorthSnapshots,
+			debtPlannerPreference: debtPlannerPreference ?? null,
+			savingsGoals,
+			goalContributions,
+			notificationPreference: notificationPreference ?? null,
+			notifiedItems,
+			attachments,
+			categorizationRules,
+			merchantCategorySignals,
 			userProfile: userProfile ?? null
 		}
 	};
@@ -247,7 +316,15 @@ export async function restoreBackup(key: CryptoKey, payload: BackupPayload): Pro
 		investmentHoldingRows,
 		investmentValuationRows,
 		liabilityRows,
-		netWorthSnapshotRows
+		netWorthSnapshotRows,
+		debtPlannerPreferenceRow,
+		savingsGoalRows,
+		goalContributionRows,
+		notificationPreferenceRow,
+		notifiedItemRows,
+		attachmentRows,
+		categorizationRuleRows,
+		merchantCategorySignalRows
 	] = await Promise.all([
 		Promise.all(
 			e.accounts.map((a) =>
@@ -350,6 +427,54 @@ export async function restoreBackup(key: CryptoKey, payload: BackupPayload): Pro
 			e.netWorthSnapshots.map((s) =>
 				encryptRow<NetWorthSnapshotRow, NetWorthSnapshot>(key, s, { date: s.date })
 			)
+		),
+		e.debtPlannerPreference
+			? encryptRow<DebtPlannerPreferenceRow, DebtPlannerPreference>(
+					key,
+					e.debtPlannerPreference,
+					{}
+				)
+			: Promise.resolve(null),
+		Promise.all(
+			e.savingsGoals.map((g) =>
+				encryptRow<SavingsGoalRow, SavingsGoal>(key, g, { deletedAt: deletedAtIndex(g.deletedAt) })
+			)
+		),
+		Promise.all(
+			e.goalContributions.map((c) =>
+				encryptRow<GoalContributionRow, GoalContribution>(key, c, {
+					goalId: c.goalId,
+					date: c.date
+				})
+			)
+		),
+		e.notificationPreference
+			? encryptRow<NotificationPreferenceRow, NotificationPreference>(
+					key,
+					e.notificationPreference,
+					{}
+				)
+			: Promise.resolve(null),
+		Promise.all(
+			e.notifiedItems.map((n) => encryptRow<NotifiedItemRow, NotifiedItem>(key, n, { key: n.key }))
+		),
+		Promise.all(
+			e.attachments.map((a) =>
+				encryptRow<AttachmentRow, Attachment>(key, a, { transactionId: a.transactionId })
+			)
+		),
+		Promise.all(
+			e.categorizationRules.map((r) =>
+				encryptRow<CategorizationRuleRow, CategorizationRule>(key, r, {
+					merchantId: r.merchantId,
+					deletedAt: deletedAtIndex(r.deletedAt)
+				})
+			)
+		),
+		Promise.all(
+			e.merchantCategorySignals.map((s) =>
+				encryptRow<MerchantCategorySignalRow, MerchantCategorySignal>(key, s, {})
+			)
 		)
 	]);
 
@@ -378,6 +503,14 @@ export async function restoreBackup(key: CryptoKey, payload: BackupPayload): Pro
 			db.investmentValuations,
 			db.liabilities,
 			db.netWorthSnapshots,
+			db.debtPlannerPreferences,
+			db.savingsGoals,
+			db.goalContributions,
+			db.notificationPreferences,
+			db.notifiedItems,
+			db.attachments,
+			db.categorizationRules,
+			db.merchantCategorySignals,
 			db.userProfile
 		],
 		async () => {
@@ -398,6 +531,14 @@ export async function restoreBackup(key: CryptoKey, payload: BackupPayload): Pro
 				db.investmentValuations.clear(),
 				db.liabilities.clear(),
 				db.netWorthSnapshots.clear(),
+				db.debtPlannerPreferences.clear(),
+				db.savingsGoals.clear(),
+				db.goalContributions.clear(),
+				db.notificationPreferences.clear(),
+				db.notifiedItems.clear(),
+				db.attachments.clear(),
+				db.categorizationRules.clear(),
+				db.merchantCategorySignals.clear(),
 				db.userProfile.clear()
 			]);
 			await Promise.all([
@@ -417,6 +558,18 @@ export async function restoreBackup(key: CryptoKey, payload: BackupPayload): Pro
 				db.investmentValuations.bulkPut(investmentValuationRows),
 				db.liabilities.bulkPut(liabilityRows),
 				db.netWorthSnapshots.bulkPut(netWorthSnapshotRows),
+				db.savingsGoals.bulkPut(savingsGoalRows),
+				db.goalContributions.bulkPut(goalContributionRows),
+				db.notifiedItems.bulkPut(notifiedItemRows),
+				db.attachments.bulkPut(attachmentRows),
+				db.categorizationRules.bulkPut(categorizationRuleRows),
+				db.merchantCategorySignals.bulkPut(merchantCategorySignalRows),
+				...(debtPlannerPreferenceRow
+					? [db.debtPlannerPreferences.add(debtPlannerPreferenceRow)]
+					: []),
+				...(notificationPreferenceRow
+					? [db.notificationPreferences.add(notificationPreferenceRow)]
+					: []),
 				...(e.userProfile ? [db.userProfile.add(e.userProfile)] : [])
 			]);
 		}

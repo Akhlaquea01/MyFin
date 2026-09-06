@@ -49,7 +49,7 @@ export async function importBulkText(
 			today
 		);
 
-		const merchantId = candidate.merchantText
+		const resolved = candidate.merchantText
 			? await resolveMerchant(key, candidate.merchantText)
 			: null;
 
@@ -58,7 +58,8 @@ export async function importBulkText(
 			date: today,
 			amount: signedAmount,
 			type: candidate.type === 'income' ? 'income' : 'expense',
-			merchantId,
+			merchantId: resolved?.merchantId ?? null,
+			merchantAliasId: resolved?.aliasId ?? null,
 			source: 'bulk_import',
 			reviewStatus: 'unreviewed',
 			duplicateOfId: duplicates[0]?.id ?? null

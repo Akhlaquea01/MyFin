@@ -1,12 +1,13 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowRightLeft, Plus, Search } from 'lucide-react';
+import { ArrowRightLeft, Paperclip, Plus, Search, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Badge } from '../components/ui/badge';
 import { Card, CardContent } from '../components/ui/card';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../components/ui/dialog';
 import {
 	Select,
 	SelectContent,
@@ -25,8 +26,10 @@ import {
 import { useSession } from '../context/SessionContext';
 import { AccountRepository } from '../data/dexie/accountRepository';
 import { TransactionRepository } from '../data/dexie/transactionRepository';
+import { AttachmentRepository } from '../data/dexie/attachmentRepository';
 import { TransactionEngine } from '../domain/transactions/transactionEngine';
-import type { Account, Transaction } from '../domain/entities';
+import { validateAttachmentFile, compressImage } from '../lib/imageAttachment';
+import type { Account, Attachment, Transaction } from '../domain/entities';
 
 function formatMoney(paise: number): string {
 	return (paise / 100).toLocaleString(undefined, {
@@ -58,6 +61,8 @@ export function TransactionsPage() {
 	const [loading, setLoading] = useState(true);
 	const [scrollTop, setScrollTop] = useState(0);
 	const scrollerRef = useRef<HTMLDivElement>(null);
+	const [attachmentCounts, setAttachmentCounts] = useState<Record<string, number>>({});
+	const [attachmentDialogTx, setAttachmentDialogTx] = useState<Transaction | null>(null);
 
 	const isVirtualized = transactions.length > VIRTUALIZE_THRESHOLD;
 	const { visibleTransactions, topSpacerPx, bottomSpacerPx } = useMemo(() => {
@@ -100,6 +105,18 @@ export function TransactionsPage() {
 		void refresh();
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, []);
+
+	// research.md §4: one bulk query for the currently-visible window of rows, never one
+	// query per row — stays proportional to viewport size, not total transaction count.
+	async function refreshAttachmentCounts() {
+		const ids = visibleTransactions.map((t) => t.id);
+		setAttachmentCounts(await AttachmentRepository.countsForTransactions(key, ids));
+	}
+
+	useEffect(() => {
+		void refreshAttachmentCounts();
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [visibleTransactions]);
 
 	async function remove(tx: Transaction) {
 		await TransactionEngine.deleteTransaction(key, tx.id);
@@ -209,13 +226,14 @@ export function TransactionsPage() {
 									<TableHead>Description</TableHead>
 									<TableHead>Account</TableHead>
 									<TableHead className="text-right">Amount</TableHead>
+									<TableHead className="w-12" />
 									<TableHead className="w-16" />
 								</TableRow>
 							</TableHeader>
 							<TableBody>
 								{isVirtualized && topSpacerPx > 0 && (
 									<tr style={{ height: topSpacerPx }} aria-hidden="true">
-										<td colSpan={5} />
+										<td colSpan={6} />
 									</tr>
 								)}
 								{visibleTransactions.map((tx) => (
@@ -241,6 +259,25 @@ export function TransactionsPage() {
 											{formatMoney(tx.amount)}
 										</TableCell>
 										<TableCell>
+											<Button
+												variant="ghost"
+												size="icon"
+												className="relative"
+												aria-label="Attachments"
+												onClick={() => setAttachmentDialogTx(tx)}
+											>
+												<Paperclip className="size-4" />
+												{(attachmentCounts[tx.id] ?? 0) > 0 && (
+													<Badge
+														variant="secondary"
+														className="absolute -top-1 -right-1 size-4 justify-center rounded-full p-0 text-[10px]"
+													>
+														{attachmentCounts[tx.id]}
+													</Badge>
+												)}
+											</Button>
+										</TableCell>
+										<TableCell>
 											<Button variant="ghost" size="sm" onClick={() => remove(tx)}>
 												Delete
 											</Button>
@@ -249,7 +286,7 @@ export function TransactionsPage() {
 								))}
 								{isVirtualized && bottomSpacerPx > 0 && (
 									<tr style={{ height: bottomSpacerPx }} aria-hidden="true">
-										<td colSpan={5} />
+										<td colSpan={6} />
 									</tr>
 								)}
 							</TableBody>
@@ -257,6 +294,153 @@ export function TransactionsPage() {
 					</div>
 				</Card>
 			)}
+
+			{attachmentDialogTx && (
+				<AttachmentsDialog
+					transaction={attachmentDialogTx}
+					onOpenChange={(open) => !open && setAttachmentDialogTx(null)}
+					onChanged={() => void refreshAttachmentCounts()}
+				/>
+			)}
 		</div>
+	);
+}
+
+/** User Story 1 (spec 005): view/attach/remove receipt photos for one transaction. */
+function AttachmentsDialog({
+	transaction,
+	onOpenChange,
+	onChanged
+}: {
+	transaction: Transaction;
+	onOpenChange: (open: boolean) => void;
+	onChanged: () => void;
+}) {
+	const { getEncryptionKey } = useSession();
+	const key = getEncryptionKey();
+
+	const [attachments, setAttachments] = useState<Attachment[]>([]);
+	const [loading, setLoading] = useState(true);
+	const [uploading, setUploading] = useState(false);
+	const [viewing, setViewing] = useState<Attachment | null>(null);
+	const fileInputRef = useRef<HTMLInputElement>(null);
+
+	async function refreshAttachments() {
+		setLoading(true);
+		setAttachments(await AttachmentRepository.listForTransaction(key, transaction.id));
+		setLoading(false);
+	}
+
+	useEffect(() => {
+		void refreshAttachments();
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, []);
+
+	async function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
+		const file = event.target.files?.[0];
+		if (fileInputRef.current) fileInputRef.current.value = '';
+		if (!file) return;
+
+		const validation = validateAttachmentFile(file);
+		if (!validation.ok) {
+			toast.error(validation.reason);
+			return;
+		}
+
+		setUploading(true);
+		try {
+			const compressed = await compressImage(file);
+			await AttachmentRepository.create(key, { transactionId: transaction.id, ...compressed });
+			await refreshAttachments();
+			onChanged();
+		} catch (err) {
+			toast.error(err instanceof Error ? err.message : 'Could not attach that image.');
+		} finally {
+			setUploading(false);
+		}
+	}
+
+	async function removeAttachment(attachment: Attachment) {
+		await AttachmentRepository.remove(key, attachment.id);
+		await refreshAttachments();
+		onChanged();
+	}
+
+	return (
+		<Dialog open onOpenChange={onOpenChange}>
+			<DialogContent>
+				<DialogHeader>
+					<DialogTitle>Attachments</DialogTitle>
+				</DialogHeader>
+				{loading ? (
+					<p className="text-sm text-muted-foreground">Loading…</p>
+				) : (
+					<div className="flex flex-col gap-4">
+						{attachments.length === 0 ? (
+							<p className="text-sm text-muted-foreground">No attachments yet.</p>
+						) : (
+							<div className="grid grid-cols-3 gap-3">
+								{attachments.map((a) => (
+									<div key={a.id} className="relative">
+										<button
+											type="button"
+											className="block w-full overflow-hidden rounded-md border"
+											onClick={() => setViewing(a)}
+										>
+											<img
+												src={`data:${a.mimeType};base64,${a.data}`}
+												alt="Receipt attachment"
+												className="aspect-square w-full object-cover"
+											/>
+										</button>
+										<Button
+											variant="destructive"
+											size="icon"
+											className="absolute -top-2 -right-2 size-6"
+											aria-label="Remove attachment"
+											onClick={() => void removeAttachment(a)}
+										>
+											<X className="size-3" />
+										</Button>
+									</div>
+								))}
+							</div>
+						)}
+						<div>
+							<Button
+								type="button"
+								variant="outline"
+								disabled={uploading || attachments.length >= 5}
+								onClick={() => fileInputRef.current?.click()}
+							>
+								<Plus /> {uploading ? 'Adding…' : 'Add attachment'}
+							</Button>
+							<input
+								ref={fileInputRef}
+								type="file"
+								accept="image/*"
+								className="hidden"
+								onChange={(e) => void handleFileChange(e)}
+							/>
+						</div>
+					</div>
+				)}
+			</DialogContent>
+
+			<Dialog open={!!viewing} onOpenChange={(open) => !open && setViewing(null)}>
+				<DialogContent className="max-w-2xl">
+					<DialogHeader>
+						<DialogTitle>Receipt</DialogTitle>
+					</DialogHeader>
+					{viewing && (
+						<img
+							src={`data:${viewing.mimeType};base64,${viewing.data}`}
+							alt="Receipt attachment full size"
+							className="w-full rounded-md"
+						/>
+					)}
+				</DialogContent>
+			</Dialog>
+		</Dialog>
 	);
 }

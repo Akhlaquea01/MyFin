@@ -74,6 +74,10 @@ export interface TransactionSplit {
 	transactionId: ID;
 	categoryId: ID;
 	amount: number;
+	/** Set only when this split's category was auto-filled by the categorization engine
+	 *  (spec 006); absent for a manually chosen category. Never influences persistence —
+	 *  purely a provenance hint for the Review Queue UI and the learning signal. */
+	categorizationSource?: 'rule' | 'suggestion';
 }
 
 export interface TransactionTag {
@@ -147,6 +151,10 @@ export interface Liability extends Timestamped, SoftDeletable {
 	outstandingBalance: number;
 	emiAmount: number | null;
 	emiDueDay: number | null;
+	/** Annual rate in basis points (e.g. 1850 = 18.50% APR); null until supplied for the debt payoff planner. */
+	interestRate: number | null;
+	/** Smallest currency unit; null until supplied for the debt payoff planner (defaults from emiAmount for loans). */
+	minimumPayment: number | null;
 }
 
 export interface NetWorthSnapshot extends Timestamped {
@@ -155,6 +163,80 @@ export interface NetWorthSnapshot extends Timestamped {
 	totalAssets: number;
 	totalLiabilities: number;
 	netWorth: number;
+}
+
+export type PayoffStrategy = 'avalanche' | 'snowball';
+
+/** Singleton — remembers the user's last-used debt payoff planner inputs (spec 002). */
+export interface DebtPlannerPreference extends Timestamped {
+	id: 'local-user';
+	strategy: PayoffStrategy;
+	extraMonthlyPayment: number;
+}
+
+/** A user-defined savings target (spec 003); progress is always derived, never stored. */
+export interface SavingsGoal extends Timestamped, SoftDeletable {
+	id: ID;
+	name: string;
+	targetAmount: number;
+	targetDate: ISODateString | null;
+}
+
+/** A single logged amount toward a SavingsGoal; may be negative to correct a mistake
+ *  (research.md §3, spec 003). No independent soft-delete — see that doc for why. */
+export interface GoalContribution extends Timestamped {
+	id: ID;
+	goalId: ID;
+	amount: number;
+	date: ISODateString;
+}
+
+/** Singleton — governs the on-open recurring/budget notification check (spec 004). */
+export interface NotificationPreference extends Timestamped {
+	id: 'local-user';
+	enabled: boolean;
+	reminderLeadDays: number;
+	budgetThresholdPercent: number;
+	permissionPromptDismissed: boolean;
+}
+
+/** Dedupe log entry — prevents re-showing a notification for the same occurrence
+ *  (spec 004, research.md §2). Never rendered to the user. */
+export interface NotifiedItem extends Timestamped {
+	id: ID;
+	key: string;
+}
+
+/** A receipt/photo attached to a Transaction (spec 005). No independent soft-delete —
+ *  visibility is entirely derived from the parent transaction's deletedAt (research.md §5,
+ *  the same precedent GoalContribution already established for a single-parent child). */
+export interface Attachment extends Timestamped {
+	id: ID;
+	transactionId: ID;
+	mimeType: string;
+	/** Base64-encoded, compressed image bytes (no `data:` URL prefix). */
+	data: string;
+	sizeBytes: number;
+}
+
+/** An explicit, user-authored merchant/alias -> category+tags mapping (spec 006, Story 1).
+ *  When `merchantAliasId` is set, the rule only matches that one specific alias (the "more
+ *  specific" case); when `null`, it matches any alias resolving to `merchantId`. */
+export interface CategorizationRule extends Timestamped, SoftDeletable {
+	id: ID;
+	merchantId: ID;
+	merchantAliasId: ID | null;
+	categoryId: ID;
+	tagIds: ID[];
+}
+
+/** Internal, per-merchant learning signal (spec 006, Story 2) — a capped FIFO of the most
+ *  recently confirmed categories for this merchant, never longer than `MIN_STREAK` entries
+ *  (see categorizationEngine.ts). `id` is the merchant's own id (one row per merchant), not
+ *  a fresh UUID. A learned suggestion is always derived from this array, never stored. */
+export interface MerchantCategorySignal extends Timestamped {
+	id: ID;
+	recentCategoryIds: ID[];
 }
 
 export interface BackupRecord extends Timestamped {

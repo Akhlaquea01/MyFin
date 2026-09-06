@@ -63,7 +63,7 @@ export function QuickAddPage() {
 		try {
 			const amount = Math.round(parseFloat(amountInput) * 100);
 			const signedAmount = type === 'expense' ? -amount : amount;
-			const merchantId = merchantName.trim()
+			const resolved = merchantName.trim()
 				? await resolveMerchant(key, merchantName.trim())
 				: null;
 			await TransactionEngine.recordTransaction(key, {
@@ -71,7 +71,8 @@ export function QuickAddPage() {
 				date,
 				amount: signedAmount,
 				type,
-				merchantId,
+				merchantId: resolved?.merchantId ?? null,
+				merchantAliasId: resolved?.aliasId ?? null,
 				source: 'quick_add',
 				reviewStatus: 'unreviewed'
 			});

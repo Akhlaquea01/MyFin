@@ -3,21 +3,25 @@ import { NavLink, Outlet } from 'react-router-dom';
 import {
 	ArrowLeftRight,
 	BarChart3,
+	Bell,
 	CalendarClock,
 	CreditCard,
 	DatabaseBackup,
 	Download,
 	Inbox,
+	Landmark,
 	LayoutDashboard,
 	LineChart,
 	Menu,
 	PiggyBank,
 	Sparkles,
 	Tags,
+	Target,
 	Trash2,
 	TrendingUp,
 	Upload,
-	Wallet
+	Wallet,
+	Wand2
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { Button } from './ui/button';
@@ -30,14 +34,18 @@ const NAV_ITEMS = [
 	{ to: '/quick-add', label: 'Quick Add', icon: Sparkles },
 	{ to: '/review', label: 'Review', icon: Inbox },
 	{ to: '/budgets', label: 'Budgets', icon: PiggyBank },
+	{ to: '/savings-goals', label: 'Savings Goals', icon: Target },
 	{ to: '/recurring', label: 'Recurring', icon: CalendarClock },
 	{ to: '/investments', label: 'Investments', icon: LineChart },
 	{ to: '/liabilities', label: 'Liabilities', icon: CreditCard },
+	{ to: '/liabilities/payoff-planner', label: 'Payoff Planner', icon: Landmark },
 	{ to: '/net-worth', label: 'Net Worth', icon: TrendingUp },
 	{ to: '/analytics', label: 'Analytics', icon: BarChart3 },
 	{ to: '/import', label: 'Import', icon: Upload },
 	{ to: '/export', label: 'Export', icon: Download },
 	{ to: '/backup', label: 'Backup', icon: DatabaseBackup },
+	{ to: '/notification-settings', label: 'Notifications', icon: Bell },
+	{ to: '/categorization-rules', label: 'Auto-Categorize', icon: Wand2 },
 	{ to: '/categories', label: 'Categories', icon: Tags },
 	{ to: '/trash', label: 'Trash', icon: Trash2 }
 ];

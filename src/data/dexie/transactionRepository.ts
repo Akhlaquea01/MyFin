@@ -1,6 +1,7 @@
 import { db, type TransactionRow, type TransactionSplitRow } from './db';
 import { encryptRow, getDecrypted, decryptRows } from './encryptedTable';
 import { deletedAtIndex, nullableIdIndex, NOT_DELETED } from './indexable';
+import { AttachmentRepository } from './attachmentRepository';
 import type {
 	Transaction,
 	TransactionSplit,
@@ -15,6 +16,10 @@ export interface NewTransactionInput {
 	amount: number;
 	type: TransactionType;
 	merchantId?: string | null;
+	/** The specific MerchantAlias that resolved to `merchantId` (spec 006) — read only by
+	 *  `TransactionEngine.recordTransaction` to support alias-scoped categorization rules;
+	 *  `TransactionRepository.create` itself never persists it. */
+	merchantAliasId?: string | null;
 	notes?: string | null;
 	source?: TransactionSource;
 	reviewStatus?: 'confirmed' | 'unreviewed';
@@ -25,7 +30,13 @@ export interface NewTransactionInput {
 export interface SplitInput {
 	categoryId: string;
 	amount: number;
+	categorizationSource?: 'rule' | 'suggestion';
 }
+
+/** The sentinel category assigned when a transaction is saved with no split at all — see
+ *  `create()` below. Exported so callers (e.g. the Review Queue) can render/round-trip the
+ *  same "Uncategorized" placeholder rather than duplicating the magic string. */
+export const UNCATEGORIZED_CATEGORY_ID = '__uncategorized__';
 
 export interface TransactionFilter {
 	accountId?: string;
@@ -77,7 +88,7 @@ export const TransactionRepository = {
 		const resolvedSplits: SplitInput[] =
 			splits.length > 0
 				? splits
-				: [{ categoryId: '__uncategorized__', amount: transaction.amount }];
+				: [{ categoryId: UNCATEGORIZED_CATEGORY_ID, amount: transaction.amount }];
 		const splitSum = resolvedSplits.reduce((sum, s) => sum + s.amount, 0);
 		if (splitSum !== transaction.amount) {
 			throw new Error(
@@ -97,7 +108,8 @@ export const TransactionRepository = {
 			id: crypto.randomUUID(),
 			transactionId: transaction.id,
 			categoryId: split.categoryId,
-			amount: split.amount
+			amount: split.amount,
+			categorizationSource: split.categorizationSource
 		}));
 		const splitRows = await Promise.all(
 			splitEntities.map((splitEntity) =>
@@ -150,7 +162,8 @@ export const TransactionRepository = {
 						id: crypto.randomUUID(),
 						transactionId: id,
 						categoryId: split.categoryId,
-						amount: split.amount
+						amount: split.amount,
+						categorizationSource: split.categorizationSource
 					};
 					return encryptRow<TransactionSplitRow, TransactionSplit>(key, splitEntity, {
 						transactionId: id,
@@ -179,6 +192,33 @@ export const TransactionRepository = {
 
 	async restore(key: CryptoKey, id: string): Promise<void> {
 		await this.update(key, id, { deletedAt: null });
+	},
+
+	/**
+	 * Permanently deletes a transaction and everything scoped to it (splits, tags,
+	 * attachments) in one Dexie transaction — the first permanent-purge flow in this
+	 * codebase (research.md §5, spec 005), deliberately restricted to Transactions. Only
+	 * callable from Trash: throws if the transaction is not already soft-deleted, matching
+	 * Constitution Principle VI's "permanent purge requires explicit, separate user
+	 * confirmation" (the UI only ever offers this action from within Trash).
+	 */
+	async purge(key: CryptoKey, id: string): Promise<void> {
+		const existing = await getDecrypted<TransactionRow, Transaction>(db.transactions, key, id);
+		if (!existing) throw new Error(`Transaction ${id} not found`);
+		if (existing.deletedAt === null) {
+			throw new Error('Only a soft-deleted transaction can be permanently purged.');
+		}
+
+		await db.transaction(
+			'rw',
+			[db.transactions, db.transactionSplits, db.transactionTags, db.attachments],
+			async () => {
+				await db.transactions.delete(id);
+				await db.transactionSplits.where('transactionId').equals(id).delete();
+				await db.transactionTags.where('transactionId').equals(id).delete();
+				await AttachmentRepository.purgeForTransaction(key, id);
+			}
+		);
 	},
 
 	async getById(key: CryptoKey, id: string): Promise<Transaction | null> {

@@ -106,6 +106,38 @@ export interface BackupRecordRow extends EncryptedRow {
 	createdAt: number;
 }
 
+// Singleton row ('local-user'); no structural columns beyond `id` are needed.
+export type DebtPlannerPreferenceRow = EncryptedRow;
+
+export interface SavingsGoalRow extends EncryptedRow {
+	deletedAt: number;
+}
+
+export interface GoalContributionRow extends EncryptedRow {
+	goalId: string;
+	date: string;
+}
+
+// Singleton row ('local-user'); no structural columns beyond `id` are needed.
+export type NotificationPreferenceRow = EncryptedRow;
+
+export interface NotifiedItemRow extends EncryptedRow {
+	key: string;
+}
+
+export interface AttachmentRow extends EncryptedRow {
+	transactionId: string;
+}
+
+export interface CategorizationRuleRow extends EncryptedRow {
+	merchantId: string;
+	deletedAt: number;
+}
+
+// Singleton-per-merchant row (id = the merchant's own id); no structural columns beyond
+// `id` are needed.
+export type MerchantCategorySignalRow = EncryptedRow;
+
 class MyFinDatabase extends Dexie {
 	accounts!: EntityTable<AccountRow, 'id'>;
 	categories!: EntityTable<CategoryRow, 'id'>;
@@ -124,6 +156,14 @@ class MyFinDatabase extends Dexie {
 	liabilities!: EntityTable<LiabilityRow, 'id'>;
 	netWorthSnapshots!: EntityTable<NetWorthSnapshotRow, 'id'>;
 	backupRecords!: EntityTable<BackupRecordRow, 'id'>;
+	debtPlannerPreferences!: EntityTable<DebtPlannerPreferenceRow, 'id'>;
+	savingsGoals!: EntityTable<SavingsGoalRow, 'id'>;
+	goalContributions!: EntityTable<GoalContributionRow, 'id'>;
+	notificationPreferences!: EntityTable<NotificationPreferenceRow, 'id'>;
+	notifiedItems!: EntityTable<NotifiedItemRow, 'id'>;
+	attachments!: EntityTable<AttachmentRow, 'id'>;
+	categorizationRules!: EntityTable<CategorizationRuleRow, 'id'>;
+	merchantCategorySignals!: EntityTable<MerchantCategorySignalRow, 'id'>;
 	// Unencrypted by design — see research.md #11 "Exception — UserProfile".
 	userProfile!: EntityTable<UserProfile, 'id'>;
 
@@ -148,6 +188,32 @@ class MyFinDatabase extends Dexie {
 			netWorthSnapshots: 'id, date',
 			backupRecords: 'id, createdAt',
 			userProfile: 'id'
+		});
+		// v2: adds the debt payoff planner's preference singleton (spec 002). Additive-only
+		// per Dexie's versioning model — the v1 block above is never edited retroactively.
+		this.version(2).stores({
+			debtPlannerPreferences: 'id'
+		});
+		// v3: adds savings goals and their contributions (spec 003). Additive-only.
+		this.version(3).stores({
+			savingsGoals: 'id, deletedAt',
+			goalContributions: 'id, goalId, date'
+		});
+		// v4: adds the recurring/budget notification preference singleton and dedupe log
+		// (spec 004). Additive-only.
+		this.version(4).stores({
+			notificationPreferences: 'id',
+			notifiedItems: 'id, key'
+		});
+		// v5: adds receipt/photo attachments on transactions (spec 005). Additive-only.
+		this.version(5).stores({
+			attachments: 'id, transactionId'
+		});
+		// v6: adds auto-categorization rules and the per-merchant learning signal (spec 006).
+		// Additive-only.
+		this.version(6).stores({
+			categorizationRules: 'id, merchantId, deletedAt',
+			merchantCategorySignals: 'id'
 		});
 	}
 }

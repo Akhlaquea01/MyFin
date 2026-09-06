@@ -4,7 +4,9 @@ import {
 	type NewTransactionInput,
 	type SplitInput
 } from '../../data/dexie/transactionRepository';
+import { TransactionTagRepository } from '../../data/dexie/tagRepository';
 import { matchTransaction } from '../recurring/recurringEngine';
+import { resolveCategorization, recordConfirmation } from '../categorization/resolveCategorization';
 import type { Transaction } from '../../domain/entities';
 
 /**
@@ -28,7 +30,29 @@ export const TransactionEngine = {
 		input: NewTransactionInput,
 		splits: SplitInput[] = []
 	): Promise<Transaction> {
-		const tx = await TransactionRepository.create(key, input, splits);
+		// Auto-categorization pre-fill (spec 006, FR-002): only when the caller hasn't
+		// already specified a category — today that's every source but Quick Add/bulk/file
+		// import, which never pass splits of their own.
+		let resolvedSplits = splits;
+		let categorizationTagIds: string[] = [];
+		if (splits.length === 0 && input.merchantId) {
+			const result = await resolveCategorization(
+				key,
+				input.merchantId,
+				input.merchantAliasId ?? null
+			);
+			if (result) {
+				resolvedSplits = [
+					{ categoryId: result.categoryId, amount: input.amount, categorizationSource: result.source }
+				];
+				categorizationTagIds = result.tagIds;
+			}
+		}
+
+		const tx = await TransactionRepository.create(key, input, resolvedSplits);
+		if (categorizationTagIds.length > 0) {
+			await TransactionTagRepository.setTags(tx.id, categorizationTagIds);
+		}
 		await recalculateAccountBalance(key, tx.accountId);
 
 		// Best-effort recurring-event matching (FR-030): try each split's category until
@@ -89,5 +113,39 @@ export const TransactionEngine = {
 		await TransactionRepository.restore(key, id);
 		const tx = await TransactionRepository.getById(key, id);
 		if (tx) await recalculateAccountBalance(key, tx.accountId);
+	},
+
+	/**
+	 * Confirms a Review Queue transaction (spec 006), optionally applying a user's edited
+	 * category/tags before it leaves `unreviewed` — the only entry point that carries a
+	 * pre-filled category from `recordTransaction` through to a permanent, confirmed choice.
+	 */
+	async confirmTransaction(
+		key: CryptoKey,
+		id: string,
+		splits?: SplitInput[],
+		tagIds?: string[]
+	): Promise<Transaction> {
+		const updated = await TransactionRepository.update(
+			key,
+			id,
+			{ reviewStatus: 'confirmed' },
+			splits
+		);
+		if (tagIds) {
+			await TransactionTagRepository.setTags(id, tagIds);
+		}
+
+		// Learning signal (spec 006, FR-003/FR-007): only the three auto-entry sources ever
+		// reach `unreviewed`/this confirm path, so this naturally scopes learning to exactly
+		// "confirmed during review" without needing to branch on `source` explicitly.
+		if (updated.merchantId) {
+			const [firstSplit] = await TransactionRepository.getSplits(key, id);
+			if (firstSplit) {
+				await recordConfirmation(key, updated.merchantId, firstSplit.categoryId);
+			}
+		}
+
+		return updated;
 	}
 };
