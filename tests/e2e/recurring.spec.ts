@@ -6,8 +6,8 @@ import { test, expect } from '@playwright/test';
 
 test('a recurring rule produces an upcoming expected event', async ({ page }) => {
 	await page.goto('/');
-	await page.getByLabel('Create PIN').fill('6767');
-	await page.getByLabel('Confirm PIN').fill('6767');
+	await page.getByLabel('Create PIN').fill('676784');
+	await page.getByLabel('Confirm PIN').fill('676784');
 	await page.getByRole('button', { name: 'Set PIN' }).click();
 	await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible();
 

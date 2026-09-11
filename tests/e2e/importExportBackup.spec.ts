@@ -8,7 +8,7 @@ import { join } from 'node:path';
 test('CSV import, export, backup, and restore round trip; a corrupted backup is rejected', async ({
 	page
 }) => {
-	const pin = '4680';
+	const pin = '468035';
 	const tmpDir = mkdtempSync(join(tmpdir(), 'myfin-e2e-'));
 
 	await page.goto('/');
@@ -58,6 +58,7 @@ test('CSV import, export, backup, and restore round trip; a corrupted backup is 
 	// --- Backup ---
 	await page.getByRole('link', { name: 'Backup' }).click();
 	await expect(page.getByRole('heading', { name: 'Backup & Restore' })).toBeVisible();
+	await page.getByLabel('Confirm your PIN').fill(pin);
 	const [backupDownload] = await Promise.all([
 		page.waitForEvent('download'),
 		page.getByRole('button', { name: 'Create backup now' }).click()
@@ -81,6 +82,14 @@ test('CSV import, export, backup, and restore round trip; a corrupted backup is 
 	await page.getByRole('link', { name: 'Backup' }).click();
 	await page.getByLabel('Backup PIN').fill(pin);
 	await page.locator('input[type="file"]').setInputFiles(backupPath);
+
+	// Nothing is written until the wipe is confirmed explicitly (Constitution Principle VI).
+	const confirmDialog = page.getByRole('dialog');
+	await expect(confirmDialog.getByText('Replace all data on this device?')).toBeVisible({
+		timeout: 15000
+	});
+	await confirmDialog.getByLabel('Type REPLACE to confirm').fill('REPLACE');
+	await confirmDialog.getByRole('button', { name: 'Replace everything' }).click();
 
 	await expect(page.getByRole('heading', { name: 'Enter your PIN' })).toBeVisible({
 		timeout: 15000

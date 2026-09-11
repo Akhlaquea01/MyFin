@@ -104,7 +104,7 @@ function base64ByteLength(base64: string): number {
 test('attach, view, and remove a receipt; rejects unsupported/oversized files; compresses large photos (Scenarios 1, 2, 3)', async ({
 	page
 }) => {
-	await onboard(page, '5001');
+	await onboard(page, '500184');
 
 	await goTo(page, 'Accounts', 'Accounts');
 	await addAccount(page, 'Checking', '1000');
@@ -176,7 +176,7 @@ test('attach, view, and remove a receipt; rejects unsupported/oversized files; c
 test('soft-delete/restore keeps attachments, and up to 5 independent attachments are supported (Scenarios 4, 5)', async ({
 	page
 }) => {
-	await onboard(page, '5002');
+	await onboard(page, '500284');
 
 	await goTo(page, 'Accounts', 'Accounts');
 	await addAccount(page, 'Checking', '1000');
@@ -235,7 +235,7 @@ test('soft-delete/restore keeps attachments, and up to 5 independent attachments
 test('permanent purge from Trash removes the transaction and its attachments entirely (Scenario 6)', async ({
 	page
 }) => {
-	await onboard(page, '5003');
+	await onboard(page, '500384');
 
 	await goTo(page, 'Accounts', 'Accounts');
 	await addAccount(page, 'Checking', '1000');

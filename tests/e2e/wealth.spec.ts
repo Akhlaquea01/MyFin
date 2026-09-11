@@ -4,8 +4,8 @@ import { test, expect } from '@playwright/test';
 
 test('adding a holding and a liability updates net worth correctly', async ({ page }) => {
 	await page.goto('/');
-	await page.getByLabel('Create PIN').fill('3434');
-	await page.getByLabel('Confirm PIN').fill('3434');
+	await page.getByLabel('Create PIN').fill('343484');
+	await page.getByLabel('Confirm PIN').fill('343484');
 	await page.getByRole('button', { name: 'Set PIN' }).click();
 	await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible();
 

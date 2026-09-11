@@ -42,8 +42,8 @@ async function logContribution(page: Page, goalName: string, amount: string, dat
 
 test('create a goal, log contributions, and reach it (Scenario 1)', async ({ page }) => {
 	await page.goto('/');
-	await page.getByLabel('Create PIN').fill('2020');
-	await page.getByLabel('Confirm PIN').fill('2020');
+	await page.getByLabel('Create PIN').fill('202084');
+	await page.getByLabel('Confirm PIN').fill('202084');
 	await page.getByRole('button', { name: 'Set PIN' }).click();
 	await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible();
 
@@ -65,8 +65,8 @@ test('create a goal, log contributions, and reach it (Scenario 1)', async ({ pag
 
 test('projected completion date and behind-schedule flag (Scenario 2)', async ({ page }) => {
 	await page.goto('/');
-	await page.getByLabel('Create PIN').fill('2021');
-	await page.getByLabel('Confirm PIN').fill('2021');
+	await page.getByLabel('Create PIN').fill('202184');
+	await page.getByLabel('Confirm PIN').fill('202184');
 	await page.getByRole('button', { name: 'Set PIN' }).click();
 	await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible();
 
@@ -87,8 +87,8 @@ test('goals overview shows mixed statuses and a correct total (Scenario 3), and 
 	page
 }) => {
 	await page.goto('/');
-	await page.getByLabel('Create PIN').fill('2022');
-	await page.getByLabel('Confirm PIN').fill('2022');
+	await page.getByLabel('Create PIN').fill('202284');
+	await page.getByLabel('Confirm PIN').fill('202284');
 	await page.getByRole('button', { name: 'Set PIN' }).click();
 	await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible();
 

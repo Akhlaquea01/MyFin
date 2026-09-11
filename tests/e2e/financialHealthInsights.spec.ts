@@ -8,8 +8,8 @@ test('financial health figures match manual computation and the score moves with
 	page
 }) => {
 	await page.goto('/');
-	await page.getByLabel('Create PIN').fill('4242');
-	await page.getByLabel('Confirm PIN').fill('4242');
+	await page.getByLabel('Create PIN').fill('424284');
+	await page.getByLabel('Confirm PIN').fill('424284');
 	await page.getByRole('button', { name: 'Set PIN' }).click();
 	await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible();
 
@@ -90,8 +90,8 @@ test('financial health figures match manual computation and the score moves with
 
 test('shows a "not enough data" empty state with no transactions', async ({ page }) => {
 	await page.goto('/');
-	await page.getByLabel('Create PIN').fill('5151');
-	await page.getByLabel('Confirm PIN').fill('5151');
+	await page.getByLabel('Create PIN').fill('515184');
+	await page.getByLabel('Confirm PIN').fill('515184');
 	await page.getByRole('button', { name: 'Set PIN' }).click();
 	await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible();
 

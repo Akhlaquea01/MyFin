@@ -16,7 +16,7 @@ async function goTo(page: Page, linkName: string, headingName: string) {
 }
 
 test('dashboard reconciles balance and shows recent activity from the ledger', async ({ page }) => {
-	await onboard(page, '4242');
+	await onboard(page, '424284');
 
 	await goTo(page, 'Accounts', 'Accounts');
 	await page.getByRole('button', { name: 'Add account' }).click();

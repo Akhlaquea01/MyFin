@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
+import { lockAndReload } from './helpers';
 
 // Feature 004 (Recurring & Budget Notifications), User Stories 1-3.
 // Playwright cannot observe a real OS notification popup, so each test installs a fake
@@ -54,8 +55,8 @@ test('recurring reminder fires once per occurrence, then stays silent on the nex
 }) => {
 	await installFakeNotification(page, 'granted');
 	await page.goto('/');
-	await page.getByLabel('Create PIN').fill('3030');
-	await page.getByLabel('Confirm PIN').fill('3030');
+	await page.getByLabel('Create PIN').fill('303084');
+	await page.getByLabel('Confirm PIN').fill('303084');
 	await page.getByRole('button', { name: 'Set PIN' }).click();
 	await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible();
 
@@ -89,18 +90,18 @@ test('recurring reminder fires once per occurrence, then stays silent on the nex
 	await expect(ruleDialog).not.toBeVisible();
 
 	// First unlock after the rule exists: the reminder should fire.
-	await page.reload();
+	await lockAndReload(page);
 	await expect(page.getByRole('heading', { name: 'Enter your PIN' })).toBeVisible();
-	await unlock(page, '3030');
+	await unlock(page, '303084');
 
 	const firstCheck = await getDispatchedNotifications(page);
 	expect(firstCheck).toHaveLength(1);
 	expect(firstCheck[0].title).toContain('Rent');
 
 	// Second unlock, same still-pending occurrence: must not notify again (FR-004).
-	await page.reload();
+	await lockAndReload(page);
 	await expect(page.getByRole('heading', { name: 'Enter your PIN' })).toBeVisible();
-	await unlock(page, '3030');
+	await unlock(page, '303084');
 
 	const secondCheck = await getDispatchedNotifications(page);
 	expect(secondCheck).toHaveLength(0);
@@ -111,8 +112,8 @@ test('denied permission dispatches nothing but the event stays visible in-app (F
 }) => {
 	await installFakeNotification(page, 'denied');
 	await page.goto('/');
-	await page.getByLabel('Create PIN').fill('3031');
-	await page.getByLabel('Confirm PIN').fill('3031');
+	await page.getByLabel('Create PIN').fill('303184');
+	await page.getByLabel('Confirm PIN').fill('303184');
 	await page.getByRole('button', { name: 'Set PIN' }).click();
 	await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible();
 
@@ -145,9 +146,9 @@ test('denied permission dispatches nothing but the event stays visible in-app (F
 	await ruleDialog.getByRole('button', { name: 'Add rule' }).click();
 	await expect(ruleDialog).not.toBeVisible();
 
-	await page.reload();
+	await lockAndReload(page);
 	await expect(page.getByRole('heading', { name: 'Enter your PIN' })).toBeVisible();
-	await unlock(page, '3031');
+	await unlock(page, '303184');
 
 	expect(await getDispatchedNotifications(page)).toHaveLength(0);
 
@@ -161,8 +162,8 @@ test('denied permission dispatches nothing but the event stays visible in-app (F
 test('budget threshold alert fires once per period', async ({ page }) => {
 	await installFakeNotification(page, 'granted');
 	await page.goto('/');
-	await page.getByLabel('Create PIN').fill('3032');
-	await page.getByLabel('Confirm PIN').fill('3032');
+	await page.getByLabel('Create PIN').fill('303284');
+	await page.getByLabel('Confirm PIN').fill('303284');
 	await page.getByRole('button', { name: 'Set PIN' }).click();
 	await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible();
 
@@ -201,9 +202,9 @@ test('budget threshold alert fires once per period', async ({ page }) => {
 	await page.getByRole('button', { name: 'Save transaction' }).click();
 	await expect(page.getByRole('heading', { name: 'Transactions' })).toBeVisible();
 
-	await page.reload();
+	await lockAndReload(page);
 	await expect(page.getByRole('heading', { name: 'Enter your PIN' })).toBeVisible();
-	await unlock(page, '3032');
+	await unlock(page, '303284');
 
 	const firstCheck = await getDispatchedNotifications(page);
 	expect(firstCheck).toHaveLength(1);
@@ -221,9 +222,9 @@ test('budget threshold alert fires once per period', async ({ page }) => {
 	await page.locator('input[placeholder="Amount"]').fill('5');
 	await page.getByRole('button', { name: 'Save transaction' }).click();
 
-	await page.reload();
+	await lockAndReload(page);
 	await expect(page.getByRole('heading', { name: 'Enter your PIN' })).toBeVisible();
-	await unlock(page, '3032');
+	await unlock(page, '303284');
 
 	expect(await getDispatchedNotifications(page)).toHaveLength(0);
 });
@@ -233,8 +234,8 @@ test('disabling notifications suppresses all dispatch even with qualifying data 
 }) => {
 	await installFakeNotification(page, 'granted');
 	await page.goto('/');
-	await page.getByLabel('Create PIN').fill('3033');
-	await page.getByLabel('Confirm PIN').fill('3033');
+	await page.getByLabel('Create PIN').fill('303384');
+	await page.getByLabel('Confirm PIN').fill('303384');
 	await page.getByRole('button', { name: 'Set PIN' }).click();
 	await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible();
 
@@ -271,9 +272,9 @@ test('disabling notifications suppresses all dispatch even with qualifying data 
 	await ruleDialog.getByRole('button', { name: 'Add rule' }).click();
 	await expect(ruleDialog).not.toBeVisible();
 
-	await page.reload();
+	await lockAndReload(page);
 	await expect(page.getByRole('heading', { name: 'Enter your PIN' })).toBeVisible();
-	await unlock(page, '3033');
+	await unlock(page, '303384');
 
 	expect(await getDispatchedNotifications(page)).toHaveLength(0);
 });
@@ -283,8 +284,8 @@ test('disabling notifications suppresses all dispatch even with qualifying data 
 test('a widened reminder lead time picks up a previously out-of-window event', async ({ page }) => {
 	await installFakeNotification(page, 'granted');
 	await page.goto('/');
-	await page.getByLabel('Create PIN').fill('3034');
-	await page.getByLabel('Confirm PIN').fill('3034');
+	await page.getByLabel('Create PIN').fill('303484');
+	await page.getByLabel('Confirm PIN').fill('303484');
 	await page.getByRole('button', { name: 'Set PIN' }).click();
 	await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible();
 
@@ -324,9 +325,9 @@ test('a widened reminder lead time picks up a previously out-of-window event', a
 	await ruleDialog.getByRole('button', { name: 'Add rule' }).click();
 	await expect(ruleDialog).not.toBeVisible();
 
-	await page.reload();
+	await lockAndReload(page);
 	await expect(page.getByRole('heading', { name: 'Enter your PIN' })).toBeVisible();
-	await unlock(page, '3034');
+	await unlock(page, '303484');
 
 	const dispatched = await getDispatchedNotifications(page);
 	expect(dispatched).toHaveLength(1);

@@ -59,7 +59,7 @@ async function confirmInReview(page: Page, merchant: string, category: string) {
 test('an explicit rule pre-fills every new proposal, visibly different from a suggestion, and beats one', async ({
 	page
 }) => {
-	await onboard(page, '6161');
+	await onboard(page, '616184');
 	await addAccount(page, 'Checking');
 	await addCategory(page, 'Dining');
 	await addCategory(page, 'Shopping');
@@ -110,7 +110,7 @@ test('an explicit rule pre-fills every new proposal, visibly different from a su
 test('a learned suggestion appears after a consistent streak, and can be promoted or reset', async ({
 	page
 }) => {
-	await onboard(page, '6262');
+	await onboard(page, '626284');
 	await addAccount(page, 'Checking');
 	await addCategory(page, 'Transport');
 

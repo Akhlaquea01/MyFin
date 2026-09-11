@@ -40,7 +40,7 @@ test.describe('Core Ledger', () => {
 	test('create accounts, record transactions and a transfer, balances update correctly', async ({
 		page
 	}) => {
-		await onboard(page, '1357');
+		await onboard(page, '135784');
 
 		await goTo(page, 'Accounts', 'Accounts');
 		await addAccount(page, 'Checking', '1000');
@@ -78,7 +78,7 @@ test.describe('Core Ledger', () => {
 	test('deleting a transaction moves it to trash, and restoring brings the balance back', async ({
 		page
 	}) => {
-		await onboard(page, '2222');
+		await onboard(page, '222284');
 
 		await goTo(page, 'Accounts', 'Accounts');
 		await addAccount(page, 'Pocket Money', '500');

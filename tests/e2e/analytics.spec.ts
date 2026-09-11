@@ -4,8 +4,8 @@ import { test, expect } from '@playwright/test';
 
 test('spending-by-category figure matches the underlying transaction', async ({ page }) => {
 	await page.goto('/');
-	await page.getByLabel('Create PIN').fill('7171');
-	await page.getByLabel('Confirm PIN').fill('7171');
+	await page.getByLabel('Create PIN').fill('717184');
+	await page.getByLabel('Confirm PIN').fill('717184');
 	await page.getByRole('button', { name: 'Set PIN' }).click();
 	await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible();
 

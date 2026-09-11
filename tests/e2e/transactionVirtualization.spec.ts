@@ -7,7 +7,7 @@ import { join } from 'node:path';
 // mount the rows within the scrolled viewport, not one <tr> per transaction.
 
 test('the transaction list virtualizes rendering once the ledger is large', async ({ page }) => {
-	const pin = '9753';
+	const pin = '975386';
 	const tmpDir = mkdtempSync(join(tmpdir(), 'myfin-e2e-'));
 	const rowCount = 300;
 

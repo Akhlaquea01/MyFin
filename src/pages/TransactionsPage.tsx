@@ -49,6 +49,25 @@ const VIEWPORT_HEIGHT_PX = 560;
 /** Settles a scroll gesture before querying attachment counts for the new window. */
 const ATTACHMENT_COUNT_DEBOUNCE_MS = 120;
 
+/**
+ * Folds a fresh count query into the existing map.
+ *
+ * Every id that was queried is written explicitly, including as `0`: `countsForTransactions`
+ * only returns ids that actually have attachments, so a plain spread would leave the previous
+ * non-zero count in place after the last attachment on a row was removed — the badge would
+ * never clear. Ids outside `queriedIds` are preserved so rows scrolled out of view keep their
+ * counts instead of flickering when they scroll back.
+ */
+function mergeCounts(
+	previous: Record<string, number>,
+	queriedIds: string[],
+	counts: Record<string, number>
+): Record<string, number> {
+	const next = { ...previous };
+	for (const id of queriedIds) next[id] = counts[id] ?? 0;
+	return next;
+}
+
 // User Story 2 (P2): search/filter (FR-013) and soft-delete (FR-014) of transactions.
 export function TransactionsPage() {
 	const { getEncryptionKey } = useSession();
@@ -132,7 +151,7 @@ export function TransactionsPage() {
 			const ids = visibleIdsKey ? visibleIdsKey.split(',') : [];
 			void AttachmentRepository.countsForTransactions(key, ids)
 				.then((counts) => {
-					if (!cancelled) setAttachmentCounts((prev) => ({ ...prev, ...counts }));
+					if (!cancelled) setAttachmentCounts((prev) => mergeCounts(prev, ids, counts));
 				})
 				.catch(() => {
 					// A missing paperclip badge is not worth interrupting the user for.
@@ -147,7 +166,7 @@ export function TransactionsPage() {
 	function refreshAttachmentCounts() {
 		const ids = visibleTransactions.map((t) => t.id);
 		void AttachmentRepository.countsForTransactions(key, ids)
-			.then((counts) => setAttachmentCounts((prev) => ({ ...prev, ...counts })))
+			.then((counts) => setAttachmentCounts((prev) => mergeCounts(prev, ids, counts)))
 			.catch(() => {});
 	}
 

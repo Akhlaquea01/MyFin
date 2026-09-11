@@ -19,7 +19,7 @@ async function goTo(page: Page, linkName: string, headingName: string) {
 test('Quick Add proposes a transaction from pasted text and it appears in review', async ({
 	page
 }) => {
-	await onboard(page, '8181');
+	await onboard(page, '818184');
 
 	await goTo(page, 'Accounts', 'Accounts');
 	await page.getByRole('button', { name: 'Add account' }).click();
@@ -39,7 +39,9 @@ test('Quick Add proposes a transaction from pasted text and it appears in review
 	await page.getByLabel('Account').click();
 	await page.getByRole('option', { name: 'Checking', exact: true }).click();
 
-	await expect(page.getByLabel('Amount')).toHaveValue('250');
+	// Prefilled from integer paise at full currency precision; the old value came from
+	// `(paise / 100).toString()`, which dropped trailing zeros.
+	await expect(page.getByLabel('Amount')).toHaveValue('250.00');
 	await expect(page.getByLabel('Merchant')).toHaveValue('Coffee Shop');
 
 	await page.getByRole('button', { name: 'Confirm & add to review queue' }).click();

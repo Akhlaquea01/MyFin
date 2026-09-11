@@ -32,13 +32,34 @@ import { RecurringRepository } from '../data/dexie/recurringRepository';
 import type { Account, Category, RecurringFrequency, RecurringRule } from '../domain/entities';
 import { isPositiveMoney, parseMoneyOrZero } from '../domain/shared/money';
 
-const ruleSchema = z.object({
-	accountId: z.string().min(1, 'Choose an account.'),
-	categoryId: z.string().min(1, 'Choose a category.'),
-	frequency: z.enum(['weekly', 'monthly', 'yearly']),
-	dayOfPeriod: z.string().refine((v) => /^\d+$/.test(v.trim()) && Number(v) > 0),
-	amount: z.string().refine((v) => isPositiveMoney(v), 'Enter a positive amount.')
-});
+/**
+ * Valid `dayOfPeriod` range per frequency, matching what recurringEngine actually does with
+ * the value. Weekly starts at 0 because the engine reads it as `dayOfPeriod % 7` against
+ * `getUTCDay()`, where 0 is Sunday — the previous blanket `> 0` rule made Sunday unreachable
+ * and, because this field rendered no error, simply refused to submit with nothing shown.
+ */
+const DAY_RANGE: Record<RecurringFrequency, { min: number; max: number; hint: string }> = {
+	weekly: { min: 0, max: 6, hint: 'Day of week, 0 (Sunday) to 6 (Saturday).' },
+	monthly: { min: 1, max: 31, hint: 'Day of month, 1 to 31.' },
+	yearly: { min: 1, max: 366, hint: 'Day of year, 1 to 366.' }
+};
+
+const ruleSchema = z
+	.object({
+		accountId: z.string().min(1, 'Choose an account.'),
+		categoryId: z.string().min(1, 'Choose a category.'),
+		frequency: z.enum(['weekly', 'monthly', 'yearly']),
+		dayOfPeriod: z.string(),
+		amount: z.string().refine((v) => isPositiveMoney(v), 'Enter a positive amount.')
+	})
+	.superRefine((values, ctx) => {
+		const { min, max, hint } = DAY_RANGE[values.frequency];
+		const raw = values.dayOfPeriod.trim();
+		const day = Number(raw);
+		if (!/^\d+$/.test(raw) || day < min || day > max) {
+			ctx.addIssue({ code: 'custom', message: hint, path: ['dayOfPeriod'] });
+		}
+	});
 type RuleFormValues = z.infer<typeof ruleSchema>;
 
 const FREQUENCY_LABELS: Record<RecurringFrequency, string> = {
@@ -209,6 +230,14 @@ export function RecurringPage() {
 									<div className="flex flex-col gap-1.5">
 										<Label htmlFor="rule-day">Day</Label>
 										<Input id="rule-day" type="number" {...form.register('dayOfPeriod')} />
+										<p className="text-xs text-muted-foreground">
+											{DAY_RANGE[form.watch('frequency')].hint}
+										</p>
+										{form.formState.errors.dayOfPeriod && (
+											<p role="alert" className="text-xs text-destructive">
+												{form.formState.errors.dayOfPeriod.message}
+											</p>
+										)}
 									</div>
 									<div className="flex flex-col gap-1.5">
 										<Label htmlFor="rule-amount">Amount</Label>
