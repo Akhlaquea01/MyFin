@@ -21,6 +21,12 @@ import { VitePWA } from 'vite-plugin-pwa';
  *   - connect-src 'self'       the valuable one: makes exfiltration to an attacker-controlled
  *     origin impossible even if script injection succeeds, which is what "your data never
  *     leaves your device" has to mean in practice.
+ *   - form-action 'self'       spec 008 (share-target) submits a same-origin POST form as
+ *     part of the Web Share Target hand-off; 'self' still blocks the actual exfiltration
+ *     vector this directive exists for (a form pointed at an attacker-controlled origin) —
+ *     the real OS share invocation isn't a same-document form submission at all and was
+ *     never subject to this directive either way, so this only widens what this app's own
+ *     pages may do, from "nothing" to "only itself."
  *
  * `frame-ancestors` is intentionally absent: it is ignored when delivered via <meta> and must
  * be set as a real response header by the static host.
@@ -36,7 +42,7 @@ const CSP = [
 	"worker-src 'self'",
 	"object-src 'none'",
 	"base-uri 'none'",
-	"form-action 'none'"
+	"form-action 'self'"
 ].join('; ');
 
 function cspPlugin(): Plugin {
@@ -76,7 +82,20 @@ export default defineConfig({
 					{ src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png' },
 					{ src: '/icons/icon-512.png', sizes: '512x512', type: 'image/png' },
 					{ src: '/icons/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' }
-				]
+				],
+				// Spec 008: a single share_target (the platform allows only one) handles both a
+				// text/URL share and an image share — see specs/008-pwa-share-target/research.md §2.
+				share_target: {
+					action: '/share-target',
+					method: 'POST',
+					enctype: 'multipart/form-data',
+					params: {
+						title: 'title',
+						text: 'text',
+						url: 'url',
+						files: { name: 'file', accept: ['image/*'] }
+					}
+				}
 			},
 			workbox: {
 				// Offline-first: precache the app shell so it works with zero network,

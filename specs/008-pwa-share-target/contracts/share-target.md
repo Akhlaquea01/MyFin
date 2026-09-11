@@ -31,13 +31,31 @@ populated and no `file` part; a share of an image arrives with `file` populated 
 possibly `text`/`title` too, e.g. a caption). Both are handled by the same service worker
 and the same landing page.
 
-## `src/sw-share-target.ts` (new, narrow-scope service worker)
+## `public/sw-share-target.js` (new, narrow-scope service worker)
 
-Registered via `navigator.serviceWorker.register('/sw-share-target.js', { scope:
-'/share-target/' })` (called once from `App.tsx`, alongside the existing `vite-plugin-pwa`
-registration — the two registrations do not interfere, since their scopes differ; the
-POST action itself is served at `/share-target`, one level below the SW's own registration
-path convention used elsewhere in this app).
+Plain JavaScript (not TypeScript) in `public/`, so Vite copies it to the build output
+unmodified at a stable root URL — a hand-written service worker has no build step of its
+own and doesn't need one for a file this small. Registered via
+`navigator.serviceWorker.register('/sw-share-target.js', { scope: '/share-target' })`
+(called once from `App.tsx`, alongside the existing `vite-plugin-pwa` registration — the
+two registrations do not interfere, since their scopes differ). The scope is the literal
+action path with **no trailing slash**, matching it exactly: scope matching is a string-
+prefix comparison, so `/share-target` (no trailing slash) is the shortest scope that still
+covers the exact action URL, making it the longest/most-specific matching registration for
+that URL — a trailing-slash scope (`/share-target/`) would NOT match the exact path
+`/share-target` and must not be used. This scope is a sub-path of the script's own
+directory (`/`), so no `Service-Worker-Allowed` response header is needed.
+
+**Testing implication**: a service worker only intercepts a page's own `fetch()` calls when
+that page is itself controlled by (i.e., was loaded within the scope of) that worker — our
+custom worker's scope (`/share-target`) never covers any page the app actually navigates
+to, so a subresource `fetch('/share-target')` issued from page JS would simply hit the
+network and 404. The real mechanism (and the only one this contract relies on) is a
+top-level **navigation** to the action URL — the browser matches a navigation's destination
+against every registered scope independently of what page initiated it. Both the real OS
+share and this feature's E2E test therefore go through an actual POST navigation (a
+submitted `<form method="POST" enctype="multipart/form-data" action="/share-target">`), not
+a `fetch()` call.
 
 ### `fetch` event handler
 

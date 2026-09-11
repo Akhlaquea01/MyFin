@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '../components/ui/button';
@@ -29,6 +29,7 @@ export function QuickAddPage() {
 	const { getEncryptionKey } = useSession();
 	const key = getEncryptionKey();
 	const navigate = useNavigate();
+	const location = useLocation();
 
 	const [accounts, setAccounts] = useState<Account[]>([]);
 	const [rawText, setRawText] = useState('');
@@ -46,13 +47,30 @@ export function QuickAddPage() {
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, []);
 
-	function handleParse() {
-		const candidate = parseQuickAddText(rawText);
+	// Spec 008, User Story 1 (FR-002): text shared in via the OS share sheet arrives here as
+	// router state from ShareTargetLandingPage and must parse identically to manual paste —
+	// so it's seeded into the same `rawText` state and run through the same `parseText` call
+	// the "Parse" button uses, rather than a separate/duplicated parse path.
+	useEffect(() => {
+		const sharedText = (location.state as { sharedText?: string } | null)?.sharedText;
+		if (sharedText) {
+			setRawText(sharedText);
+			parseText(sharedText);
+		}
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, []);
+
+	function parseText(text: string) {
+		const candidate = parseQuickAddText(text);
 		setParsed(true);
 		setConfident(isConfident(candidate));
 		if (candidate.amount !== null) setAmountInput(formatMinorUnits(candidate.amount));
 		if (candidate.type) setType(candidate.type);
 		if (candidate.merchantText) setMerchantName(candidate.merchantText);
+	}
+
+	function handleParse() {
+		parseText(rawText);
 	}
 
 	async function handleConfirm() {

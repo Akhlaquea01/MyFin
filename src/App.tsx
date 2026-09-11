@@ -24,6 +24,7 @@ import { TransferPage } from './pages/TransferPage';
 import { CategoriesPage } from './pages/CategoriesPage';
 import { TrashPage } from './pages/TrashPage';
 import { QuickAddPage } from './pages/QuickAddPage';
+import { ShareTargetLandingPage } from './pages/ShareTargetLandingPage';
 import { ReviewPage } from './pages/ReviewPage';
 import { BulkTextImportPage } from './pages/BulkTextImportPage';
 import { BudgetsPage } from './pages/BudgetsPage';
@@ -87,6 +88,14 @@ function Gate() {
 	useEffect(() => {
 		const stopLock = acquireSingleInstanceLock(setRole);
 		void isStoragePersisted().then((persisted) => setShowStorageWarning(!persisted));
+
+		// Spec 008: registered independently of (and at a narrower scope than) the
+		// vite-plugin-pwa-managed root service worker, so it never affects offline asset
+		// caching — see public/sw-share-target.js and research.md §2. Registration itself
+		// needs no encryption key/unlock state, so it happens unconditionally here.
+		if ('serviceWorker' in navigator) {
+			void navigator.serviceWorker.register('/sw-share-target.js', { scope: '/share-target' });
+		}
 
 		const activityEvents = ['click', 'keydown', 'pointerdown'] as const;
 		const onActivity = recordActivity;
@@ -176,6 +185,9 @@ function Gate() {
 						<Route path="notification-settings" element={<NotificationSettingsPage />} />
 						<Route path="categorization-rules" element={<CategorizationRulesPage />} />
 					</Route>
+					{/* Spec 008: a pure redirect, deliberately outside AppShell — no nav shell needed
+					    for what's only ever a brief loading state before navigating onward. */}
+					<Route path="share-target-landing" element={<ShareTargetLandingPage />} />
 				</Routes>
 			</ErrorBoundary>
 		</BrowserRouter>

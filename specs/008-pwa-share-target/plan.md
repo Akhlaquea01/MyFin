@@ -38,11 +38,14 @@ it — written once, read once, deleted immediately after (research.md §2); not
 "storage" in the persisted-entity sense the constitution's data-integrity principle governs.
 
 **Testing**: Vitest unit tests for the pure text-field-resolution helper
-(`parseSharedText`); a Playwright E2E test that POSTs a `multipart/form-data` body directly
-to the share-target action URL against the running preview server (what every real OS
-share ultimately triggers), for both a text-only payload and a payload including an image.
-A real OS share sheet cannot be driven from Playwright or Vitest, so that end of the flow
-is documented as a manual verification step in quickstart.md rather than automated.
+(`parseSharedText`); a Playwright E2E test that submits a real POST navigation (a
+`<form method="POST" enctype="multipart/form-data" action="/share-target">`) against the
+running preview server — the same mechanism a real OS share triggers, and the only one a
+differently-scoped service worker actually intercepts (a subresource `fetch()` from an
+uncontrolled page would not be — research.md §2) — for both a text-only payload and a
+payload including an image. A real OS share sheet cannot be driven from Playwright or
+Vitest, so that end of the flow is documented as a manual verification step in
+quickstart.md rather than automated.
 
 **Target Platform**: Same installable PWA (Android/iOS/desktop). Web Share Target is
 supported on installed PWAs on Android/Chromium-based browsers; iOS/Safari does not support
@@ -129,11 +132,6 @@ src/
 │   └── shareTarget.ts              # NEW: parseSharedText(), readAndClearSharedPayload()
 │                                       (browser-API utility, research.md §2-4)
 │
-├── sw-share-target.ts              # NEW: minimal hand-written service worker, registered
-│                                       at a narrow scope, handling the single POST
-│                                       share-target hand-off (text and/or file,
-│                                       research.md §2)
-│
 ├── pages/
 │   ├── ShareTargetLandingPage.tsx  # NEW: single landing route after the POST hand-off —
 │   │                                   reads the stashed payload, redirects into Quick Add
@@ -144,23 +142,32 @@ src/
 │                                       post-save AttachmentRepository.create call
 │                                       (only exercised when arriving via share)
 │
-├── App.tsx                         # EXTENDED: one new route (share-target-landing);
-│                                       registers sw-share-target.ts
-│                                       alongside the existing vite-plugin-pwa registration
-│
-└── vite.config.ts                  # EXTENDED: VitePWA `manifest.share_target` entry
+└── App.tsx                         # EXTENDED: one new route (share-target-landing);
+                                        registers /sw-share-target.js alongside the
+                                        existing vite-plugin-pwa registration
+
+public/
+└── sw-share-target.js              # NEW: minimal hand-written service worker (plain JS,
+                                        not compiled — research.md §2), registered at scope
+                                        "/share-target", handling the single POST
+                                        share-target hand-off (text and/or file)
+
+vite.config.ts                      # EXTENDED: VitePWA `manifest.share_target` entry
 
 tests/
 ├── unit/
 │   └── shareTarget.test.ts         # NEW: parseSharedText() boundary cases
 └── e2e/
     └── shareTarget.spec.ts         # NEW: POST text-only and POST with-file share
-                                        simulation, locked/blocked-instance interaction
+                                        simulation (via a submitted form navigation, not
+                                        fetch() — research.md §2), locked/blocked-instance
+                                        interaction
 ```
 
 **Structure Decision**: Extends the existing single frontend-only project layout unchanged
 (see [../001-personal-finance-manager/plan.md](../001-personal-finance-manager/plan.md)'s
 Structure Decision, reused as-is by specs 002-007). This feature adds one new browser-API
-utility module, one small standalone service worker file, and one new thin routing page,
-and extends four existing files (`QuickAddPage.tsx`, `NewTransactionPage.tsx`, `App.tsx`,
-`vite.config.ts`) — no new architectural layer, no new project.
+utility module, one small standalone plain-JS service worker file (in `public/`, not
+compiled), and one new thin routing page, and extends three existing files
+(`QuickAddPage.tsx`, `NewTransactionPage.tsx`, `App.tsx`) plus `vite.config.ts` — no new
+architectural layer, no new project.

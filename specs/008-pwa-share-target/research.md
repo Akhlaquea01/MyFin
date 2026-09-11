@@ -35,10 +35,13 @@ for text and a separate POST action for files. Since file shares (Story 2) *requ
 single registered target uses POST for everything, with `params` mapping `title`/`text`/
 `url` (sent as ordinary multipart fields whenever a share includes no file) alongside a
 `files` mapping (for image shares). One small, hand-written service worker
-(`src/sw-share-target.ts`), registered at a narrow scope (e.g. `/share-target/`), intercepts
-`fetch` events for the single POST action URL (`/share-target`): it reads the
-`multipart/form-data` body for whichever fields are present (`text`/`title`/`url` and/or a
-`file`), stashes them under one `Cache` entry keyed by a generated id (research.md's
+(`public/sw-share-target.js` — plain JavaScript, not TypeScript, since it needs no build
+step and Vite would not otherwise compile a standalone worker script into the output;
+placing it in `public/` gets it copied verbatim to a stable root URL), registered at the
+narrow scope `/share-target` (no trailing slash — it must match the action URL exactly, see
+below), intercepts `fetch` events for the single POST action URL (`/share-target`): it
+reads the `multipart/form-data` body for whichever fields are present (`text`/`title`/`url`
+and/or a `file`), stashes them under one `Cache` entry keyed by a generated id (research.md's
 data-model documents the exact shape), and responds with a redirect to
 `/share-target-landing?id=<id>`. `src/lib/shareTarget.ts` exposes
 `readAndClearSharedPayload(id)`, called once by the single `ShareTargetLandingPage.tsx` on
@@ -47,9 +50,16 @@ outlives a single read.
 
 This new service worker is registered **independently** of the one `vite-plugin-pwa`
 already generates and registers for offline asset caching (`registerType: 'autoUpdate'` in
-`vite.config.ts`). Because its scope (`/share-target/`) is more specific than the root SW's
-scope (`/`), it — and only it — controls fetch events under `/share-target/`, leaving the
+`vite.config.ts`). Because its scope (`/share-target`) is more specific than the root SW's
+scope (`/`), it — and only it — controls fetch events for that exact URL, leaving the
 existing offline-caching service worker and its `generateSW` pipeline completely untouched.
+Scope matching is a string-prefix comparison, so the scope must be `/share-target` with no
+trailing slash — `/share-target/` would not match the literal action path `/share-target`
+at all. A service worker only intercepts a *subresource* `fetch()` when the requesting page
+is itself controlled by that worker (i.e., was loaded within its scope); since no app page
+is ever loaded under `/share-target`, this worker only ever sees **navigation** requests to
+that exact URL — which is exactly what both a real OS share and this feature's E2E test
+produce (a POST navigation, not a `fetch()` call from an existing page).
 
 **Rationale**: Keeps Constitution Principle I intact (no server ever receives the shared
 content; the "POST" never leaves the device) using only standard Service Worker/Cache APIs
@@ -144,3 +154,29 @@ entry form for one additional optional field.
 **Decision**: None beyond native browser APIs (Web Share Target manifest field, Service
 Worker `fetch` event, `Cache` API, `URLSearchParams`) and the app's own existing
 `imageAttachment.ts`/`AttachmentRepository` from spec 005.
+
+## 7. `vite.config.ts`'s CSP `form-action` directive (discovered during implementation)
+
+**Decision**: The build's injected Content-Security-Policy (`vite.config.ts`) had
+`form-action 'none'`, which blocks *any* `<form>` submission from an app page — including
+this feature's own E2E test, which submits a same-origin `<form method="POST"
+enctype="multipart/form-data" action="/share-target">` to simulate the OS share (research.md
+§2/§3). Confirmed via a Chrome console CSP-violation message during test development.
+Relaxed to `form-action 'self'`.
+
+**Rationale**: `'self'` still fully blocks the actual exfiltration vector `'none'` existed
+to prevent — a form pointed at an attacker-controlled origin — since same-origin is the only
+thing it now permits. The real OS share invocation was never affected by this directive
+either way: it is a fresh top-level navigation initiated by the browser/OS from outside any
+existing document, not a same-document form submission, so no CSP on any existing page ever
+applied to it. This change only affects same-origin `<form>` submissions from within the
+app's own pages — which this app had none of before, and now has exactly one (the share-
+target test harness pattern), with zero increase to the actual attack surface `'none'` was
+guarding.
+
+**Alternatives considered**: Simulating the share via some CSP-exempt mechanism instead of a
+real form (e.g. CDP-level navigation) — rejected; Playwright has no API for an arbitrary-
+method top-level navigation, and a real `<form>` POST is also the standard, most realistic
+way other projects test Web Share Target integrations. Leaving CSP untouched and skipping
+automated E2E coverage for the share flow — rejected; it's the one thing this feature can
+actually verify end-to-end without a real OS share sheet.

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { Controller, useFieldArray, useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -23,6 +23,8 @@ import { CategoryRepository } from '../data/dexie/categoryRepository';
 import { MerchantRepository } from '../data/dexie/merchantRepository';
 import { TagRepository, TransactionTagRepository } from '../data/dexie/tagRepository';
 import { TransactionEngine } from '../domain/transactions/transactionEngine';
+import { AttachmentRepository } from '../data/dexie/attachmentRepository';
+import { validateAttachmentFile, compressImage } from '../lib/imageAttachment';
 import type { Account, Category } from '../domain/entities';
 import { isPositiveMoney, parseMoneyOrZero } from '../domain/shared/money';
 
@@ -47,9 +49,30 @@ export function NewTransactionPage() {
 	const { getEncryptionKey } = useSession();
 	const key = getEncryptionKey();
 	const navigate = useNavigate();
+	const location = useLocation();
 
 	const [accounts, setAccounts] = useState<Account[]>([]);
 	const [categories, setCategories] = useState<Category[]>([]);
+	// Spec 008, User Story 2 (FR-004): set only when this page is reached via a share
+	// carrying an image (ShareTargetLandingPage's router state) — the ordinary manual
+	// "add a new transaction" flow never sets this and is otherwise unchanged.
+	const [sharedFile, setSharedFile] = useState<File | null>(null);
+	const [sharedFilePreviewUrl, setSharedFilePreviewUrl] = useState<string | null>(null);
+
+	useEffect(() => {
+		const file = (location.state as { sharedFile?: File } | null)?.sharedFile;
+		if (file) {
+			setSharedFile(file);
+			setSharedFilePreviewUrl(URL.createObjectURL(file));
+		}
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, []);
+
+	useEffect(() => {
+		return () => {
+			if (sharedFilePreviewUrl) URL.revokeObjectURL(sharedFilePreviewUrl);
+		};
+	}, [sharedFilePreviewUrl]);
 
 	const form = useForm<FormValues>({
 		resolver: zodResolver(formSchema),
@@ -120,6 +143,22 @@ export function NewTransactionPage() {
 				);
 			}
 
+			// Spec 008, User Story 2 (FR-004): a shared image is attached only after the
+			// transaction itself saves successfully, reusing spec 005's exact validation/
+			// compression/storage path — an unsupported/oversized shared image does not
+			// block the save; it only fails to attach, with its own explanation.
+			if (sharedFile) {
+				const validation = validateAttachmentFile(sharedFile);
+				if (validation.ok) {
+					const compressed = await compressImage(sharedFile);
+					await AttachmentRepository.create(key, { transactionId: tx.id, ...compressed });
+				} else {
+					toast.error(
+						`Transaction saved, but the shared image couldn't be attached: ${validation.reason}`
+					);
+				}
+			}
+
 			toast.success('Transaction saved');
 			navigate('/transactions');
 		} catch (err) {
@@ -130,6 +169,22 @@ export function NewTransactionPage() {
 	return (
 		<div className="mx-auto max-w-xl px-4 py-8 sm:px-6">
 			<h1 className="mb-6 text-2xl font-semibold tracking-tight">New Transaction</h1>
+
+			{sharedFile && sharedFilePreviewUrl && (
+				<Card className="mb-6">
+					<CardContent className="flex items-center gap-3 pt-6">
+						<img
+							src={sharedFilePreviewUrl}
+							alt="Shared photo preview"
+							className="size-16 rounded-md object-cover"
+						/>
+						<div className="text-sm">
+							<p className="font-medium">Shared photo</p>
+							<p className="text-muted-foreground">{sharedFile.name}</p>
+						</div>
+					</CardContent>
+				</Card>
+			)}
 
 			<Card>
 				<CardContent className="pt-6">

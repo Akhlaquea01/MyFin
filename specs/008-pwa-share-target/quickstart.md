@@ -69,10 +69,11 @@ These scenarios correspond to:
 
 - `tests/unit/shareTarget.test.ts` — `parseSharedText` boundary cases (empty/missing
   fields, `text`/`url`/`title` fallback order) using plain constructed field objects.
-- `tests/e2e/shareTarget.spec.ts` — simulates the OS share by POSTing a
-  `multipart/form-data` body directly to `/share-target` (what the manifest's single
-  `share_target` action always receives — research.md §2): once with only `text` fields
-  (Scenario 1's app-side behavior, and Scenario 2 combined with a locked session) and once
-  including a `file` part (Scenario 3's app-side behavior). Scenarios 1, 3, and 5's actual
-  OS share-sheet interaction cannot be driven by Playwright and remain manual verification
-  steps (above).
+- `tests/e2e/shareTarget.spec.ts` — simulates the OS share by submitting a real POST
+  navigation (a `<form method="POST" enctype="multipart/form-data" action="/share-target">`)
+  — what the manifest's single `share_target` action always receives, and the only
+  mechanism a differently-scoped service worker actually intercepts (research.md §2): once
+  with only `text` fields (Scenario 1's app-side behavior, and Scenario 2 combined with a
+  locked session) and once including a `file` part (Scenario 3's app-side behavior).
+  Scenarios 1, 3, and 5's actual OS share-sheet interaction cannot be driven by Playwright
+  and remain manual verification steps (above).
