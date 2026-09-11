@@ -48,9 +48,14 @@ test('the transaction list virtualizes rendering once the ledger is large', asyn
 
 	await page.getByRole('link', { name: 'Transactions' }).click();
 	await expect(page.getByRole('heading', { name: 'Transactions' })).toBeVisible();
-	// `.count()` doesn't auto-wait like other expect() matchers, so wait for the table to
-	// actually have rendered its first row before reading a stable count from it.
-	await expect(page.locator('table tbody tr').first()).toBeVisible();
+	// `.count()` doesn't auto-wait like other expect() matchers, so the table has to be
+	// settled before it is read. Waiting on `table tbody tr` was not enough: the import
+	// preview table is still mounted for a frame or two after the route swaps, and its five
+	// preview rows satisfied the wait immediately — the count then ran against this page's
+	// own first load and read 0. A spacer row exists only on a virtualized ledger table, and
+	// React commits it in the same render as the rows it offsets, so waiting for one pins the
+	// read to the right table *and* to the commit that rendered its rows.
+	await expect(page.locator('table tbody tr[aria-hidden="true"]')).toHaveCount(1);
 
 	const dataRowCount = await page.locator('table tbody tr:not([aria-hidden="true"])').count();
 	expect(dataRowCount).toBeLessThan(rowCount / 2);

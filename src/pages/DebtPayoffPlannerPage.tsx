@@ -56,20 +56,39 @@ function NeedsInputRow({
 		liability.minimumPayment != null ? formatMinorUnits(liability.minimumPayment) : ''
 	);
 	const [saving, setSaving] = useState(false);
+	const [error, setError] = useState<string | null>(null);
 
 	async function save() {
 		// An annual rate in basis points is the same 2-decimal-to-integer-hundredths scaling
 		// as a money amount, and needs the same exactness — 18.55% must land on 1855, not 1854.
 		const rateBasisPoints = parseMoneyToMinorUnits(interestRatePercent);
 		const minimum = parseMoneyToMinorUnits(minimumPayment);
-		if (rateBasisPoints === null || rateBasisPoints < 0 || minimum === null || minimum <= 0) return;
+		// A single combined guard used to `return` silently here, so a blank or malformed
+		// field made the Save button do nothing at all with no explanation.
+		if (rateBasisPoints === null || rateBasisPoints < 0) {
+			setError('Enter an APR of 0 or more.');
+			return;
+		}
+		if (minimum === null || minimum <= 0) {
+			setError('Enter a minimum payment greater than zero.');
+			return;
+		}
+		setError(null);
 
 		setSaving(true);
-		await LiabilityRepository.update(getEncryptionKey(), liability.id, {
-			interestRate: rateBasisPoints,
-			minimumPayment: minimum
-		});
-		setSaving(false);
+		try {
+			await LiabilityRepository.update(getEncryptionKey(), liability.id, {
+				interestRate: rateBasisPoints,
+				minimumPayment: minimum
+			});
+		} catch (err) {
+			setError(err instanceof Error ? err.message : 'Could not save these details.');
+			return;
+		} finally {
+			// In a `finally` so a failed write re-enables the row instead of leaving it
+			// disabled with no way back.
+			setSaving(false);
+		}
 		await onSaved();
 	}
 
@@ -80,6 +99,11 @@ function NeedsInputRow({
 				<p className="text-sm text-muted-foreground">
 					Needs an interest rate and minimum payment before it can be included in a plan.
 				</p>
+				{error && (
+					<p role="alert" className="mt-1 text-sm text-destructive">
+						{error}
+					</p>
+				)}
 			</div>
 			<div className="flex flex-wrap items-end gap-2">
 				<div className="flex flex-col gap-1.5">
@@ -89,6 +113,7 @@ function NeedsInputRow({
 						type="number"
 						step="0.01"
 						className="w-24"
+						aria-invalid={error !== null}
 						value={interestRatePercent}
 						onChange={(e) => setInterestRatePercent(e.target.value)}
 					/>
@@ -100,6 +125,7 @@ function NeedsInputRow({
 						type="number"
 						step="0.01"
 						className="w-28"
+						aria-invalid={error !== null}
 						value={minimumPayment}
 						onChange={(e) => setMinimumPayment(e.target.value)}
 					/>
@@ -125,8 +151,11 @@ export function DebtPayoffPlannerPage() {
 	const [extraPaymentInput, setExtraPaymentInput] = useState('0');
 	const preferenceLoaded = useRef(false);
 
+	// Deliberately never re-raises `loading`: that flag exists for the first paint only.
+	// Flipping it back on for every refetch blanked the entire page for the duration of the
+	// read, which unmounted every NeedsInputRow along with it — so saving one liability's
+	// details silently discarded whatever the user had already typed into the others.
 	async function refresh() {
-		setLoading(true);
 		try {
 			setLiabilities(await LiabilityRepository.list(key));
 		} catch (err) {
