@@ -25,16 +25,17 @@ import {
 } from '../data/dexie/savingsGoalRepository';
 import { computeGoalProgress } from '../domain/savingsGoals/goalProgress';
 import type { SavingsGoal, GoalContribution } from '../domain/entities';
+import { isPositiveMoney, isNonZeroMoney, parseMoneyOrZero } from '../domain/shared/money';
 
 const goalSchema = z.object({
 	name: z.string().trim().min(1, 'Name is required.'),
-	targetAmount: z.string().refine((v) => parseFloat(v || '0') > 0, 'Enter a positive amount.'),
+	targetAmount: z.string().refine((v) => isPositiveMoney(v), 'Enter a positive amount.'),
 	targetDate: z.string() // '' means no target date
 });
 type GoalFormValues = z.infer<typeof goalSchema>;
 
 const contributionSchema = z.object({
-	amount: z.string().refine((v) => parseFloat(v || '0') !== 0, 'Enter a non-zero amount.'),
+	amount: z.string().refine((v) => isNonZeroMoney(v), 'Enter a non-zero amount.'),
 	date: z.string().min(1)
 });
 type ContributionFormValues = z.infer<typeof contributionSchema>;
@@ -107,7 +108,7 @@ export function SavingsGoalsPage() {
 	}
 
 	async function onSubmitGoal(values: GoalFormValues) {
-		const targetAmount = Math.round(parseFloat(values.targetAmount) * 100);
+		const targetAmount = parseMoneyOrZero(values.targetAmount);
 		const targetDate = values.targetDate || null;
 		if (editingGoal) {
 			await SavingsGoalRepository.update(key, editingGoal.id, {
@@ -244,7 +245,7 @@ function GoalCard({
 		try {
 			await GoalContributionRepository.create(key, {
 				goalId: goal.id,
-				amount: Math.round(parseFloat(values.amount) * 100),
+				amount: parseMoneyOrZero(values.amount),
 				date: values.date
 			});
 		} catch (err) {

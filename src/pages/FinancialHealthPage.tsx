@@ -20,9 +20,21 @@ import {
 	getFinancialHealthTrend,
 	getFinancialHealthScore
 } from '../domain/analytics/financialHealthService';
-import type { FinancialHealthMetrics, FinancialHealthScore } from '../domain/analytics/financialHealthEngine';
+import type {
+	FinancialHealthMetrics,
+	FinancialHealthScore
+} from '../domain/analytics/financialHealthEngine';
+import { toast } from 'sonner';
 
-Chart.register(LineController, LineElement, PointElement, LinearScale, CategoryScale, Tooltip, Legend);
+Chart.register(
+	LineController,
+	LineElement,
+	PointElement,
+	LinearScale,
+	CategoryScale,
+	Tooltip,
+	Legend
+);
 
 function formatPercent(ratio: number | null): string {
 	if (ratio === null) return 'Not applicable';
@@ -88,7 +100,9 @@ function ScoreCard({ score }: { score: FinancialHealthScore | null }) {
 				<CardTitle className="flex items-center gap-2 text-base">
 					<HeartPulse className="size-4 text-primary" />
 					Financial Health Score
-					{score.dataQuality === 'limited' && <Badge variant="outline">Based on limited data</Badge>}
+					{score.dataQuality === 'limited' && (
+						<Badge variant="outline">Based on limited data</Badge>
+					)}
 				</CardTitle>
 			</CardHeader>
 			<CardContent className="flex flex-col gap-4">
@@ -106,15 +120,20 @@ function ScoreCard({ score }: { score: FinancialHealthScore | null }) {
 				<div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
 					<div className="flex flex-col gap-1">
 						<div className="flex items-center justify-between text-sm">
-							<span>Savings rate ({Math.round(score.breakdown.savingsRate.weight * 100)}% weight)</span>
-							<span className="font-medium">{formatPercent(score.breakdown.savingsRate.value)}</span>
+							<span>
+								Savings rate ({Math.round(score.breakdown.savingsRate.weight * 100)}% weight)
+							</span>
+							<span className="font-medium">
+								{formatPercent(score.breakdown.savingsRate.value)}
+							</span>
 						</div>
 						<Progress value={score.breakdown.savingsRate.component ?? 0} />
 					</div>
 					<div className="flex flex-col gap-1">
 						<div className="flex items-center justify-between text-sm">
 							<span>
-								Budget adherence ({Math.round(score.breakdown.budgetAdherence.weight * 100)}% weight)
+								Budget adherence ({Math.round(score.breakdown.budgetAdherence.weight * 100)}%
+								weight)
 							</span>
 							<span className="font-medium">
 								{formatAdherence(score.breakdown.budgetAdherence.value)}
@@ -146,12 +165,20 @@ export function FinancialHealthPage() {
 		void Promise.all([
 			getFinancialHealthTrend(key, range.from, range.to),
 			getFinancialHealthScore(key, range.from, range.to)
-		]).then(([t, s]) => {
-			if (cancelled) return;
-			setTrend(t);
-			setScore(s);
-			setLoading(false);
-		});
+		])
+			.then(([t, s]) => {
+				if (cancelled) return;
+				setTrend(t);
+				setScore(s);
+			})
+			.catch((err: unknown) => {
+				if (cancelled) return;
+				toast.error(err instanceof Error ? err.message : 'Could not load financial health.');
+			})
+			.finally(() => {
+				// Always clears: a rejection here previously left the page on "Loading..." forever.
+				if (!cancelled) setLoading(false);
+			});
 		return () => {
 			cancelled = true;
 		};
@@ -211,7 +238,9 @@ export function FinancialHealthPage() {
 											datasets: [
 												{
 													label: 'Savings rate (%)',
-													data: trend.map((m) => (m.savingsRate === null ? null : m.savingsRate * 100)),
+													data: trend.map((m) =>
+														m.savingsRate === null ? null : m.savingsRate * 100
+													),
 													borderColor: '#0f766e',
 													backgroundColor: 'rgba(15, 118, 110, 0.2)',
 													spanGaps: true,

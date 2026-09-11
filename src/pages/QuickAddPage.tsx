@@ -20,6 +20,7 @@ import { TransactionEngine } from '../domain/transactions/transactionEngine';
 import { resolveMerchant } from '../domain/parser/merchantResolver';
 import { parseQuickAddText, isConfident } from '../domain/parser/quickAddParser';
 import type { Account, TransactionType } from '../domain/entities';
+import { formatMinorUnits, parseMoneyToMinorUnits } from '../domain/shared/money';
 
 // User Story 4 (P4): paste a payment-notification-style text and get a proposed,
 // reviewable transaction (FR-018). Low-confidence text still routes here for manual
@@ -49,7 +50,7 @@ export function QuickAddPage() {
 		const candidate = parseQuickAddText(rawText);
 		setParsed(true);
 		setConfident(isConfident(candidate));
-		if (candidate.amount !== null) setAmountInput((candidate.amount / 100).toString());
+		if (candidate.amount !== null) setAmountInput(formatMinorUnits(candidate.amount));
 		if (candidate.type) setType(candidate.type);
 		if (candidate.merchantText) setMerchantName(candidate.merchantText);
 	}
@@ -61,11 +62,13 @@ export function QuickAddPage() {
 		}
 		setSubmitting(true);
 		try {
-			const amount = Math.round(parseFloat(amountInput) * 100);
+			const amount = parseMoneyToMinorUnits(amountInput);
+			if (amount === null || amount <= 0) {
+				toast.error('Enter a valid positive amount, e.g. 1234.56');
+				return;
+			}
 			const signedAmount = type === 'expense' ? -amount : amount;
-			const resolved = merchantName.trim()
-				? await resolveMerchant(key, merchantName.trim())
-				: null;
+			const resolved = merchantName.trim() ? await resolveMerchant(key, merchantName.trim()) : null;
 			await TransactionEngine.recordTransaction(key, {
 				accountId,
 				date,

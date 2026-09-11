@@ -1,7 +1,14 @@
 import { db } from '../dexie/db';
 import { encryptRow, decryptRows, getDecrypted } from '../dexie/encryptedTable';
 import { deletedAtIndex, nullableIdIndex } from '../dexie/indexable';
-import { encrypt, decrypt, sha256Hex, deriveEncryptionKey } from '../crypto/cryptoService';
+import {
+	encrypt,
+	decrypt,
+	sha256Hex,
+	deriveEncryptionKey,
+	blindIndex,
+	BACKUP_PBKDF2_ITERATIONS
+} from '../crypto/cryptoService';
 import { migrateFromV1 } from './migrations/v1';
 import { migrateFromV1_1 } from './migrations/v1_1';
 import { migrateFromV1_2 } from './migrations/v1_2';
@@ -235,11 +242,16 @@ async function collectPayload(key: CryptoKey): Promise<BackupPayload> {
  */
 export async function createBackup(
 	key: CryptoKey,
-	encryptionSaltBase64: string
+	encryptionSaltBase64: string,
+	pin: string
 ): Promise<BackupFile> {
 	const payload = await collectPayload(key);
 	const checksum = await sha256Hex(JSON.stringify(payload));
-	const { iv, ciphertext } = await encrypt(key, payload);
+	// Deliberately NOT the session key: a backup leaves the device, so it is encrypted under a
+	// key derived at the much higher backup iteration count. Reusing the interactive-unlock key
+	// would have pinned the file's offline resistance to the interactive cost forever.
+	const backupKey = await deriveEncryptionKey(pin, encryptionSaltBase64, BACKUP_PBKDF2_ITERATIONS);
+	const { iv, ciphertext } = await encrypt(backupKey, payload);
 
 	return {
 		container: CONTAINER,
@@ -247,7 +259,11 @@ export async function createBackup(
 		schemaVersion: payload.schemaVersion,
 		createdAt: new Date().toISOString(),
 		checksum,
-		kdf: { algorithm: 'PBKDF2-SHA256', iterations: 210_000, salt: encryptionSaltBase64 },
+		kdf: {
+			algorithm: 'PBKDF2-SHA256',
+			iterations: BACKUP_PBKDF2_ITERATIONS,
+			salt: encryptionSaltBase64
+		},
 		cipher: { algorithm: 'AES-GCM', iv },
 		ciphertext
 	};
@@ -260,16 +276,28 @@ export class BackupValidationError extends Error {}
  * unrecognized container, a bad PIN/corrupted ciphertext, a checksum mismatch, or an
  * unsupported schema version are all reported as a single generic error each — nothing is
  * written to IndexedDB here, so a failed validation never touches existing data.
+ *
+ * Returns only the payload, deliberately not the key it derived. That key is the *backup*
+ * key (BACKUP_PBKDF2_ITERATIONS) and must never be used to encrypt database rows, which
+ * LockScreen re-derives at the interactive cost — handing it back invited exactly that
+ * mistake. Callers re-encrypt with `deriveDataKeyForPayload` instead.
  */
 export async function validateAndDecryptBackup(
 	file: BackupFile,
 	pin: string
-): Promise<{ payload: BackupPayload; key: CryptoKey }> {
+): Promise<{ payload: BackupPayload }> {
 	if (file.container !== CONTAINER || file.containerVersion !== CONTAINER_VERSION) {
 		throw new BackupValidationError('This file is not a recognized backup.');
 	}
 
-	const key = await deriveEncryptionKey(pin, file.kdf.salt);
+	// Honour the count the file records rather than today's constant: a backup written under a
+	// different cost (older app version, or a future change) must still restore. Guard the value
+	// — it comes from an untrusted file, and an absurd count would hang the tab.
+	const iterations = file.kdf?.iterations;
+	if (!Number.isInteger(iterations) || iterations < 1 || iterations > 5_000_000) {
+		throw new BackupValidationError('This file is not a recognized backup.');
+	}
+	const key = await deriveEncryptionKey(pin, file.kdf.salt, iterations);
 	let payload: BackupPayload;
 	try {
 		payload = await decrypt<BackupPayload>(key, {
@@ -289,7 +317,25 @@ export async function validateAndDecryptBackup(
 	if (!migrate) {
 		throw new BackupValidationError('This backup was made with an unsupported app version.');
 	}
-	return { payload: migrate(payload), key };
+	return { payload: migrate(payload) };
+}
+
+/**
+ * Derives the key the *database* must be encrypted under after restoring `payload`.
+ *
+ * This is not the key that decrypted the backup file. The file is protected at
+ * BACKUP_PBKDF2_ITERATIONS because it leaves the device; database rows are protected at the
+ * interactive cost, because LockScreen re-derives them on every unlock. They must also use
+ * the salt that will be in `userProfile` *after* the restore — the backup's own — or the
+ * next unlock derives a different key and nothing decrypts.
+ */
+export async function deriveDataKeyForPayload(
+	payload: BackupPayload,
+	pin: string,
+	fallbackSaltBase64: string
+): Promise<CryptoKey> {
+	const salt = payload.exportedEntities.userProfile?.encryptionSalt ?? fallbackSaltBase64;
+	return deriveEncryptionKey(pin, salt);
 }
 
 /**
@@ -300,6 +346,10 @@ export async function validateAndDecryptBackup(
  */
 export async function restoreBackup(key: CryptoKey, payload: BackupPayload): Promise<void> {
 	const e = payload.exportedEntities;
+	// Blind indexes are salted per installation, and the restore is about to install the
+	// backup's own profile — so the digests must be recomputed against *that* salt, not the
+	// one this device happens to be using right now.
+	const blindIndexSalt = e.userProfile?.encryptionSalt ?? '';
 
 	const [
 		accountRows,
@@ -345,14 +395,18 @@ export async function restoreBackup(key: CryptoKey, payload: BackupPayload): Pro
 			)
 		),
 		Promise.all(
-			e.merchantAliases.map((a) =>
+			e.merchantAliases.map(async (a) =>
 				encryptRow<MerchantAliasRow, MerchantAlias>(key, a, {
 					merchantId: a.merchantId,
-					aliasText: a.aliasText
+					aliasHash: await blindIndex(a.aliasText, blindIndexSalt)
 				})
 			)
 		),
-		Promise.all(e.tags.map((t) => encryptRow<TagRow, Tag>(key, t, { name: t.name }))),
+		Promise.all(
+			e.tags.map(async (t) =>
+				encryptRow<TagRow, Tag>(key, t, { nameHash: await blindIndex(t.name, blindIndexSalt) })
+			)
+		),
 		Promise.all(
 			e.transactions.map((t) =>
 				encryptRow<TransactionRow, Transaction>(key, t, {
@@ -511,7 +565,14 @@ export async function restoreBackup(key: CryptoKey, payload: BackupPayload): Pro
 			db.attachments,
 			db.categorizationRules,
 			db.merchantCategorySignals,
-			db.userProfile
+			db.userProfile,
+			// Every row below is about to be re-encrypted under `key`, which is derived from
+			// the *backup's* salt and so is virtually never the key the current session holds.
+			// A surviving session-key row would silently resume the old key after the reload
+			// that follows a restore, leaving the app "unlocked" with a key that decrypts
+			// nothing. Clearing it inside this transaction means a rolled-back restore keeps
+			// the still-valid session, and a committed one always forces a fresh unlock.
+			db.sessionKeys
 		],
 		async () => {
 			await Promise.all([
@@ -539,7 +600,8 @@ export async function restoreBackup(key: CryptoKey, payload: BackupPayload): Pro
 				db.attachments.clear(),
 				db.categorizationRules.clear(),
 				db.merchantCategorySignals.clear(),
-				db.userProfile.clear()
+				db.userProfile.clear(),
+				db.sessionKeys.clear()
 			]);
 			await Promise.all([
 				db.accounts.bulkPut(accountRows),

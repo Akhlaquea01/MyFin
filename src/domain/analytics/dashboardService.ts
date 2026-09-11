@@ -21,10 +21,13 @@ const TREND_POINTS = 14;
  * investments/liabilities into the calculation — see wealthEngine.ts once that lands.
  */
 export async function getDashboardSummary(key: CryptoKey): Promise<DashboardSummary> {
-	const [accounts, unreviewed, recentTransactions] = await Promise.all([
+	// Bounded queries only. This previously decrypted the entire ledger to show five rows and
+	// a 14-point sparkline, and decrypted every unreviewed row just to read `.length` — on a
+	// 10k+ transaction ledger (SC-008) that was the single slowest thing in the app.
+	const [accounts, unreviewedCount, recentTransactions] = await Promise.all([
 		AccountRepository.list(key, false),
-		TransactionRepository.listUnreviewed(key),
-		TransactionRepository.search(key, {})
+		TransactionRepository.countUnreviewed(),
+		TransactionRepository.listRecent(key, Math.max(RECENT_TRANSACTIONS_LIMIT, TREND_POINTS))
 	]);
 
 	const totalBalance = accounts.reduce((sum, a) => sum + a.currentBalance, 0);
@@ -42,7 +45,7 @@ export async function getDashboardSummary(key: CryptoKey): Promise<DashboardSumm
 	return {
 		totalBalance,
 		netWorth: totalBalance,
-		unreviewedCount: unreviewed.length,
+		unreviewedCount,
 		recentTransactions: recentTransactions.slice(0, RECENT_TRANSACTIONS_LIMIT),
 		accounts,
 		balanceTrend

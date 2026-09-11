@@ -1,17 +1,21 @@
 import { db, type TagRow } from './db';
 import { putEncrypted, decryptRows } from './encryptedTable';
+import { blindIndex } from '../crypto/cryptoService';
+import { getBlindIndexSalt } from './blindIndexSalt';
 import type { Tag } from '../../domain/entities';
 
 export const TagRepository = {
 	async getOrCreate(key: CryptoKey, name: string): Promise<Tag> {
 		const trimmed = name.trim();
-		const existingRow = await db.tags.where('name').equalsIgnoreCase(trimmed).first();
+		// Digest, not the name — the indexed column is unencrypted on disk.
+		const nameHash = await blindIndex(trimmed, await getBlindIndexSalt());
+		const existingRow = await db.tags.where('nameHash').equals(nameHash).first();
 		if (existingRow) {
 			return (await decryptRows<TagRow, Tag>(key, [existingRow]))[0];
 		}
 		const now = Date.now();
 		const tag: Tag = { id: crypto.randomUUID(), name: trimmed, createdAt: now, updatedAt: now };
-		await putEncrypted(db.tags, key, tag, { name: trimmed });
+		await putEncrypted(db.tags, key, tag, { nameHash });
 		return tag;
 	},
 

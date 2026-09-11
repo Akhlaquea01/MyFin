@@ -1,11 +1,7 @@
-import { db } from '../../data/dexie/db';
-import { decryptRows } from '../../data/dexie/encryptedTable';
 import { CategoryRepository } from '../../data/dexie/categoryRepository';
 import { TransactionRepository } from '../../data/dexie/transactionRepository';
 import { BudgetRepository, BudgetItemRepository } from '../../data/dexie/budgetRepository';
 import { NetWorthSnapshotRepository } from '../../data/dexie/wealthRepository';
-import type { TransactionSplitRow } from '../../data/dexie/db';
-import type { TransactionSplit } from '../../domain/entities';
 
 export interface CategoryBreakdownItem {
 	categoryId: string;
@@ -50,20 +46,25 @@ export async function categoryBreakdown(
 	dateFrom: string,
 	dateTo: string
 ): Promise<CategoryBreakdownItem[]> {
-	const [splitRows, categories, transactions] = await Promise.all([
-		db.transactionSplits.toArray(),
+	const [categories, transactions] = await Promise.all([
 		CategoryRepository.list(key),
 		TransactionRepository.search(key, { dateFrom, dateTo })
 	]);
-	const splits = await decryptRows<TransactionSplitRow, TransactionSplit>(key, splitRows);
-	const txById = new Map(transactions.map((t) => [t.id, t]));
+	// Fetch only the splits belonging to the date-ranged transactions. This previously called
+	// `db.transactionSplits.toArray()` and decrypted every split in the database regardless of
+	// the selected range, then discarded most of them.
+	const splitsByTx = await TransactionRepository.splitsByTransaction(
+		key,
+		transactions.map((t) => t.id)
+	);
 	const categoryNameById = new Map(categories.map((c) => [c.id, c.name]));
 
 	const totals = new Map<string, number>();
-	for (const split of splits) {
-		const tx = txById.get(split.transactionId);
-		if (!tx || split.amount >= 0) continue; // only expense splits count as "spending"
-		totals.set(split.categoryId, (totals.get(split.categoryId) ?? 0) - split.amount);
+	for (const tx of transactions) {
+		for (const split of splitsByTx.get(tx.id) ?? []) {
+			if (split.amount >= 0) continue; // only expense splits count as "spending"
+			totals.set(split.categoryId, (totals.get(split.categoryId) ?? 0) - split.amount);
+		}
 	}
 
 	return [...totals.entries()]
@@ -135,10 +136,14 @@ export async function budgetPerformance(
 	]);
 	const categoryNameById = new Map(categories.map((c) => [c.id, c.name]));
 
+	// One round of lookups in parallel rather than a sequential await per budget.
+	const itemsPerBudget = await Promise.all(
+		budgets.map((budget) => BudgetItemRepository.listForBudget(key, budget.id))
+	);
+
 	const results: BudgetPerformanceItem[] = [];
-	for (const budget of budgets) {
-		const items = await BudgetItemRepository.listForBudget(key, budget.id);
-		for (const item of items) {
+	for (const [index, budget] of budgets.entries()) {
+		for (const item of itemsPerBudget[index]) {
 			if (item.periodEnd < dateFrom || item.periodStart > dateTo) continue;
 			results.push({
 				budgetId: budget.id,

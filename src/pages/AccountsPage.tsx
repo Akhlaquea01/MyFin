@@ -33,13 +33,12 @@ import {
 import { useSession } from '../context/SessionContext';
 import { AccountRepository } from '../data/dexie/accountRepository';
 import type { Account, AccountType } from '../domain/entities';
+import { isValidMoney, parseMoneyOrZero } from '../domain/shared/money';
 
 const accountSchema = z.object({
 	name: z.string().trim().min(1, 'Account name is required.'),
 	type: z.enum(['bank', 'cash', 'wallet', 'credit_card']),
-	openingBalance: z
-		.string()
-		.refine((v) => Number.isFinite(parseFloat(v || '0')), 'Enter a valid amount.')
+	openingBalance: z.string().refine((v) => isValidMoney(v || '0'), 'Enter a valid amount.')
 });
 type AccountFormValues = z.infer<typeof accountSchema>;
 
@@ -86,7 +85,7 @@ export function AccountsPage() {
 			await AccountRepository.create(key, {
 				name: values.name,
 				type: values.type,
-				openingBalance: Math.round(parseFloat(values.openingBalance || '0') * 100),
+				openingBalance: parseMoneyOrZero(values.openingBalance || '0'),
 				creditLimit: null,
 				billingCycleDay: null
 			});

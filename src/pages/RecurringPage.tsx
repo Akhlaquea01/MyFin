@@ -30,13 +30,14 @@ import { AccountRepository } from '../data/dexie/accountRepository';
 import { CategoryRepository } from '../data/dexie/categoryRepository';
 import { RecurringRepository } from '../data/dexie/recurringRepository';
 import type { Account, Category, RecurringFrequency, RecurringRule } from '../domain/entities';
+import { isPositiveMoney, parseMoneyOrZero } from '../domain/shared/money';
 
 const ruleSchema = z.object({
 	accountId: z.string().min(1, 'Choose an account.'),
 	categoryId: z.string().min(1, 'Choose a category.'),
 	frequency: z.enum(['weekly', 'monthly', 'yearly']),
-	dayOfPeriod: z.string().refine((v) => Number.isInteger(parseFloat(v)) && parseFloat(v) > 0),
-	amount: z.string().refine((v) => parseFloat(v || '0') > 0, 'Enter a positive amount.')
+	dayOfPeriod: z.string().refine((v) => /^\d+$/.test(v.trim()) && Number(v) > 0),
+	amount: z.string().refine((v) => isPositiveMoney(v), 'Enter a positive amount.')
 });
 type RuleFormValues = z.infer<typeof ruleSchema>;
 
@@ -70,15 +71,20 @@ export function RecurringPage() {
 
 	async function refresh() {
 		setLoading(true);
-		const [accts, cats, ruleList] = await Promise.all([
-			AccountRepository.list(key, false),
-			CategoryRepository.list(key),
-			RecurringRepository.list(key)
-		]);
-		setAccounts(accts);
-		setCategories(cats);
-		setRules(ruleList);
-		setLoading(false);
+		try {
+			const [accts, cats, ruleList] = await Promise.all([
+				AccountRepository.list(key, false),
+				CategoryRepository.list(key),
+				RecurringRepository.list(key)
+			]);
+			setAccounts(accts);
+			setCategories(cats);
+			setRules(ruleList);
+		} catch (err) {
+			toast.error(err instanceof Error ? err.message : 'Could not load this page.');
+		} finally {
+			setLoading(false);
+		}
 	}
 
 	useEffect(() => {
@@ -97,7 +103,7 @@ export function RecurringPage() {
 		await RecurringRepository.create(key, {
 			accountId: values.accountId,
 			categoryId: values.categoryId,
-			amount: Math.round(parseFloat(values.amount) * 100),
+			amount: parseMoneyOrZero(values.amount),
 			frequency: values.frequency,
 			dayOfPeriod: parseInt(values.dayOfPeriod, 10)
 		});

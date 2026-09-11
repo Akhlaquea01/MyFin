@@ -16,6 +16,8 @@ import {
 } from '../domain/debtPlanner/generatePlan';
 import type { DebtPayoffPlan, PayoffStrategy } from '../domain/debtPlanner/types';
 import type { Liability } from '../domain/entities';
+import { formatMinorUnits, parseMoneyToMinorUnits } from '../domain/shared/money';
+import { toast } from 'sonner';
 
 function formatMoney(paise: number): string {
 	return (paise / 100).toLocaleString(undefined, {
@@ -48,22 +50,24 @@ function NeedsInputRow({
 }) {
 	const { getEncryptionKey } = useSession();
 	const [interestRatePercent, setInterestRatePercent] = useState(
-		liability.interestRate != null ? String(liability.interestRate / 100) : ''
+		liability.interestRate != null ? formatMinorUnits(liability.interestRate) : ''
 	);
 	const [minimumPayment, setMinimumPayment] = useState(
-		liability.minimumPayment != null ? String(liability.minimumPayment / 100) : ''
+		liability.minimumPayment != null ? formatMinorUnits(liability.minimumPayment) : ''
 	);
 	const [saving, setSaving] = useState(false);
 
 	async function save() {
-		const rate = parseFloat(interestRatePercent);
-		const minimum = parseFloat(minimumPayment);
-		if (!Number.isFinite(rate) || rate < 0 || !Number.isFinite(minimum) || minimum <= 0) return;
+		// An annual rate in basis points is the same 2-decimal-to-integer-hundredths scaling
+		// as a money amount, and needs the same exactness — 18.55% must land on 1855, not 1854.
+		const rateBasisPoints = parseMoneyToMinorUnits(interestRatePercent);
+		const minimum = parseMoneyToMinorUnits(minimumPayment);
+		if (rateBasisPoints === null || rateBasisPoints < 0 || minimum === null || minimum <= 0) return;
 
 		setSaving(true);
 		await LiabilityRepository.update(getEncryptionKey(), liability.id, {
-			interestRate: Math.round(rate * 100),
-			minimumPayment: Math.round(minimum * 100)
+			interestRate: rateBasisPoints,
+			minimumPayment: minimum
 		});
 		setSaving(false);
 		await onSaved();
@@ -123,8 +127,13 @@ export function DebtPayoffPlannerPage() {
 
 	async function refresh() {
 		setLoading(true);
-		setLiabilities(await LiabilityRepository.list(key));
-		setLoading(false);
+		try {
+			setLiabilities(await LiabilityRepository.list(key));
+		} catch (err) {
+			toast.error(err instanceof Error ? err.message : 'Could not load this page.');
+		} finally {
+			setLoading(false);
+		}
 	}
 
 	useEffect(() => {
@@ -152,8 +161,8 @@ export function DebtPayoffPlannerPage() {
 
 	function onExtraPaymentChange(value: string) {
 		setExtraPaymentInput(value);
-		const parsed = parseFloat(value);
-		setExtraMonthlyPayment(Number.isFinite(parsed) && parsed >= 0 ? Math.round(parsed * 100) : 0);
+		const parsed = parseMoneyToMinorUnits(value);
+		setExtraMonthlyPayment(parsed !== null && parsed >= 0 ? parsed : 0);
 	}
 
 	const { eligible, excludedLiabilityIds } = useMemo(

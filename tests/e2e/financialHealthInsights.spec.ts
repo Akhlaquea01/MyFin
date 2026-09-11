@@ -65,10 +65,7 @@ test('financial health figures match manual computation and the score moves with
 	await expect(page.getByText('10.0%').first()).toBeVisible(); // expense-to-income ratio
 	await expect(page.getByText('100%').first()).toBeVisible(); // budget adherence, 1-for-1 within limit
 
-	const scoreBefore = await page
-		.locator('text=/^[0-9]+$/')
-		.first()
-		.textContent();
+	const scoreBefore = await page.locator('text=/^[0-9]+$/').first().textContent();
 
 	// Add an over-limit expense: worsens both savings rate and budget adherence.
 	await page.getByRole('link', { name: 'Transactions' }).click();
@@ -87,10 +84,7 @@ test('financial health figures match manual computation and the score moves with
 	await expect(page.getByText('40.0%').first()).toBeVisible(); // savings rate: (1000-600)/1000
 	await expect(page.getByText('60.0%').first()).toBeVisible(); // expense-to-income ratio: 600/1000
 
-	const scoreAfter = await page
-		.locator('text=/^[0-9]+$/')
-		.first()
-		.textContent();
+	const scoreAfter = await page.locator('text=/^[0-9]+$/').first().textContent();
 	expect(Number(scoreAfter)).toBeLessThan(Number(scoreBefore));
 });
 

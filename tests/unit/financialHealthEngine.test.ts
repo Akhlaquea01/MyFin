@@ -42,7 +42,7 @@ describe('computeBudgetAdherence', () => {
 		expect(computeBudgetAdherence([])).toEqual({ adherence: null, considered: 0 });
 	});
 
-	it('computes the percentage within limit using <= (matching AnalyticsPage\'s over-budget check)', () => {
+	it("computes the percentage within limit using <= (matching AnalyticsPage's over-budget check)", () => {
 		const result = computeBudgetAdherence([
 			{ plannedAmount: 1000, actualAmount: 900 }, // within limit
 			{ plannedAmount: 1000, actualAmount: 1000 }, // exactly at limit -> within (uses <=)
@@ -136,7 +136,9 @@ describe('computeFinancialHealthScore', () => {
 	});
 
 	it('uses the sole available component when savings rate is unavailable (no income)', () => {
-		const trend = [metricsFixture({ month: '2026-01', savingsRate: null, expenseToIncomeRatio: null, income: 0 })];
+		const trend = [
+			metricsFixture({ month: '2026-01', savingsRate: null, expenseToIncomeRatio: null, income: 0 })
+		];
 		const result = computeFinancialHealthScore(trend);
 		expect(result.score).toBe(80); // budgetAdherence component alone
 		expect(result.dataQuality).toBe('limited');

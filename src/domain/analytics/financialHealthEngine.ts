@@ -62,9 +62,10 @@ export function computeExpenseToIncomeRatio(income: number, expense: number): nu
  * §2). `null` when there are no rows to judge (Edge Cases — no active budgets is not a
  * penalty, not a `0%`).
  */
-export function computeBudgetAdherence(
-	items: { plannedAmount: number; actualAmount: number }[]
-): { adherence: number | null; considered: number } {
+export function computeBudgetAdherence(items: { plannedAmount: number; actualAmount: number }[]): {
+	adherence: number | null;
+	considered: number;
+} {
 	const considered = items.length;
 	if (considered === 0) return { adherence: null, considered };
 	const withinLimit = items.filter((i) => i.actualAmount <= i.plannedAmount).length;
@@ -120,7 +121,11 @@ export function computeFinancialHealthScore(trend: FinancialHealthMetrics[]): Fi
 		latest.budgetAdherence === null ? null : clamp(latest.budgetAdherence, 0, 100);
 
 	const breakdown = {
-		savingsRate: { value: latest.savingsRate, component: savingsRateComponent, weight: SAVINGS_RATE_WEIGHT },
+		savingsRate: {
+			value: latest.savingsRate,
+			component: savingsRateComponent,
+			weight: SAVINGS_RATE_WEIGHT
+		},
 		budgetAdherence: {
 			value: latest.budgetAdherence,
 			component: budgetAdherenceComponent,
@@ -131,7 +136,8 @@ export function computeFinancialHealthScore(trend: FinancialHealthMetrics[]): Fi
 	let score: number | null;
 	if (savingsRateComponent !== null && budgetAdherenceComponent !== null) {
 		score = Math.round(
-			SAVINGS_RATE_WEIGHT * savingsRateComponent + BUDGET_ADHERENCE_WEIGHT * budgetAdherenceComponent
+			SAVINGS_RATE_WEIGHT * savingsRateComponent +
+				BUDGET_ADHERENCE_WEIGHT * budgetAdherenceComponent
 		);
 	} else if (savingsRateComponent !== null) {
 		score = Math.round(savingsRateComponent);

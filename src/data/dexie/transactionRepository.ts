@@ -50,6 +50,23 @@ export interface TransactionFilter {
 
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;
 
+// Open bounds for an index range query. IndexedDB requires concrete keys, and every stored
+// date is a "YYYY-MM-DD" string, so these sort correctly as string bounds.
+const MIN_DATE = '0000-01-01';
+const MAX_DATE = '9999-12-31';
+
+/**
+ * Newest first, with deterministic tie-breaking. The previous comparator
+ * (`a.date < b.date ? 1 : -1`) never returned 0, so for two rows sharing a date it asserted
+ * both orderings at once — an invalid comparator, which let the sort arrange same-day
+ * transactions differently between loads. Same-day is the common case.
+ */
+function sortNewestFirst(transactions: Transaction[]): Transaction[] {
+	return transactions.sort(
+		(a, b) => b.date.localeCompare(a.date) || b.createdAt - a.createdAt || a.id.localeCompare(b.id)
+	);
+}
+
 function toRow(tx: Transaction): Omit<TransactionRow, 'id' | 'encryptedData'> {
 	return {
 		accountId: tx.accountId,
@@ -145,6 +162,18 @@ export const TransactionRepository = {
 			if (splitSum !== updated.amount) {
 				throw new Error(
 					`Split amounts (${splitSum}) must sum to the transaction amount (${updated.amount}).`
+				);
+			}
+		} else if (changes.amount !== undefined && changes.amount !== existing.amount) {
+			// Changing the amount without supplying splits previously left the old splits in
+			// place, so the ledger total and the category breakdown disagreed permanently, with
+			// nothing flagging it.
+			const current = await this.getSplits(key, id);
+			const currentSum = current.reduce((sum, s) => sum + s.amount, 0);
+			if (currentSum !== updated.amount) {
+				throw new Error(
+					`Changing the amount to ${updated.amount} requires new splits ` +
+						`(existing splits sum to ${currentSum}).`
 				);
 			}
 		}
@@ -247,32 +276,57 @@ export const TransactionRepository = {
 	): Promise<[Transaction, Transaction]> {
 		const outId = crypto.randomUUID();
 		const inId = crypto.randomUUID();
-		const outTx = await this.create(
-			key,
-			{
-				id: outId,
-				accountId: params.fromAccountId,
-				date: params.date,
-				amount: -Math.abs(params.amount),
-				type: 'transfer',
-				transferPairId: inId,
-				notes: params.notes ?? null
-			},
-			[]
+		const now = Date.now();
+
+		const leg = (id: string, pairId: string, accountId: string, amount: number): Transaction => ({
+			id,
+			accountId,
+			date: params.date,
+			amount,
+			type: 'transfer',
+			transferPairId: pairId,
+			merchantId: null,
+			notes: params.notes ?? null,
+			source: 'manual',
+			reviewStatus: 'confirmed',
+			duplicateOfId: null,
+			createdAt: now,
+			updatedAt: now,
+			deletedAt: null
+		});
+
+		const outTx = leg(outId, inId, params.fromAccountId, -Math.abs(params.amount));
+		const inTx = leg(inId, outId, params.toAccountId, Math.abs(params.amount));
+
+		// Both legs commit together or neither does. Previously these were two independent
+		// `create()` calls, each opening its own Dexie transaction: a failure between them left
+		// money debited from one account and arriving nowhere, with a `transferPairId` pointing
+		// at a row that never existed. All encryption happens first, because a `db.transaction`
+		// block loses its tracked scope across an awaited non-Dexie promise (encryptedTable.ts).
+		const [outRow, inRow] = await Promise.all([
+			encryptRow<TransactionRow, Transaction>(key, outTx, toRow(outTx)),
+			encryptRow<TransactionRow, Transaction>(key, inTx, toRow(inTx))
+		]);
+		const splitEntities: TransactionSplit[] = [outTx, inTx].map((tx) => ({
+			id: crypto.randomUUID(),
+			transactionId: tx.id,
+			categoryId: UNCATEGORIZED_CATEGORY_ID,
+			amount: tx.amount
+		}));
+		const splitRows = await Promise.all(
+			splitEntities.map((splitEntity) =>
+				encryptRow<TransactionSplitRow, TransactionSplit>(key, splitEntity, {
+					transactionId: splitEntity.transactionId,
+					categoryId: splitEntity.categoryId
+				})
+			)
 		);
-		const inTx = await this.create(
-			key,
-			{
-				id: inId,
-				accountId: params.toAccountId,
-				date: params.date,
-				amount: Math.abs(params.amount),
-				type: 'transfer',
-				transferPairId: outId,
-				notes: params.notes ?? null
-			},
-			[]
-		);
+
+		await db.transaction('rw', db.transactions, db.transactionSplits, async () => {
+			await db.transactions.bulkPut([outRow, inRow]);
+			await db.transactionSplits.bulkPut(splitRows);
+		});
+
 		return [outTx, inTx];
 	},
 
@@ -308,14 +362,27 @@ export const TransactionRepository = {
 		return decryptRows<TransactionRow, Transaction>(key, rows);
 	},
 
+	/**
+	 * Narrows on the indexed structural columns *before* decrypting anything — decryption is by
+	 * far the dominant cost here, so every row an index excludes is a row never decrypted. A
+	 * date range now uses the `date` index instead of a linear scan over the whole table.
+	 */
 	async search(key: CryptoKey, filter: TransactionFilter = {}): Promise<Transaction[]> {
-		let rows: TransactionRow[];
+		let collection;
 		if (filter.accountId) {
-			rows = await db.transactions.where('accountId').equals(filter.accountId).toArray();
+			collection = db.transactions.where('accountId').equals(filter.accountId);
+		} else if (filter.dateFrom || filter.dateTo) {
+			collection = db.transactions
+				.where('date')
+				.between(filter.dateFrom ?? MIN_DATE, filter.dateTo ?? MAX_DATE, true, true);
 		} else {
-			rows = await db.transactions.toArray();
+			collection = db.transactions.toCollection();
 		}
+		let rows = await collection.toArray();
+
 		if (!filter.includeDeleted) rows = rows.filter((r) => r.deletedAt === NOT_DELETED);
+		// Applied unconditionally: when `accountId` selected the index above, the date bounds
+		// have not been applied yet.
 		if (filter.dateFrom) rows = rows.filter((r) => r.date >= filter.dateFrom!);
 		if (filter.dateTo) rows = rows.filter((r) => r.date <= filter.dateTo!);
 
@@ -341,6 +408,62 @@ export const TransactionRepository = {
 			transactions = transactions.filter((tx) => (tx.notes ?? '').toLowerCase().includes(needle));
 		}
 
-		return transactions.sort((a, b) => (a.date < b.date ? 1 : -1));
+		return sortNewestFirst(transactions);
+	},
+
+	/** Counts live transactions off the index — no rows decrypted. */
+	async countActive(): Promise<number> {
+		return db.transactions.where('deletedAt').equals(NOT_DELETED).count();
+	},
+
+	/** Counts unreviewed transactions straight off the index — no rows decrypted. */
+	async countUnreviewed(): Promise<number> {
+		return db.transactions
+			.where('reviewStatus')
+			.equals('unreviewed')
+			.filter((row) => row.deletedAt === NOT_DELETED)
+			.count();
+	},
+
+	/**
+	 * The most recent `limit` transactions, newest first. Walks the `date` index backwards and
+	 * decrypts only what it takes — the dashboard needs a handful of rows plus a short trend,
+	 * and previously paid for decrypting the entire ledger to get them.
+	 */
+	async listRecent(key: CryptoKey, limit: number): Promise<Transaction[]> {
+		if (limit <= 0) return [];
+		const rows: TransactionRow[] = [];
+		await db.transactions
+			.orderBy('date')
+			.reverse()
+			.until(() => rows.length >= limit)
+			.each((row) => {
+				if (row.deletedAt === NOT_DELETED) rows.push(row);
+			});
+		const transactions = await decryptRows<TransactionRow, Transaction>(key, rows.slice(0, limit));
+		return sortNewestFirst(transactions);
+	},
+
+	/**
+	 * All splits for many transactions in one query, grouped by transaction id. Replaces
+	 * per-transaction `getSplits` calls inside loops (export, analytics), each of which cost an
+	 * indexed query plus a decrypt batch of its own.
+	 */
+	async splitsByTransaction(
+		key: CryptoKey,
+		transactionIds?: string[]
+	): Promise<Map<string, TransactionSplit[]>> {
+		const rows =
+			transactionIds === undefined
+				? await db.transactionSplits.toArray()
+				: await db.transactionSplits.where('transactionId').anyOf(transactionIds).toArray();
+		const splits = await decryptRows<TransactionSplitRow, TransactionSplit>(key, rows);
+		const grouped = new Map<string, TransactionSplit[]>();
+		for (const split of splits) {
+			const existing = grouped.get(split.transactionId);
+			if (existing) existing.push(split);
+			else grouped.set(split.transactionId, [split]);
+		}
+		return grouped;
 	}
 };

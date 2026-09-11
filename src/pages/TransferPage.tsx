@@ -19,12 +19,13 @@ import { useSession } from '../context/SessionContext';
 import { AccountRepository } from '../data/dexie/accountRepository';
 import { TransactionEngine } from '../domain/transactions/transactionEngine';
 import type { Account } from '../domain/entities';
+import { isPositiveMoney, parseMoneyOrZero } from '../domain/shared/money';
 
 const formSchema = z
 	.object({
 		fromAccountId: z.string().min(1, 'Choose an account.'),
 		toAccountId: z.string().min(1, 'Choose an account.'),
-		amount: z.string().refine((v) => parseFloat(v || '0') > 0, 'Enter a positive amount.'),
+		amount: z.string().refine((v) => isPositiveMoney(v), 'Enter a positive amount.'),
 		date: z.string().min(1),
 		notes: z.string()
 	})
@@ -65,7 +66,7 @@ export function TransferPage() {
 			await TransactionEngine.recordTransfer(key, {
 				fromAccountId: values.fromAccountId,
 				toAccountId: values.toAccountId,
-				amount: Math.round(parseFloat(values.amount || '0') * 100),
+				amount: parseMoneyOrZero(values.amount || '0'),
 				date: values.date,
 				notes: values.notes.trim() || undefined
 			});

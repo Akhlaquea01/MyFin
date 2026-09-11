@@ -44,24 +44,27 @@ export function TrashPage() {
 
 	async function refresh() {
 		setLoading(true);
-		const [accountRows, transactionRows, goalRows, ruleRows, allMerchants, allCategories] =
-			await Promise.all([
-				db.accounts.filter((r) => r.deletedAt !== NOT_DELETED).toArray(),
-				db.transactions.filter((r) => r.deletedAt !== NOT_DELETED).toArray(),
-				db.savingsGoals.filter((r) => r.deletedAt !== NOT_DELETED).toArray(),
-				db.categorizationRules.filter((r) => r.deletedAt !== NOT_DELETED).toArray(),
-				MerchantRepository.list(key),
-				CategoryRepository.list(key)
-			]);
-		setDeletedAccounts(await decryptRows<AccountRow, Account>(key, accountRows));
-		setDeletedTransactions(await decryptRows<TransactionRow, Transaction>(key, transactionRows));
-		setDeletedGoals(await decryptRows<SavingsGoalRow, SavingsGoal>(key, goalRows));
-		setDeletedRules(
-			await decryptRows<CategorizationRuleRow, CategorizationRule>(key, ruleRows)
-		);
-		setMerchants(allMerchants);
-		setCategories(allCategories);
-		setLoading(false);
+		try {
+			const [accountRows, transactionRows, goalRows, ruleRows, allMerchants, allCategories] =
+				await Promise.all([
+					db.accounts.filter((r) => r.deletedAt !== NOT_DELETED).toArray(),
+					db.transactions.filter((r) => r.deletedAt !== NOT_DELETED).toArray(),
+					db.savingsGoals.filter((r) => r.deletedAt !== NOT_DELETED).toArray(),
+					db.categorizationRules.filter((r) => r.deletedAt !== NOT_DELETED).toArray(),
+					MerchantRepository.list(key),
+					CategoryRepository.list(key)
+				]);
+			setDeletedAccounts(await decryptRows<AccountRow, Account>(key, accountRows));
+			setDeletedTransactions(await decryptRows<TransactionRow, Transaction>(key, transactionRows));
+			setDeletedGoals(await decryptRows<SavingsGoalRow, SavingsGoal>(key, goalRows));
+			setDeletedRules(await decryptRows<CategorizationRuleRow, CategorizationRule>(key, ruleRows));
+			setMerchants(allMerchants);
+			setCategories(allCategories);
+		} catch (err) {
+			toast.error(err instanceof Error ? err.message : 'Could not load this page.');
+		} finally {
+			setLoading(false);
+		}
 	}
 
 	useEffect(() => {
@@ -192,9 +195,7 @@ export function TrashPage() {
 					</section>
 
 					<section>
-						<h2 className="mb-2 text-sm font-medium text-muted-foreground">
-							Categorization Rules
-						</h2>
+						<h2 className="mb-2 text-sm font-medium text-muted-foreground">Categorization Rules</h2>
 						{deletedRules.length === 0 ? (
 							<EmptyTrashCard />
 						) : (

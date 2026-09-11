@@ -24,11 +24,12 @@ import { MerchantRepository } from '../data/dexie/merchantRepository';
 import { TagRepository, TransactionTagRepository } from '../data/dexie/tagRepository';
 import { TransactionEngine } from '../domain/transactions/transactionEngine';
 import type { Account, Category } from '../domain/entities';
+import { isPositiveMoney, parseMoneyOrZero } from '../domain/shared/money';
 
 const formSchema = z.object({
 	accountId: z.string().min(1, 'Choose an account.'),
 	type: z.enum(['expense', 'income']),
-	amount: z.string().refine((v) => parseFloat(v || '0') > 0, 'Enter a positive amount.'),
+	amount: z.string().refine((v) => isPositiveMoney(v), 'Enter a positive amount.'),
 	date: z.string().min(1),
 	merchantName: z.string(),
 	notes: z.string(),
@@ -38,8 +39,7 @@ const formSchema = z.object({
 type FormValues = z.infer<typeof formSchema>;
 
 function toPaise(rupees: number | string): number {
-	const value = Math.round(parseFloat(String(rupees) || '0') * 100);
-	return Number.isFinite(value) ? value : 0;
+	return parseMoneyOrZero(rupees);
 }
 
 // User Story 2 (P2): transaction entry, with optional multi-category splits (FR-008, FR-009).

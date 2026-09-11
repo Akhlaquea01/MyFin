@@ -255,6 +255,14 @@ export interface UserProfile {
 	autoLockTimeoutMs: number;
 	storagePersisted: boolean;
 	/**
+	 * Consecutive failed unlock attempts, and the deadline before which further attempts are
+	 * refused. Persisted rather than held in memory so a reload — the obvious way to sidestep
+	 * an in-memory counter — does not reset the throttle. See domain/auth/pinPolicy.ts.
+	 * Optional so profiles written before this field existed keep loading; absent means zero.
+	 */
+	failedUnlockAttempts?: number;
+	lockedOutUntil?: EpochMillis | null;
+	/**
 	 * Present only when biometric unlock (FR-002) is enrolled. The PIN, encrypted with a
 	 * key derived from the WebAuthn PRF extension output, so a successful biometric
 	 * assertion can recover the PIN without the user typing it — the PIN is still what

@@ -27,11 +27,14 @@ import {
 import { useSession } from '../context/SessionContext';
 import { LiabilityRepository } from '../data/dexie/wealthRepository';
 import type { Liability, LiabilityType } from '../domain/entities';
+import { isNonNegativeMoney, parseMoneyOrZero } from '../domain/shared/money';
 
 const liabilitySchema = z.object({
 	name: z.string().trim().min(1, 'Name is required.'),
 	type: z.enum(['loan', 'credit_card']),
-	outstandingBalance: z.string().refine((v) => parseFloat(v || '0') >= 0, 'Enter a valid amount.')
+	outstandingBalance: z
+		.string()
+		.refine((v) => isNonNegativeMoney(v || '0'), 'Enter a valid amount.')
 });
 type LiabilityFormValues = z.infer<typeof liabilitySchema>;
 
@@ -58,8 +61,13 @@ export function LiabilitiesPage() {
 
 	async function refresh() {
 		setLoading(true);
-		setLiabilities(await LiabilityRepository.list(key));
-		setLoading(false);
+		try {
+			setLiabilities(await LiabilityRepository.list(key));
+		} catch (err) {
+			toast.error(err instanceof Error ? err.message : 'Could not load this page.');
+		} finally {
+			setLoading(false);
+		}
 	}
 
 	useEffect(() => {
@@ -71,7 +79,7 @@ export function LiabilitiesPage() {
 		await LiabilityRepository.create(key, {
 			name: values.name,
 			type: values.type,
-			outstandingBalance: Math.round(parseFloat(values.outstandingBalance) * 100),
+			outstandingBalance: parseMoneyOrZero(values.outstandingBalance),
 			emiAmount: null,
 			emiDueDay: null
 		});

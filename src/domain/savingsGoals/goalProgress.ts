@@ -20,6 +20,22 @@ export function computeGoalProgress(input: ComputeGoalProgressInput): GoalProgre
 	const { goal, contributions, asOfDate } = input;
 
 	const savedAmount = contributions.reduce((sum, c) => sum + c.amount, 0);
+
+	// A non-positive target has no meaningful progress: `savedAmount / 0` yields NaN (rendered
+	// as "NaN%") or Infinity, and `0 >= 0` would report the goal as already achieved. The entry
+	// form rejects it, but this is a documented pure function with its own contract — a restored
+	// backup or a future caller can reach it directly, so it must not depend on a form.
+	if (goal.targetAmount <= 0) {
+		return {
+			goalId: goal.id,
+			savedAmount,
+			progressPercent: 0,
+			achieved: false,
+			projectedCompletionDate: null,
+			status: 'insufficient-data'
+		};
+	}
+
 	const progressPercent = Math.round((savedAmount / goal.targetAmount) * 100);
 	const achieved = savedAmount >= goal.targetAmount;
 

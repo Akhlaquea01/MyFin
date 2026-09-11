@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { pickBestRule, deriveSuggestion, MIN_STREAK } from '../../src/domain/categorization/categorizationEngine';
+import {
+	pickBestRule,
+	deriveSuggestion,
+	MIN_STREAK
+} from '../../src/domain/categorization/categorizationEngine';
 import type { CategorizationRule } from '../../src/domain/entities';
 
 function makeRule(overrides: Partial<CategorizationRule>): CategorizationRule {

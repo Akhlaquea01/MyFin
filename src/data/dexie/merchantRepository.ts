@@ -1,6 +1,8 @@
 import { db, type MerchantRow, type MerchantAliasRow } from './db';
 import { putEncrypted, getDecrypted, decryptRows } from './encryptedTable';
 import { deletedAtIndex, NOT_DELETED } from './indexable';
+import { blindIndex } from '../crypto/cryptoService';
+import { getBlindIndexSalt } from './blindIndexSalt';
 import type { Merchant, MerchantAlias } from '../../domain/entities';
 
 export const MerchantRepository = {
@@ -47,16 +49,19 @@ export const MerchantAliasRepository = {
 			createdAt: now,
 			updatedAt: now
 		};
-		await putEncrypted(db.merchantAliases, key, alias, { merchantId, aliasText });
+		// Only the digest goes in the indexed column; the alias text itself is inside
+		// `encryptedData` like every other field.
+		const aliasHash = await blindIndex(aliasText, await getBlindIndexSalt());
+		await putEncrypted(db.merchantAliases, key, alias, { merchantId, aliasHash });
 		return alias;
 	},
 
-	/** Case-insensitive lookup used by the Quick Add parser to resolve raw text to a known merchant. */
+	/** Case-insensitive lookup used by the Quick Add parser to resolve raw text to a known
+	 *  merchant. Matches on the salted digest — `blindIndex` lowercases and trims, which is
+	 *  what made the previous `equalsIgnoreCase` comparison case-insensitive. */
 	async findByAliasText(key: CryptoKey, aliasText: string): Promise<MerchantAlias | null> {
-		const match = await db.merchantAliases
-			.where('aliasText')
-			.equalsIgnoreCase(aliasText.trim())
-			.first();
+		const aliasHash = await blindIndex(aliasText, await getBlindIndexSalt());
+		const match = await db.merchantAliases.where('aliasHash').equals(aliasHash).first();
 		if (!match) return null;
 		const decrypted = await decryptRows<MerchantAliasRow, MerchantAlias>(key, [match]);
 		return decrypted[0] ?? null;

@@ -30,11 +30,12 @@ import { CategoryRepository } from '../data/dexie/categoryRepository';
 import { BudgetRepository } from '../data/dexie/budgetRepository';
 import { ensureCurrentBudgetItem } from '../domain/budgets/budgetEngine';
 import type { Budget, BudgetItem, BudgetPeriodType, Category } from '../domain/entities';
+import { isPositiveMoney, parseMoneyOrZero } from '../domain/shared/money';
 
 const budgetSchema = z.object({
 	categoryId: z.string().min(1, 'Choose a category.'),
 	periodType: z.enum(['monthly', 'yearly']),
-	amount: z.string().refine((v) => parseFloat(v || '0') > 0, 'Enter a positive amount.'),
+	amount: z.string().refine((v) => isPositiveMoney(v), 'Enter a positive amount.'),
 	rolloverEnabled: z.boolean(),
 	isSinkingFund: z.boolean()
 });
@@ -64,15 +65,22 @@ export function BudgetsPage() {
 
 	async function refresh() {
 		setLoading(true);
-		const [cats, budgetList] = await Promise.all([
-			CategoryRepository.list(key),
-			BudgetRepository.list(key)
-		]);
-		setCategories(cats);
-		setBudgets(budgetList);
-		const currentItems = await Promise.all(budgetList.map((b) => ensureCurrentBudgetItem(key, b)));
-		setItems(Object.fromEntries(budgetList.map((b, i) => [b.id, currentItems[i]])));
-		setLoading(false);
+		try {
+			const [cats, budgetList] = await Promise.all([
+				CategoryRepository.list(key),
+				BudgetRepository.list(key)
+			]);
+			setCategories(cats);
+			setBudgets(budgetList);
+			const currentItems = await Promise.all(
+				budgetList.map((b) => ensureCurrentBudgetItem(key, b))
+			);
+			setItems(Object.fromEntries(budgetList.map((b, i) => [b.id, currentItems[i]])));
+		} catch (err) {
+			toast.error(err instanceof Error ? err.message : 'Could not load this page.');
+		} finally {
+			setLoading(false);
+		}
 	}
 
 	useEffect(() => {
@@ -88,7 +96,7 @@ export function BudgetsPage() {
 		await BudgetRepository.create(key, {
 			categoryId: values.categoryId,
 			periodType: values.periodType,
-			amount: Math.round(parseFloat(values.amount) * 100),
+			amount: parseMoneyOrZero(values.amount),
 			rolloverEnabled: values.rolloverEnabled,
 			isSinkingFund: values.isSinkingFund
 		});

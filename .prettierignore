@@ -8,3 +8,6 @@ bun.lockb
 # Miscellaneous
 /public/
 components.json
+
+# Full repo checkouts created for background tasks
+.claude/worktrees

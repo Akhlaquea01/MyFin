@@ -70,19 +70,24 @@ export function CategorizationRulesPage() {
 
 	async function refresh() {
 		setLoading(true);
-		const [allMerchants, allCategories, allTags, allRules, allSuggestions] = await Promise.all([
-			MerchantRepository.list(key),
-			CategoryRepository.list(key),
-			TagRepository.list(key),
-			CategorizationRuleRepository.list(key),
-			listCategorizationSuggestions(key)
-		]);
-		setMerchants(allMerchants);
-		setCategories(allCategories);
-		setTags(allTags);
-		setRules(allRules);
-		setSuggestions(allSuggestions);
-		setLoading(false);
+		try {
+			const [allMerchants, allCategories, allTags, allRules, allSuggestions] = await Promise.all([
+				MerchantRepository.list(key),
+				CategoryRepository.list(key),
+				TagRepository.list(key),
+				CategorizationRuleRepository.list(key),
+				listCategorizationSuggestions(key)
+			]);
+			setMerchants(allMerchants);
+			setCategories(allCategories);
+			setTags(allTags);
+			setRules(allRules);
+			setSuggestions(allSuggestions);
+		} catch (err) {
+			toast.error(err instanceof Error ? err.message : 'Could not load this page.');
+		} finally {
+			setLoading(false);
+		}
 	}
 
 	useEffect(() => {
@@ -343,8 +348,8 @@ export function CategorizationRulesPage() {
 						<h2 className="mb-2 text-sm font-medium text-muted-foreground">Learned Suggestions</h2>
 						{suggestions.length === 0 ? (
 							<p className="text-sm text-muted-foreground">
-								No learned suggestions yet — confirm a merchant into the same category a few
-								times in the Review Queue to build one.
+								No learned suggestions yet — confirm a merchant into the same category a few times
+								in the Review Queue to build one.
 							</p>
 						) : (
 							<div className="flex flex-col gap-3">

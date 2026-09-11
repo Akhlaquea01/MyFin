@@ -21,6 +21,7 @@ import { recordConfirmation } from '../../src/domain/categorization/resolveCateg
 import {
 	createBackup,
 	validateAndDecryptBackup,
+	deriveDataKeyForPayload,
 	restoreBackup,
 	BackupValidationError,
 	CURRENT_SCHEMA_VERSION,
@@ -98,7 +99,7 @@ describe('Backup service', () => {
 	});
 
 	it('encodes a checksummed, versioned backup carrying the current schema version', async () => {
-		const backup = await createBackup(key, encryptionSalt);
+		const backup = await createBackup(key, encryptionSalt, pin);
 		expect(backup.container).toBe('personal-finance-manager-backup');
 		expect(backup.schemaVersion).toBe(CURRENT_SCHEMA_VERSION);
 		expect(backup.checksum).toMatch(/^[0-9a-f]{64}$/);
@@ -106,7 +107,7 @@ describe('Backup service', () => {
 	});
 
 	it('decodes a backup with the correct PIN and recovers the exported entities', async () => {
-		const backup = await createBackup(key, encryptionSalt);
+		const backup = await createBackup(key, encryptionSalt, pin);
 		const { payload } = await validateAndDecryptBackup(backup, pin);
 		expect(payload.exportedEntities.accounts).toHaveLength(1);
 		expect(payload.exportedEntities.accounts[0].name).toBe('Checking');
@@ -129,18 +130,18 @@ describe('Backup service', () => {
 	});
 
 	it('rejects a backup opened with the wrong PIN', async () => {
-		const backup = await createBackup(key, encryptionSalt);
+		const backup = await createBackup(key, encryptionSalt, pin);
 		await expect(validateAndDecryptBackup(backup, '0000')).rejects.toThrow(BackupValidationError);
 	});
 
 	it('rejects a corrupted backup via checksum verification, without touching existing data', async () => {
-		const backup = await createBackup(key, encryptionSalt);
+		const backup = await createBackup(key, encryptionSalt, pin);
 		const corrupted: BackupFile = { ...backup, checksum: '0'.repeat(64) };
 		await expect(validateAndDecryptBackup(corrupted, pin)).rejects.toThrow(BackupValidationError);
 	});
 
 	it('rejects a backup from an unrecognized container', async () => {
-		const backup = await createBackup(key, encryptionSalt);
+		const backup = await createBackup(key, encryptionSalt, pin);
 		const bogus: BackupFile = { ...backup, container: 'not-myfin' };
 		await expect(validateAndDecryptBackup(bogus, pin)).rejects.toThrow(BackupValidationError);
 	});
@@ -221,7 +222,8 @@ describe('Backup service', () => {
 			ciphertext
 		};
 
-		const { payload, key: restoreKey } = await validateAndDecryptBackup(legacyBackup, pin);
+		const { payload } = await validateAndDecryptBackup(legacyBackup, pin);
+		const restoreKey = await deriveDataKeyForPayload(payload, pin, encryptionSalt);
 		expect(payload.exportedEntities.debtPlannerPreference).toBeNull();
 		expect(payload.exportedEntities.savingsGoals).toEqual([]);
 		expect(payload.exportedEntities.goalContributions).toEqual([]);
@@ -243,8 +245,9 @@ describe('Backup service', () => {
 	});
 
 	it('round-trips a full backup and restore, ending with an exact match', async () => {
-		const backup = await createBackup(key, encryptionSalt);
-		const { payload, key: restoreKey } = await validateAndDecryptBackup(backup, pin);
+		const backup = await createBackup(key, encryptionSalt, pin);
+		const { payload } = await validateAndDecryptBackup(backup, pin);
+		const restoreKey = await deriveDataKeyForPayload(payload, pin, encryptionSalt);
 
 		await db.delete();
 		await db.open();

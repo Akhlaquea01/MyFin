@@ -22,16 +22,17 @@ import {
 	InvestmentValuationRepository
 } from '../data/dexie/wealthRepository';
 import type { InvestmentHolding } from '../domain/entities';
+import { isNonNegativeMoney, parseMoneyOrZero } from '../domain/shared/money';
 
 const holdingSchema = z.object({
 	name: z.string().trim().min(1, 'Name is required.'),
 	type: z.string().trim().min(1, 'Type is required.'),
-	costBasis: z.string().refine((v) => parseFloat(v || '0') >= 0, 'Enter a valid amount.')
+	costBasis: z.string().refine((v) => isNonNegativeMoney(v || '0'), 'Enter a valid amount.')
 });
 type HoldingFormValues = z.infer<typeof holdingSchema>;
 
 const valuationSchema = z.object({
-	value: z.string().refine((v) => parseFloat(v || '0') >= 0, 'Enter a valid amount.')
+	value: z.string().refine((v) => isNonNegativeMoney(v || '0'), 'Enter a valid amount.')
 });
 type ValuationFormValues = z.infer<typeof valuationSchema>;
 
@@ -64,13 +65,18 @@ export function InvestmentsPage() {
 
 	async function refresh() {
 		setLoading(true);
-		const list = await InvestmentHoldingRepository.list(key);
-		setHoldings(list);
-		const values = await Promise.all(
-			list.map((h) => InvestmentValuationRepository.latestValue(key, h))
-		);
-		setCurrentValues(Object.fromEntries(list.map((h, i) => [h.id, values[i]])));
-		setLoading(false);
+		try {
+			const list = await InvestmentHoldingRepository.list(key);
+			setHoldings(list);
+			const values = await Promise.all(
+				list.map((h) => InvestmentValuationRepository.latestValue(key, h))
+			);
+			setCurrentValues(Object.fromEntries(list.map((h, i) => [h.id, values[i]])));
+		} catch (err) {
+			toast.error(err instanceof Error ? err.message : 'Could not load this page.');
+		} finally {
+			setLoading(false);
+		}
 	}
 
 	useEffect(() => {
@@ -82,7 +88,7 @@ export function InvestmentsPage() {
 		await InvestmentHoldingRepository.create(key, {
 			name: values.name,
 			type: values.type,
-			costBasis: Math.round(parseFloat(values.costBasis) * 100)
+			costBasis: parseMoneyOrZero(values.costBasis)
 		});
 		holdingForm.reset();
 		setDialogOpen(false);
@@ -95,7 +101,7 @@ export function InvestmentsPage() {
 		await InvestmentValuationRepository.create(key, {
 			holdingId: valuationTarget.id,
 			date: new Date().toISOString().slice(0, 10),
-			value: Math.round(parseFloat(values.value) * 100)
+			value: parseMoneyOrZero(values.value)
 		});
 		valuationForm.reset();
 		setValuationTarget(null);

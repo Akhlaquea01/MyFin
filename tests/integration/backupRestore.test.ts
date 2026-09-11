@@ -14,6 +14,7 @@ import { UserProfileRepository } from '../../src/data/dexie/userProfileRepositor
 import {
 	createBackup,
 	validateAndDecryptBackup,
+	deriveDataKeyForPayload,
 	restoreBackup
 } from '../../src/data/io/backupService';
 import {
@@ -96,8 +97,9 @@ describe('Backup-then-restore round trip against Dexie', () => {
 			emiDueDay: null
 		});
 
-		const backup = await createBackup(key, encryptionSalt);
-		const { payload, key: restoreKey } = await validateAndDecryptBackup(backup, pin);
+		const backup = await createBackup(key, encryptionSalt, pin);
+		const { payload } = await validateAndDecryptBackup(backup, pin);
+		const restoreKey = await deriveDataKeyForPayload(payload, pin, encryptionSalt);
 
 		await db.delete();
 		await db.open();
@@ -142,7 +144,7 @@ describe('Backup-then-restore round trip against Dexie', () => {
 			creditLimit: null,
 			billingCycleDay: null
 		});
-		const backup = await createBackup(key, encryptionSalt);
+		const backup = await createBackup(key, encryptionSalt, pin);
 		const corrupted = { ...backup, checksum: '0'.repeat(64) };
 
 		await expect(validateAndDecryptBackup(corrupted, pin)).rejects.toThrow();

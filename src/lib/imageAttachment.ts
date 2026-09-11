@@ -6,6 +6,13 @@ const ALLOWED_MIME_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
 const MAX_RAW_BYTES = 20 * 1024 * 1024; // 20MB (research.md §7)
 const MAX_DIMENSION_PX = 1600; // research.md §2
 const JPEG_QUALITY = 0.8;
+/**
+ * Ceiling on the *compressed* bytes actually stored. Attachments are base64-encoded once into
+ * the entity and the AES-GCM ciphertext is base64-encoded again, so a stored byte costs roughly
+ * 1.78x on disk; without a cap a handful of large receipts can exhaust the origin quota, after
+ * which every write starts failing.
+ */
+const MAX_STORED_BYTES = 2 * 1024 * 1024;
 
 export type AttachmentValidationResult = { ok: true } | { ok: false; reason: string };
 
@@ -44,21 +51,37 @@ export async function compressImage(file: File): Promise<CompressedImage> {
 	canvas.width = width;
 	canvas.height = height;
 	const ctx = canvas.getContext('2d');
-	if (!ctx) throw new Error('Canvas 2D context unavailable.');
-	ctx.drawImage(bitmap, 0, 0, width, height);
-	bitmap.close();
+	if (!ctx) {
+		bitmap.close();
+		throw new Error('Canvas 2D context unavailable.');
+	}
+	try {
+		ctx.drawImage(bitmap, 0, 0, width, height);
+	} finally {
+		// Released even if encoding below throws, so a failed attachment doesn't leak the decoded
+		// bitmap for the life of the page.
+		bitmap.close();
+	}
+
+	// PNG sources keep PNG. Re-encoding every upload as JPEG flattened transparency to black and
+	// put ringing artefacts on exactly the worst case for JPEG — a screenshot of a statement,
+	// which is sharp text on flat colour, and often grew rather than shrank.
+	const outputMime = file.type === 'image/png' ? 'image/png' : 'image/jpeg';
 
 	const blob = await new Promise<Blob>((resolve, reject) => {
 		canvas.toBlob(
 			(b) => (b ? resolve(b) : reject(new Error('Image compression failed.'))),
-			'image/jpeg',
-			JPEG_QUALITY
+			outputMime,
+			outputMime === 'image/jpeg' ? JPEG_QUALITY : undefined
 		);
 	});
 
 	const arrayBuffer = await blob.arrayBuffer();
+	if (arrayBuffer.byteLength > MAX_STORED_BYTES) {
+		throw new Error('That image is still too large after compression. Try a smaller photo.');
+	}
 	return {
-		mimeType: 'image/jpeg',
+		mimeType: outputMime,
 		data: arrayBufferToBase64(arrayBuffer),
 		sizeBytes: arrayBuffer.byteLength
 	};

@@ -25,7 +25,13 @@ import {
 	type SplitInput
 } from '../data/dexie/transactionRepository';
 import { TransactionEngine } from '../domain/transactions/transactionEngine';
-import type { Account, Category, Merchant, Transaction, TransactionSplit } from '../domain/entities';
+import type {
+	Account,
+	Category,
+	Merchant,
+	Transaction,
+	TransactionSplit
+} from '../domain/entities';
 
 function formatMoney(paise: number): string {
 	return (paise / 100).toLocaleString(undefined, {
@@ -53,39 +59,44 @@ export function ReviewPage() {
 
 	async function refresh() {
 		setLoading(true);
-		const [accts, allMerchants, allCategories, allTags, unreviewed] = await Promise.all([
-			AccountRepository.list(key),
-			MerchantRepository.list(key),
-			CategoryRepository.list(key),
-			TagRepository.list(key),
-			TransactionRepository.listUnreviewed(key)
-		]);
-		setAccounts(accts);
-		setMerchants(allMerchants);
-		setCategories(allCategories);
-		setItems(unreviewed);
+		try {
+			const [accts, allMerchants, allCategories, allTags, unreviewed] = await Promise.all([
+				AccountRepository.list(key),
+				MerchantRepository.list(key),
+				CategoryRepository.list(key),
+				TagRepository.list(key),
+				TransactionRepository.listUnreviewed(key)
+			]);
+			setAccounts(accts);
+			setMerchants(allMerchants);
+			setCategories(allCategories);
+			setItems(unreviewed);
 
-		const nextFirstSplit: Record<string, TransactionSplit | undefined> = {};
-		const nextCategoryChoice: Record<string, string> = {};
-		const nextTagsInput: Record<string, string> = {};
-		await Promise.all(
-			unreviewed.map(async (tx) => {
-				const [splits, tagIds] = await Promise.all([
-					TransactionRepository.getSplits(key, tx.id),
-					TransactionTagRepository.getTagIds(tx.id)
-				]);
-				nextFirstSplit[tx.id] = splits[0];
-				nextCategoryChoice[tx.id] = splits[0]?.categoryId ?? UNCATEGORIZED_CATEGORY_ID;
-				nextTagsInput[tx.id] = tagIds
-					.map((id) => allTags.find((t) => t.id === id)?.name)
-					.filter((name): name is string => Boolean(name))
-					.join(', ');
-			})
-		);
-		setFirstSplit(nextFirstSplit);
-		setCategoryChoice(nextCategoryChoice);
-		setTagsInput(nextTagsInput);
-		setLoading(false);
+			const nextFirstSplit: Record<string, TransactionSplit | undefined> = {};
+			const nextCategoryChoice: Record<string, string> = {};
+			const nextTagsInput: Record<string, string> = {};
+			await Promise.all(
+				unreviewed.map(async (tx) => {
+					const [splits, tagIds] = await Promise.all([
+						TransactionRepository.getSplits(key, tx.id),
+						TransactionTagRepository.getTagIds(tx.id)
+					]);
+					nextFirstSplit[tx.id] = splits[0];
+					nextCategoryChoice[tx.id] = splits[0]?.categoryId ?? UNCATEGORIZED_CATEGORY_ID;
+					nextTagsInput[tx.id] = tagIds
+						.map((id) => allTags.find((t) => t.id === id)?.name)
+						.filter((name): name is string => Boolean(name))
+						.join(', ');
+				})
+			);
+			setFirstSplit(nextFirstSplit);
+			setCategoryChoice(nextCategoryChoice);
+			setTagsInput(nextTagsInput);
+		} catch (err) {
+			toast.error(err instanceof Error ? err.message : 'Could not load this page.');
+		} finally {
+			setLoading(false);
+		}
 	}
 
 	useEffect(() => {

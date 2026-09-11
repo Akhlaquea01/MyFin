@@ -63,8 +63,7 @@ export type BiometricUnavailableReason =
 	| 'error'; // anything else (unexpected exception from the platform)
 
 export type BiometricEnrollResult =
-	| { ok: true; enrollment: WebAuthnEnrollment }
-	| { ok: false; reason: BiometricUnavailableReason };
+	{ ok: true; enrollment: WebAuthnEnrollment } | { ok: false; reason: BiometricUnavailableReason };
 
 /**
  * Enrolls a platform authenticator and wraps `pin` with a PRF-derived key. Real biometric-bound
@@ -89,7 +88,10 @@ export async function enrollBiometric(pin: string): Promise<BiometricEnrollResul
 					{ type: 'public-key', alg: -7 },
 					{ type: 'public-key', alg: -257 }
 				],
-				authenticatorSelection: { authenticatorAttachment: 'platform', userVerification: 'required' },
+				authenticatorSelection: {
+					authenticatorAttachment: 'platform',
+					userVerification: 'required'
+				},
 				extensions: { prf: {} }
 			}
 		})) as PublicKeyCredential | null;

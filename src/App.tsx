@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { BrowserRouter, Route, Routes } from 'react-router-dom';
 import { Toaster } from './components/ui/sonner';
 import { TooltipProvider } from './components/ui/tooltip';
@@ -6,10 +6,12 @@ import { SessionProvider, useSession } from './context/SessionContext';
 import { acquireSingleInstanceLock, type InstanceRole } from './lib/singleInstance';
 import { UserProfileRepository } from './data/dexie/userProfileRepository';
 import { runNotificationCheck } from './domain/notifications/runNotificationCheck';
+import { runBlindIndexMaintenance } from './data/dexie/blindIndexMaintenance';
 import { isStoragePersisted } from './data/storage/persistence';
 import { OnboardingScreen } from './components/OnboardingScreen';
 import { LockScreen } from './components/LockScreen';
 import { BlockedScreen } from './components/BlockedScreen';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { StorageWarningBanner } from './components/StorageWarningBanner';
 import { BiometricEnrollmentPrompt } from './components/BiometricEnrollmentPrompt';
 import { NotificationPermissionPrompt } from './components/NotificationPermissionPrompt';
@@ -40,33 +42,54 @@ import { ExportPage } from './pages/ExportPage';
 import { BackupSettingsPage } from './pages/BackupSettingsPage';
 import { CategorizationRulesPage } from './pages/CategorizationRulesPage';
 
+/**
+ * Work that needs an encryption key and should happen once per unlock, whether that unlock was
+ * manual or a silently resumed session. Deliberately fire-and-forget, but with its own error
+ * handling: none of it is worth blocking the UI on, and none of it should become an unhandled
+ * promise rejection either.
+ */
+async function afterUnlock(key: CryptoKey): Promise<void> {
+	// Finishes the schema v8 index migration for rows written before it — a Dexie upgrade has
+	// no encryption key, so the digests can only be computed here. Idempotent; a no-op once
+	// complete (see blindIndexMaintenance.ts).
+	try {
+		await runBlindIndexMaintenance(key);
+	} catch (err) {
+		console.warn('[afterUnlock] blind index maintenance failed', err);
+	}
+	// research.md §3 (spec 004): "app opened" is treated as "just unlocked".
+	try {
+		await runNotificationCheck(key);
+	} catch (err) {
+		console.warn('[afterUnlock] notification check failed', err);
+	}
+}
+
 // Root security/availability gate (Constitution Principles I & II, FR-001–006, FR-044,
 // FR-045). Every route renders only after this gate clears: not blocked by another tab,
 // then onboarded, then unlocked. Nothing below this gate can run before those resolve.
 function Gate() {
 	const session = useSession();
-	const [role, setRole] = useState<InstanceRole>('secondary');
+	const { recordActivity, restoreSession, setOnboarded, getEncryptionKey, lock } = session;
+	// 'checking' is distinct from 'secondary': initialising to 'secondary' rendered
+	// BlockedScreen for a frame on every cold start, before the async lock request resolved.
+	const [role, setRole] = useState<InstanceRole | 'checking'>('checking');
 	const [checkingProfile, setCheckingProfile] = useState(true);
 	const [profileExists, setProfileExists] = useState(false);
-	const [biometricAlreadyEnrolled, setBiometricAlreadyEnrolled] = useState(false);
 	const [showStorageWarning, setShowStorageWarning] = useState(false);
-	const [transientPin, setTransientPin] = useState<string | null>(null);
-
-	function refreshProfileFlags() {
-		void UserProfileRepository.get().then((p) => {
-			setProfileExists(!!p);
-			setBiometricAlreadyEnrolled(!!p?.webauthn);
-			setCheckingProfile(false);
-			session.setOnboarded(!!p);
-		});
-	}
+	// The PIN is held in a ref, never in state: state is serialized into the React DevTools
+	// tree, profiler recordings, and the props snapshot of any error reporter, and the PIN is
+	// strictly more sensitive than the derived key (it also opens every backup ever exported).
+	// Constitution Principle II. A boolean drives the prompt's visibility instead.
+	const transientPinRef = useRef<string | null>(null);
+	const [showEnrollPrompt, setShowEnrollPrompt] = useState(false);
 
 	useEffect(() => {
 		const stopLock = acquireSingleInstanceLock(setRole);
 		void isStoragePersisted().then((persisted) => setShowStorageWarning(!persisted));
 
 		const activityEvents = ['click', 'keydown', 'pointerdown'] as const;
-		const onActivity = () => session.recordActivity();
+		const onActivity = recordActivity;
 		for (const evt of activityEvents) window.addEventListener(evt, onActivity);
 
 		// Before ever falling back to LockScreen, try to silently resume a session persisted
@@ -75,11 +98,10 @@ function Gate() {
 		void (async () => {
 			const p = await UserProfileRepository.get();
 			setProfileExists(!!p);
-			setBiometricAlreadyEnrolled(!!p?.webauthn);
-			session.setOnboarded(!!p);
+			setOnboarded(!!p);
 			if (p) {
-				const restored = await session.restoreSession(p.autoLockTimeoutMs);
-				if (restored) void runNotificationCheck(session.getEncryptionKey());
+				const restored = await restoreSession(p.autoLockTimeoutMs);
+				if (restored) void afterUnlock(getEncryptionKey());
 			}
 			setCheckingProfile(false);
 		})();
@@ -88,17 +110,25 @@ function Gate() {
 			stopLock();
 			for (const evt of activityEvents) window.removeEventListener(evt, onActivity);
 		};
-		// eslint-disable-next-line react-hooks/exhaustive-deps -- gate wiring runs once on mount
-	}, []);
+	}, [recordActivity, restoreSession, setOnboarded, getEncryptionKey]);
 
 	function handleUnlock(pin: string) {
-		setTransientPin(pin);
-		refreshProfileFlags();
+		transientPinRef.current = pin;
+		// Decide the enrollment prompt from freshly-read data, not from state a parallel
+		// refresh may not have written yet — reading stale state here flashed the prompt at
+		// users who had already enrolled.
+		void UserProfileRepository.get().then((p) => {
+			setProfileExists(!!p);
+			setOnboarded(!!p);
+			setShowEnrollPrompt(!p?.webauthn);
+			setCheckingProfile(false);
+		});
 		// research.md §3 (spec 004): "app opened" is treated as "just unlocked," the same
 		// hook point BiometricEnrollmentPrompt already uses.
-		void runNotificationCheck(session.getEncryptionKey());
+		void afterUnlock(getEncryptionKey());
 	}
 
+	if (role === 'checking') return <div className="min-h-dvh bg-background" />;
 	if (role === 'secondary') return <BlockedScreen />;
 	if (checkingProfile) return <div className="min-h-dvh bg-background" />;
 	if (!profileExists) return <OnboardingScreen onunlock={handleUnlock} />;
@@ -106,44 +136,48 @@ function Gate() {
 
 	return (
 		<BrowserRouter>
-			{showStorageWarning && <StorageWarningBanner />}
-			{transientPin && !biometricAlreadyEnrolled && (
-				<BiometricEnrollmentPrompt
-					pin={transientPin}
-					alreadyEnrolled={biometricAlreadyEnrolled}
-					onDone={() => setTransientPin(null)}
-				/>
-			)}
-			<NotificationPermissionPrompt />
-			<Routes>
-				<Route element={<AppShell />}>
-					<Route index element={<DashboardPage />} />
-					<Route path="accounts" element={<AccountsPage />} />
-					<Route path="transactions" element={<TransactionsPage />} />
-					<Route path="transactions/new" element={<NewTransactionPage />} />
-					<Route path="transactions/transfer" element={<TransferPage />} />
-					<Route path="categories" element={<CategoriesPage />} />
-					<Route path="trash" element={<TrashPage />} />
-					<Route path="quick-add" element={<QuickAddPage />} />
-					<Route path="review" element={<ReviewPage />} />
-					<Route path="import/bulk-text" element={<BulkTextImportPage />} />
-					<Route path="budgets" element={<BudgetsPage />} />
-					<Route path="savings-goals" element={<SavingsGoalsPage />} />
-					<Route path="recurring" element={<RecurringPage />} />
-					<Route path="recurring/upcoming" element={<RecurringUpcomingPage />} />
-					<Route path="investments" element={<InvestmentsPage />} />
-					<Route path="liabilities" element={<LiabilitiesPage />} />
-					<Route path="liabilities/payoff-planner" element={<DebtPayoffPlannerPage />} />
-					<Route path="net-worth" element={<NetWorthPage />} />
-					<Route path="financial-health" element={<FinancialHealthPage />} />
-					<Route path="analytics" element={<AnalyticsPage />} />
-					<Route path="import" element={<ImportPage />} />
-					<Route path="export" element={<ExportPage />} />
-					<Route path="backup" element={<BackupSettingsPage />} />
-					<Route path="notification-settings" element={<NotificationSettingsPage />} />
-					<Route path="categorization-rules" element={<CategorizationRulesPage />} />
-				</Route>
-			</Routes>
+			<ErrorBoundary onReset={lock}>
+				{showStorageWarning && <StorageWarningBanner />}
+				{showEnrollPrompt && (
+					<BiometricEnrollmentPrompt
+						getPin={() => transientPinRef.current}
+						onDone={() => {
+							transientPinRef.current = null;
+							setShowEnrollPrompt(false);
+						}}
+					/>
+				)}
+				<NotificationPermissionPrompt />
+				<Routes>
+					<Route element={<AppShell />}>
+						<Route index element={<DashboardPage />} />
+						<Route path="accounts" element={<AccountsPage />} />
+						<Route path="transactions" element={<TransactionsPage />} />
+						<Route path="transactions/new" element={<NewTransactionPage />} />
+						<Route path="transactions/transfer" element={<TransferPage />} />
+						<Route path="categories" element={<CategoriesPage />} />
+						<Route path="trash" element={<TrashPage />} />
+						<Route path="quick-add" element={<QuickAddPage />} />
+						<Route path="review" element={<ReviewPage />} />
+						<Route path="import/bulk-text" element={<BulkTextImportPage />} />
+						<Route path="budgets" element={<BudgetsPage />} />
+						<Route path="savings-goals" element={<SavingsGoalsPage />} />
+						<Route path="recurring" element={<RecurringPage />} />
+						<Route path="recurring/upcoming" element={<RecurringUpcomingPage />} />
+						<Route path="investments" element={<InvestmentsPage />} />
+						<Route path="liabilities" element={<LiabilitiesPage />} />
+						<Route path="liabilities/payoff-planner" element={<DebtPayoffPlannerPage />} />
+						<Route path="net-worth" element={<NetWorthPage />} />
+						<Route path="financial-health" element={<FinancialHealthPage />} />
+						<Route path="analytics" element={<AnalyticsPage />} />
+						<Route path="import" element={<ImportPage />} />
+						<Route path="export" element={<ExportPage />} />
+						<Route path="backup" element={<BackupSettingsPage />} />
+						<Route path="notification-settings" element={<NotificationSettingsPage />} />
+						<Route path="categorization-rules" element={<CategorizationRulesPage />} />
+					</Route>
+				</Routes>
+			</ErrorBoundary>
 		</BrowserRouter>
 	);
 }

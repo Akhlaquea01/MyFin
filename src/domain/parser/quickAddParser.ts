@@ -4,6 +4,8 @@
 // confidence score. Below the confidence threshold, callers must route to manual entry
 // (FR-021) rather than guess.
 
+import { parseMoneyToMinorUnits } from '../shared/money';
+
 export type ParsedType = 'income' | 'expense' | null;
 
 export interface ParsedCandidate {
@@ -34,9 +36,9 @@ function parseAmount(text: string): number | null {
 	const match = text.match(AMOUNT_PATTERN);
 	const raw = match?.[1] ?? match?.[2];
 	if (!raw) return null;
-	const value = parseFloat(raw.replace(/,/g, ''));
-	if (!Number.isFinite(value)) return null;
-	return Math.round(value * 100);
+	// Exact string -> integer paise; scaling a float by 100 loses a paise at half-subunit
+	// boundaries (Math.round(8.165 * 100) === 816). Constitution Principle VI.
+	return parseMoneyToMinorUnits(raw);
 }
 
 function parseType(text: string): ParsedType {

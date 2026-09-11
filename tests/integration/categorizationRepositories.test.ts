@@ -2,13 +2,19 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { db } from '../../src/data/dexie/db';
 import { AccountRepository } from '../../src/data/dexie/accountRepository';
 import { CategoryRepository } from '../../src/data/dexie/categoryRepository';
-import { MerchantRepository, MerchantAliasRepository } from '../../src/data/dexie/merchantRepository';
+import {
+	MerchantRepository,
+	MerchantAliasRepository
+} from '../../src/data/dexie/merchantRepository';
 import { TransactionRepository } from '../../src/data/dexie/transactionRepository';
 import { CategorizationRuleRepository } from '../../src/data/dexie/categorizationRuleRepository';
 import { MerchantCategorySignalRepository } from '../../src/data/dexie/merchantCategorySignalRepository';
 import { TransactionEngine } from '../../src/domain/transactions/transactionEngine';
 import { MIN_STREAK } from '../../src/domain/categorization/categorizationEngine';
-import { recordConfirmation, listSuggestions } from '../../src/domain/categorization/resolveCategorization';
+import {
+	recordConfirmation,
+	listSuggestions
+} from '../../src/domain/categorization/resolveCategorization';
 import { deriveEncryptionKey, randomSaltBase64 } from '../../src/data/crypto/cryptoService';
 
 describe('Auto-categorization (spec 006)', () => {
@@ -41,20 +47,22 @@ describe('Auto-categorization (spec 006)', () => {
 				categoryId: categoryA,
 				tagIds: []
 			});
-			expect((await CategorizationRuleRepository.listForMerchant(key, merchant.id)).map((r) => r.id)).toEqual([
-				rule.id
-			]);
+			expect(
+				(await CategorizationRuleRepository.listForMerchant(key, merchant.id)).map((r) => r.id)
+			).toEqual([rule.id]);
 
 			await CategorizationRuleRepository.update(key, rule.id, { categoryId: categoryB });
-			expect((await CategorizationRuleRepository.getById(key, rule.id))?.categoryId).toBe(categoryB);
+			expect((await CategorizationRuleRepository.getById(key, rule.id))?.categoryId).toBe(
+				categoryB
+			);
 
 			await CategorizationRuleRepository.softDelete(key, rule.id);
 			expect(await CategorizationRuleRepository.listForMerchant(key, merchant.id)).toEqual([]);
 
 			await CategorizationRuleRepository.restore(key, rule.id);
-			expect((await CategorizationRuleRepository.listForMerchant(key, merchant.id)).map((r) => r.id)).toEqual([
-				rule.id
-			]);
+			expect(
+				(await CategorizationRuleRepository.listForMerchant(key, merchant.id)).map((r) => r.id)
+			).toEqual([rule.id]);
 		});
 
 		it('flags a rule as invalid once its target category is soft-deleted (FR-009)', async () => {
@@ -181,9 +189,7 @@ describe('Auto-categorization (spec 006)', () => {
 				source: 'quick_add',
 				reviewStatus: 'unreviewed'
 			});
-			await TransactionEngine.confirmTransaction(key, tx.id, [
-				{ categoryId, amount: -100 }
-			]);
+			await TransactionEngine.confirmTransaction(key, tx.id, [{ categoryId, amount: -100 }]);
 			return tx;
 		}
 

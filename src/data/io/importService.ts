@@ -2,7 +2,8 @@ import Papa from 'papaparse';
 import ExcelJS from 'exceljs';
 import { TransactionRepository } from '../dexie/transactionRepository';
 import { TransactionEngine } from '../../domain/transactions/transactionEngine';
-import { resolveMerchant } from '../../domain/parser/merchantResolver';
+import { resolveMerchant, normalizeMerchantText } from '../../domain/parser/merchantResolver';
+import { parseMoneyToMinorUnits } from '../../domain/shared/money';
 
 export interface ColumnMapping {
 	dateColumn: string;
@@ -24,6 +25,37 @@ export interface ImportResult {
 export interface ParsedFile {
 	headers: string[];
 	rows: Record<string, string>[];
+	/** Papa Parse's own complaints (malformed quoting, inconsistent field counts). Surfaced so
+	 *  a file that parsed into garbage doesn't look identical to one that parsed cleanly. */
+	errors: { row: number; message: string }[];
+}
+
+/** Refuses input large enough to lock the tab. All parsing and crypto runs on the main
+ *  thread, so an unbounded file is a self-inflicted denial of service. */
+export const MAX_IMPORT_ROWS = 20_000;
+
+/** How often to yield to the event loop and report progress during a long import. */
+const PROGRESS_INTERVAL = 100;
+
+/** ±1 day, same-amount duplicate rule (FR-020/FR-038), expressed as an in-memory lookup so
+ *  it costs one index build per import rather than one index walk per row. */
+function duplicateKey(date: string, amount: number): string {
+	return `${date}|${amount}`;
+}
+
+function shiftIsoDay(date: string, deltaDays: number): string {
+	const parsed = new Date(`${date}T00:00:00Z`);
+	if (Number.isNaN(parsed.getTime())) return date;
+	parsed.setUTCDate(parsed.getUTCDate() + deltaDays);
+	return parsed.toISOString().slice(0, 10);
+}
+
+function findDuplicateId(index: Map<string, string>, date: string, amount: number): string | null {
+	for (const delta of [0, -1, 1]) {
+		const found = index.get(duplicateKey(shiftIsoDay(date, delta), amount));
+		if (found) return found;
+	}
+	return null;
 }
 
 /** Parses a CSV file's header row and data rows into string-keyed records (contract: preview step). */
@@ -33,7 +65,11 @@ export function parseCsv(fileText: string): ParsedFile {
 		skipEmptyLines: true
 	});
 	const headers = result.meta.fields ?? [];
-	return { headers, rows: result.data };
+	return {
+		headers,
+		rows: result.data,
+		errors: (result.errors ?? []).map((e) => ({ row: (e.row ?? 0) + 2, message: e.message }))
+	};
 }
 
 /** Parses the first worksheet of an XLSX file's header row and data rows. */
@@ -41,7 +77,7 @@ export async function parseXlsx(buffer: ArrayBuffer): Promise<ParsedFile> {
 	const workbook = new ExcelJS.Workbook();
 	await workbook.xlsx.load(buffer);
 	const sheet = workbook.worksheets[0];
-	if (!sheet) return { headers: [], rows: [] };
+	if (!sheet) return { headers: [], rows: [], errors: [] };
 
 	const headerRow = sheet.getRow(1);
 	const headers: string[] = [];
@@ -60,7 +96,7 @@ export async function parseXlsx(buffer: ArrayBuffer): Promise<ParsedFile> {
 		});
 		rows.push(record);
 	}
-	return { headers, rows };
+	return { headers, rows, errors: [] };
 }
 
 /** Returns the first `limit` parsed rows for a mapping-confirmation preview (contract: preview step). */
@@ -95,11 +131,33 @@ export function parseDateWithFormat(value: string, format: string): string | nul
 	}
 	if (year.length !== 4 || month.length !== 2 || day.length !== 2) return null;
 	const iso = `${year}-${month}-${day}`;
-	const asDate = new Date(iso);
-	if (Number.isNaN(asDate.getTime())) return null;
+
+	// Round-trip the parts through a Date and check they survive. `new Date('2026-02-31')` does
+	// not fail — it rolls forward to 3 March — so a plain NaN check accepted dates that do not
+	// exist. The bogus string then sorted as the 31st in the indexed `date` column while every
+	// downstream `new Date()` silently shifted it into the next month.
+	const y = Number(year);
+	const mo = Number(month);
+	const d = Number(day);
+	const asDate = new Date(Date.UTC(y, mo - 1, d));
+	if (
+		asDate.getUTCFullYear() !== y ||
+		asDate.getUTCMonth() !== mo - 1 ||
+		asDate.getUTCDate() !== d
+	) {
+		return null;
+	}
 	return iso;
 }
 
+/**
+ * Parses a row's amount into integer paise, or `null` if the cell isn't a well-formed amount.
+ *
+ * Uses the strict shared parser rather than `parseFloat`: bank exports routinely write
+ * "1,234.56", which `parseFloat` truncated to `1` — importing a ₹1,234.56 transaction as
+ * ₹1.00 and reporting it as a success. A `null` here becomes a visible `skippedMalformedRows`
+ * entry instead (Constitution Principle VI).
+ */
 function parseAmount(
 	row: Record<string, string>,
 	mapping: ColumnMapping
@@ -107,14 +165,14 @@ function parseAmount(
 	if (mapping.amountSignConvention === 'separate-debit-credit-columns') {
 		const debitStr = mapping.debitColumn ? row[mapping.debitColumn] : '';
 		const creditStr = mapping.creditColumn ? row[mapping.creditColumn] : '';
-		const debit = parseFloat(debitStr || '0');
-		const credit = parseFloat(creditStr || '0');
-		if (Number.isNaN(debit) || Number.isNaN(credit)) return null;
-		return { amountPaise: Math.round((credit - debit) * 100) };
+		const debit = parseMoneyToMinorUnits(debitStr?.trim() || '0');
+		const credit = parseMoneyToMinorUnits(creditStr?.trim() || '0');
+		if (debit === null || credit === null) return null;
+		return { amountPaise: credit - debit };
 	}
-	const raw = parseFloat(row[mapping.amountColumn]);
-	if (Number.isNaN(raw)) return null;
-	return { amountPaise: Math.round(raw * 100) };
+	const raw = parseMoneyToMinorUnits(row[mapping.amountColumn]);
+	if (raw === null) return null;
+	return { amountPaise: raw };
 }
 
 /**
@@ -126,13 +184,35 @@ function parseAmount(
 export async function importRows(
 	key: CryptoKey,
 	rows: Record<string, string>[],
-	mapping: ColumnMapping
+	mapping: ColumnMapping,
+	onProgress?: (done: number, total: number) => void
 ): Promise<ImportResult> {
 	const result: ImportResult = { createdCount: 0, skippedMalformedRows: [], flaggedDuplicates: [] };
+	if (rows.length > MAX_IMPORT_ROWS) {
+		throw new Error(
+			`This file has ${rows.length.toLocaleString()} rows. Import at most ` +
+				`${MAX_IMPORT_ROWS.toLocaleString()} at a time.`
+		);
+	}
+
+	// Fetch the account's existing date/amount pairs once. `findPossibleDuplicates` walks the
+	// `accountId` index on every call, so calling it per row made duplicate detection scale with
+	// (rows x existing transactions) — and it has to see rows added earlier in *this* import too,
+	// which is why the index below is appended to as we go.
+	const existing = await TransactionRepository.search(key, { accountId: mapping.accountId });
+	const duplicateIndex = new Map<string, string>();
+	for (const tx of existing) duplicateIndex.set(duplicateKey(tx.date, tx.amount), tx.id);
 
 	for (let i = 0; i < rows.length; i++) {
 		const row = rows[i];
 		const rowNumber = i + 2; // header is row 1
+
+		// Yield to the event loop periodically so a large import doesn't freeze the tab, and
+		// report progress so the user sees something happening.
+		if (i > 0 && i % PROGRESS_INTERVAL === 0) {
+			onProgress?.(i, rows.length);
+			await new Promise((resolve) => setTimeout(resolve, 0));
+		}
 
 		const dateIso = parseDateWithFormat(row[mapping.dateColumn] ?? '', mapping.dateFormat);
 		if (!dateIso) {
@@ -145,35 +225,45 @@ export async function importRows(
 			continue;
 		}
 
-		const duplicates = await TransactionRepository.findPossibleDuplicates(
-			key,
-			mapping.accountId,
-			amount.amountPaise,
-			dateIso
-		);
+		const duplicateOfId = findDuplicateId(duplicateIndex, dateIso, amount.amountPaise);
 		const notes = mapping.descriptionColumn ? (row[mapping.descriptionColumn] ?? null) : null;
 		// Auto-categorization (spec 006, FR-002) needs a resolved Merchant to match rules/
-		// suggestions against — file import previously never resolved one at all.
-		const resolved = notes?.trim() ? await resolveMerchant(key, notes.trim()) : null;
+		// suggestions against. The raw description is normalized first: bank descriptions carry
+		// per-transaction reference numbers, so passing them verbatim created one Merchant and
+		// one MerchantAlias per row, which defeated both the alias model and the learning signal.
+		const merchantText = notes ? normalizeMerchantText(notes) : null;
+		const resolved = merchantText ? await resolveMerchant(key, merchantText) : null;
 
-		await TransactionEngine.recordTransaction(key, {
-			accountId: mapping.accountId,
-			date: dateIso,
-			amount: amount.amountPaise,
-			type: amount.amountPaise >= 0 ? 'income' : 'expense',
-			notes,
-			merchantId: resolved?.merchantId ?? null,
-			merchantAliasId: resolved?.aliasId ?? null,
-			source: 'file_import',
-			reviewStatus: 'unreviewed',
-			duplicateOfId: duplicates[0]?.id ?? null
-		});
+		const created = await TransactionEngine.recordTransaction(
+			key,
+			{
+				accountId: mapping.accountId,
+				date: dateIso,
+				amount: amount.amountPaise,
+				type: amount.amountPaise >= 0 ? 'income' : 'expense',
+				notes,
+				merchantId: resolved?.merchantId ?? null,
+				merchantAliasId: resolved?.aliasId ?? null,
+				source: 'file_import',
+				reviewStatus: 'unreviewed',
+				duplicateOfId
+			},
+			[],
+			// Recalculated once below instead of once per row: the recalculation is O(account
+			// size), so doing it per row made an N-row import cost ~N^2/2 decryptions.
+			{ deferBalance: true }
+		);
+		duplicateIndex.set(duplicateKey(dateIso, amount.amountPaise), created.id);
 
 		result.createdCount++;
-		if (duplicates[0]) {
-			result.flaggedDuplicates.push({ rowNumber, existingTransactionId: duplicates[0].id });
+		if (duplicateOfId) {
+			result.flaggedDuplicates.push({ rowNumber, existingTransactionId: duplicateOfId });
 		}
 	}
 
+	if (result.createdCount > 0) {
+		await TransactionEngine.recalculateAccountBalance(key, mapping.accountId);
+	}
+	onProgress?.(rows.length, rows.length);
 	return result;
 }

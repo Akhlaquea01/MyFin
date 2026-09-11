@@ -9,8 +9,7 @@ import { hashPin, deriveEncryptionKey, randomSaltBase64 } from '../data/crypto/c
 import { requestPersistentStorage } from '../data/storage/persistence';
 import { useSession } from '../context/SessionContext';
 import { DEFAULT_AUTO_LOCK_TIMEOUT_MS } from '../domain/entities';
-
-const PIN_PATTERN = /^\d{4,10}$/;
+import { validatePin, MIN_PIN_LENGTH, MAX_PIN_LENGTH } from '../domain/auth/pinPolicy';
 
 // User Story 1 (P1): first-run PIN setup. Creates the UserProfile (FR-001, FR-004),
 // requests durable storage (FR-044), and derives the in-memory encryption key so the
@@ -26,8 +25,9 @@ export function OnboardingScreen({ onunlock }: { onunlock: (pin: string) => void
 		event.preventDefault();
 		setError(null);
 
-		if (!PIN_PATTERN.test(pin)) {
-			setError('PIN must be 4-10 digits.');
+		const validation = validatePin(pin);
+		if (!validation.ok) {
+			setError(validation.message);
 			return;
 		}
 		if (pin !== confirmPin) {
@@ -48,7 +48,9 @@ export function OnboardingScreen({ onunlock }: { onunlock: (pin: string) => void
 				encryptionSalt,
 				biometricEnabled: false,
 				autoLockTimeoutMs: DEFAULT_AUTO_LOCK_TIMEOUT_MS,
-				storagePersisted
+				storagePersisted,
+				failedUnlockAttempts: 0,
+				lockedOutUntil: null
 			});
 
 			const key = await deriveEncryptionKey(pin, encryptionSalt);
@@ -74,8 +76,9 @@ export function OnboardingScreen({ onunlock }: { onunlock: (pin: string) => void
 						Welcome
 					</CardTitle>
 					<CardDescription>
-						Set a PIN to protect your financial data. There is no way to recover it if you forget it
-						— write it down somewhere safe.
+						Set a PIN of {MIN_PIN_LENGTH}-{MAX_PIN_LENGTH} digits to protect your financial data. It
+						also protects every backup you export, so avoid birthdays and repeated digits. There is
+						no way to recover it if you forget it — write it down somewhere safe.
 					</CardDescription>
 				</CardHeader>
 				<CardContent>

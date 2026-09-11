@@ -13,6 +13,7 @@ import {
 	Legend
 } from 'chart.js';
 import { BarChart3 } from 'lucide-react';
+import { toast } from 'sonner';
 import { Badge } from '../components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { DateRangeSelector, type DateRange } from '../components/DateRangeSelector';
@@ -104,15 +105,23 @@ export function AnalyticsPage() {
 			cashFlowTrend(key, range.from, range.to),
 			budgetPerformance(key, range.from, range.to),
 			netWorthTrend(key, range.from, range.to)
-		]).then(([cat, inc, flow, perf, nw]) => {
-			if (cancelled) return;
-			setCategories(cat);
-			setTrend(inc);
-			setCashFlow(flow);
-			setBudgets(perf);
-			setNetWorth(nw);
-			setLoading(false);
-		});
+		])
+			.then(([cat, inc, flow, perf, nw]) => {
+				if (cancelled) return;
+				setCategories(cat);
+				setTrend(inc);
+				setCashFlow(flow);
+				setBudgets(perf);
+				setNetWorth(nw);
+			})
+			.catch((err: unknown) => {
+				if (cancelled) return;
+				toast.error(err instanceof Error ? err.message : 'Could not load analytics.');
+			})
+			.finally(() => {
+				// Always clears: a rejection here previously left the page on "Loading..." forever.
+				if (!cancelled) setLoading(false);
+			});
 		return () => {
 			cancelled = true;
 		};

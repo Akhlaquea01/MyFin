@@ -16,7 +16,7 @@ import type { Transaction } from '../../domain/entities';
  * O(n) recalculation on every edit. Revisit only if profiling ever shows this is a real
  * bottleneck (no Success Criteria requires fast writes, only fast search — SC-008).
  */
-async function recalculateAccountBalance(key: CryptoKey, accountId: string): Promise<void> {
+export async function recalculateAccountBalance(key: CryptoKey, accountId: string): Promise<void> {
 	const account = await AccountRepository.getById(key, accountId);
 	if (!account) return;
 	const transactions = await TransactionRepository.search(key, { accountId });
@@ -24,11 +24,25 @@ async function recalculateAccountBalance(key: CryptoKey, accountId: string): Pro
 	await AccountRepository.setBalance(key, accountId, account.openingBalance + total);
 }
 
+/** Options shared by the write paths that can defer balance maintenance. */
+export interface RecordOptions {
+	/**
+	 * Skip the per-write balance recalculation. Set by bulk callers (file/text import) that
+	 * recalculate once at the end instead: the recalculation is O(account size), so running it
+	 * per row made importing N rows cost ~N^2/2 decryptions. The caller becomes responsible for
+	 * calling `recalculateAccountBalance` before the user sees a balance.
+	 */
+	deferBalance?: boolean;
+}
+
 export const TransactionEngine = {
+	recalculateAccountBalance,
+
 	async recordTransaction(
 		key: CryptoKey,
 		input: NewTransactionInput,
-		splits: SplitInput[] = []
+		splits: SplitInput[] = [],
+		options: RecordOptions = {}
 	): Promise<Transaction> {
 		// Auto-categorization pre-fill (spec 006, FR-002): only when the caller hasn't
 		// already specified a category — today that's every source but Quick Add/bulk/file
@@ -43,7 +57,11 @@ export const TransactionEngine = {
 			);
 			if (result) {
 				resolvedSplits = [
-					{ categoryId: result.categoryId, amount: input.amount, categorizationSource: result.source }
+					{
+						categoryId: result.categoryId,
+						amount: input.amount,
+						categorizationSource: result.source
+					}
 				];
 				categorizationTagIds = result.tagIds;
 			}
@@ -53,7 +71,7 @@ export const TransactionEngine = {
 		if (categorizationTagIds.length > 0) {
 			await TransactionTagRepository.setTags(tx.id, categorizationTagIds);
 		}
-		await recalculateAccountBalance(key, tx.accountId);
+		if (!options.deferBalance) await recalculateAccountBalance(key, tx.accountId);
 
 		// Best-effort recurring-event matching (FR-030): try each split's category until
 		// one matches a pending expected event. Never blocks/fails the transaction itself.

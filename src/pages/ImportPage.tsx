@@ -28,6 +28,7 @@ import {
 	parseXlsx,
 	previewRows,
 	importRows,
+	MAX_IMPORT_ROWS,
 	type ColumnMapping,
 	type ParsedFile,
 	type ImportResult
@@ -53,6 +54,7 @@ export function ImportPage() {
 	const [debitColumn, setDebitColumn] = useState('');
 	const [creditColumn, setCreditColumn] = useState('');
 	const [importing, setImporting] = useState(false);
+	const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
 	const [result, setResult] = useState<ImportResult | null>(null);
 	const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -65,11 +67,24 @@ export function ImportPage() {
 		const file = event.target.files?.[0];
 		if (!file) return;
 		setResult(null);
-		const isXlsx = file.name.toLowerCase().endsWith('.xlsx');
-		const parsedFile = isXlsx
-			? await parseXlsx(await file.arrayBuffer())
-			: parseCsv(await file.text());
-		setParsed(parsedFile);
+		setProgress(null);
+		try {
+			const isXlsx = file.name.toLowerCase().endsWith('.xlsx');
+			const parsedFile = isXlsx
+				? await parseXlsx(await file.arrayBuffer())
+				: parseCsv(await file.text());
+			if (parsedFile.rows.length > MAX_IMPORT_ROWS) {
+				toast.error(
+					`That file has ${parsedFile.rows.length.toLocaleString()} rows. ` +
+						`Split it into files of ${MAX_IMPORT_ROWS.toLocaleString()} rows or fewer.`
+				);
+				return;
+			}
+			setParsed(parsedFile);
+		} catch (err) {
+			toast.error(err instanceof Error ? err.message : 'Could not read that file.');
+			return;
+		}
 		// No column is pre-guessed: a wrong guess here would misfile every amount as the
 		// wrong sign or category, so the user always picks each mapping explicitly (same
 		// reasoning as the New Transaction form's account field).
@@ -96,14 +111,18 @@ export function ImportPage() {
 		};
 
 		setImporting(true);
+		setProgress({ done: 0, total: parsed.rows.length });
 		try {
-			const importResult = await importRows(key, parsed.rows, mapping);
+			const importResult = await importRows(key, parsed.rows, mapping, (done, total) =>
+				setProgress({ done, total })
+			);
 			setResult(importResult);
 			toast.success(`Imported ${importResult.createdCount} transaction(s)`);
 		} catch (err) {
 			toast.error(err instanceof Error ? err.message : 'Could not import file.');
 		} finally {
 			setImporting(false);
+			setProgress(null);
 		}
 	}
 
@@ -271,6 +290,21 @@ export function ImportPage() {
 								)}
 							</div>
 
+							{parsed.errors.length > 0 && (
+								<div className="mb-3 rounded-md border border-destructive/40 bg-destructive/5 p-3">
+									<p className="text-xs font-medium text-destructive">
+										{parsed.errors.length} line{parsed.errors.length === 1 ? '' : 's'} in this file
+										couldn't be parsed cleanly. Check the preview before importing.
+									</p>
+									<ul className="mt-1 list-inside list-disc text-xs text-muted-foreground">
+										{parsed.errors.slice(0, 5).map((e, i) => (
+											<li key={i}>
+												Row {e.row}: {e.message}
+											</li>
+										))}
+									</ul>
+								</div>
+							)}
 							{parsed.rows.length > 0 && (
 								<div>
 									<p className="mb-2 text-xs text-muted-foreground">Preview (first 5 rows)</p>
@@ -296,7 +330,11 @@ export function ImportPage() {
 							)}
 
 							<Button type="button" disabled={!canImport || importing} onClick={handleImport}>
-								{importing ? 'Importing…' : `Import ${parsed.rows.length} row(s)`}
+								{importing
+									? progress
+										? `Importing ${progress.done.toLocaleString()}/${progress.total.toLocaleString()}…`
+										: 'Importing…'
+									: `Import ${parsed.rows.length} row(s)`}
 							</Button>
 						</>
 					)}

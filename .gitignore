@@ -38,3 +38,5 @@ playwright/.cache
 # .claude/ or .agents/ dir, since .claude/skills and .agents/skills are checked-in
 # spec-kit / project skills, not local machine state.
 .claude/settings.local.json
+# Git worktrees created for background tasks — full checkouts, never committed.
+.claude/worktrees/

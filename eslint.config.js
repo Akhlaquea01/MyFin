@@ -11,7 +11,9 @@ const gitignorePath = path.resolve(import.meta.dirname, '.gitignore');
 
 export default defineConfig(
 	includeIgnoreFile(gitignorePath),
-	{ ignores: ['scripts/**'] },
+	// `.claude/worktrees/**` holds full checkouts of this repo created for background tasks;
+	// linting them duplicates every error and breaks typed linting (multiple tsconfig roots).
+	{ ignores: ['scripts/**', '.claude/worktrees/**', 'dev-dist/**'] },
 	js.configs.recommended,
 	ts.configs.recommended,
 	reactRefresh.configs.vite,

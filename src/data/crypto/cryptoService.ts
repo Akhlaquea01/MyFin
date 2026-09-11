@@ -2,7 +2,16 @@
 // PBKDF2-SHA256 (210,000 iterations) derives a 256-bit AES-GCM key from the user's PIN.
 // See specs/001-personal-finance-manager/research.md #6 and contracts/repository-interfaces.md.
 
+// Interactive unlock cost. OWASP's current PBKDF2-HMAC-SHA256 guidance is 600,000; this
+// sits below it deliberately because it runs on the main thread on every unlock, and is
+// compensated by the online throttle in domain/auth/pinPolicy.ts. A backup file has no such
+// throttle (an attacker holding one can guess offline, as fast as their hardware allows), so
+// backups derive at BACKUP_PBKDF2_ITERATIONS instead — see backupService.ts.
 const PBKDF2_ITERATIONS = 210_000;
+
+/** Derivation cost for backup files, which leave the device and must resist offline attack.
+ *  A backup is derived once, on restore, so it can afford to be slow. */
+export const BACKUP_PBKDF2_ITERATIONS = 600_000;
 const AES_KEY_LENGTH_BITS = 256;
 const GCM_IV_LENGTH_BYTES = 12;
 
@@ -50,19 +59,32 @@ async function importPinKeyMaterial(pin: string): Promise<CryptoKey> {
 /**
  * Derives the AES-GCM encryption key used for all financial data, from the user's PIN
  * and a stored per-installation salt. The resulting CryptoKey is never persisted — it is
- * held only in memory for the session (see lib/stores/sessionStore.ts).
+ * held only in memory for the session, with the single narrow exception of the
+ * non-extractable handle persisted by src/data/dexie/sessionKeyRepository.ts (Constitution
+ * Principle II, v2.0.0). It is always derived non-extractable, so no code path — including
+ * that one — can ever export its raw bytes.
+ *
+ * `iterations` is explicit so backup files can use a higher cost than interactive unlock and
+ * so a file written under a different cost still restores: the container records the count it
+ * was written with, and restore must honour that value rather than assume today's constant.
  */
-export async function deriveEncryptionKey(pin: string, saltBase64: string): Promise<CryptoKey> {
+export async function deriveEncryptionKey(
+	pin: string,
+	saltBase64: string,
+	iterations: number = PBKDF2_ITERATIONS
+): Promise<CryptoKey> {
 	const keyMaterial = await importPinKeyMaterial(pin);
 	return crypto.subtle.deriveKey(
 		{
 			name: 'PBKDF2',
 			salt: asBufferSource(fromBase64(saltBase64)),
-			iterations: PBKDF2_ITERATIONS,
+			iterations,
 			hash: 'SHA-256'
 		},
 		keyMaterial,
 		{ name: 'AES-GCM', length: AES_KEY_LENGTH_BITS },
+		// Never extractable: Principle II's guarantee is that raw key bytes are unreachable by
+		// script under any circumstance. Covered by tests/unit/crypto.test.ts.
 		false,
 		['encrypt', 'decrypt']
 	);
@@ -133,6 +155,25 @@ export async function sha256Hex(data: string): Promise<string> {
 		.join('');
 }
 
+/**
+ * A deterministic, salted digest for use as a searchable index key in place of plaintext
+ * ("blind index").
+ *
+ * IndexedDB indexes are stored unencrypted on disk, so any user-authored text placed in one
+ * — merchant/alias text, tag names — sits in the clear in the browser profile, which is
+ * exactly the threat PIN encryption exists to defeat. Hashing preserves the only operation
+ * those indexes are used for (exact, case-insensitive equality lookup) while putting nothing
+ * readable on disk.
+ *
+ * Salted with the installation's own random salt so the same merchant digests differently on
+ * different devices, defeating precomputed tables. This is not equivalent to encryption: an
+ * attacker holding the profile also holds the salt, and could confirm a *guessed* merchant
+ * name by recomputing its digest. It removes bulk readability, not targeted confirmation.
+ */
+export async function blindIndex(value: string, saltBase64: string): Promise<string> {
+	return sha256Hex(`${saltBase64}:${value.trim().toLowerCase()}`);
+}
+
 export const CryptoService = {
 	generateSalt,
 	randomSaltBase64,
@@ -142,5 +183,7 @@ export const CryptoService = {
 	encrypt,
 	decrypt,
 	sha256Hex,
-	PBKDF2_ITERATIONS
+	blindIndex,
+	PBKDF2_ITERATIONS,
+	BACKUP_PBKDF2_ITERATIONS
 };

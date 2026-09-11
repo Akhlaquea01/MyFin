@@ -35,11 +35,23 @@ export interface MerchantRow extends EncryptedRow {
 
 export interface MerchantAliasRow extends EncryptedRow {
 	merchantId: string;
-	aliasText: string;
+	/**
+	 * Salted digest of the lowercased alias text, NOT the text itself — IndexedDB indexes are
+	 * stored unencrypted on disk, and this column previously held raw statement descriptions
+	 * in the clear. See `blindIndex` in cryptoService.ts. Empty string until the one-time
+	 * re-index has run for rows written before schema v8 (see blindIndexMaintenance.ts).
+	 */
+	aliasHash: string;
+	/** @deprecated Plaintext. Blanked by the v8 re-index; kept on the row only so an
+	 *  interrupted migration can still be identified and finished. */
+	aliasText?: string;
 }
 
 export interface TagRow extends EncryptedRow {
-	name: string;
+	/** Salted digest of the lowercased tag name — see MerchantAliasRow.aliasHash. */
+	nameHash: string;
+	/** @deprecated Plaintext. Blanked by the v8 re-index. */
+	name?: string;
 }
 
 export interface TransactionRow extends EncryptedRow {
@@ -234,6 +246,18 @@ class MyFinDatabase extends Dexie {
 		// v7: adds the cross-reload session key persistence singleton (spec 009). Additive-only.
 		this.version(7).stores({
 			sessionKeys: 'id'
+		});
+		// v8: replaces the two plaintext searchable columns (`merchantAliases.aliasText`,
+		// `tags.name`) with salted digests, so no user-authored text sits unencrypted in an
+		// IndexedDB index (Constitution Principle II).
+		//
+		// The digest cannot be computed here: a Dexie upgrade runs without the encryption key,
+		// and the plaintext lives inside `encryptedData`. So this only reshapes the indexes; the
+		// values are filled in by a one-time pass after the next successful unlock — see
+		// `runBlindIndexMaintenance` in blindIndexMaintenance.ts.
+		this.version(8).stores({
+			merchantAliases: 'id, merchantId, aliasHash',
+			tags: 'id, nameHash'
 		});
 	}
 }

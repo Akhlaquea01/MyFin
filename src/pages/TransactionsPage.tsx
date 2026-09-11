@@ -46,6 +46,8 @@ const VIRTUALIZE_THRESHOLD = 200;
 const ROW_HEIGHT_PX = 49;
 const OVERSCAN_ROWS = 8;
 const VIEWPORT_HEIGHT_PX = 560;
+/** Settles a scroll gesture before querying attachment counts for the new window. */
+const ATTACHMENT_COUNT_DEBOUNCE_MS = 120;
 
 // User Story 2 (P2): search/filter (FR-013) and soft-delete (FR-014) of transactions.
 export function TransactionsPage() {
@@ -87,18 +89,23 @@ export function TransactionsPage() {
 
 	async function refresh() {
 		setLoading(true);
-		setAccounts(await AccountRepository.list(key));
-		setTransactions(
-			await TransactionRepository.search(key, {
-				accountId: accountFilter || undefined,
-				dateFrom: dateFrom || undefined,
-				dateTo: dateTo || undefined,
-				freeText: freeText || undefined
-			})
-		);
-		setScrollTop(0);
-		if (scrollerRef.current) scrollerRef.current.scrollTop = 0;
-		setLoading(false);
+		try {
+			setAccounts(await AccountRepository.list(key));
+			setTransactions(
+				await TransactionRepository.search(key, {
+					accountId: accountFilter || undefined,
+					dateFrom: dateFrom || undefined,
+					dateTo: dateTo || undefined,
+					freeText: freeText || undefined
+				})
+			);
+			setScrollTop(0);
+			if (scrollerRef.current) scrollerRef.current.scrollTop = 0;
+		} catch (err) {
+			toast.error(err instanceof Error ? err.message : 'Could not load this page.');
+		} finally {
+			setLoading(false);
+		}
 	}
 
 	useEffect(() => {
@@ -108,15 +115,41 @@ export function TransactionsPage() {
 
 	// research.md §4: one bulk query for the currently-visible window of rows, never one
 	// query per row — stays proportional to viewport size, not total transaction count.
-	async function refreshAttachmentCounts() {
-		const ids = visibleTransactions.map((t) => t.id);
-		setAttachmentCounts(await AttachmentRepository.countsForTransactions(key, ids));
-	}
+	//
+	// Keyed on the id list rather than the array identity: `visibleTransactions` is rebuilt by
+	// `useMemo` on every scroll event, so depending on its identity fired an IndexedDB query per
+	// scroll frame, each resolving out of order and *replacing* the count map — which made the
+	// paperclip badges flicker while scrolling. The debounce settles the scroll first, and the
+	// merge keeps counts already fetched for rows still on screen.
+	const visibleIdsKey = useMemo(
+		() => visibleTransactions.map((t) => t.id).join(','),
+		[visibleTransactions]
+	);
 
 	useEffect(() => {
-		void refreshAttachmentCounts();
-		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [visibleTransactions]);
+		let cancelled = false;
+		const handle = setTimeout(() => {
+			const ids = visibleIdsKey ? visibleIdsKey.split(',') : [];
+			void AttachmentRepository.countsForTransactions(key, ids)
+				.then((counts) => {
+					if (!cancelled) setAttachmentCounts((prev) => ({ ...prev, ...counts }));
+				})
+				.catch(() => {
+					// A missing paperclip badge is not worth interrupting the user for.
+				});
+		}, ATTACHMENT_COUNT_DEBOUNCE_MS);
+		return () => {
+			cancelled = true;
+			clearTimeout(handle);
+		};
+	}, [visibleIdsKey, key]);
+
+	function refreshAttachmentCounts() {
+		const ids = visibleTransactions.map((t) => t.id);
+		void AttachmentRepository.countsForTransactions(key, ids)
+			.then((counts) => setAttachmentCounts((prev) => ({ ...prev, ...counts })))
+			.catch(() => {});
+	}
 
 	async function remove(tx: Transaction) {
 		await TransactionEngine.deleteTransaction(key, tx.id);

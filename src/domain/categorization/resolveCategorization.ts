@@ -67,9 +67,7 @@ export async function recordConfirmation(
 	categoryId: string
 ): Promise<void> {
 	const existing = await MerchantCategorySignalRepository.get(key, merchantId);
-	const recentCategoryIds = [...(existing?.recentCategoryIds ?? []), categoryId].slice(
-		-MIN_STREAK
-	);
+	const recentCategoryIds = [...(existing?.recentCategoryIds ?? []), categoryId].slice(-MIN_STREAK);
 	await MerchantCategorySignalRepository.set(key, merchantId, recentCategoryIds);
 }
 
