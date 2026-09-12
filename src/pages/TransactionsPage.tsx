@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowRightLeft, Check, Paperclip, Plus, Search, Tag as TagIcon, X } from 'lucide-react';
+import { ArrowRightLeft, Check, Paperclip, Plus, Search, Tag as TagIcon, X, Bookmark, Save, Trash2, Edit2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Badge } from '../components/ui/badge';
 import { Card, CardContent } from '../components/ui/card';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../components/ui/dialog';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from '../components/ui/dropdown-menu';
 import { Popover, PopoverContent, PopoverTrigger } from '../components/ui/popover';
 import {
 	Select,
@@ -32,7 +33,8 @@ import { TagRepository } from '../data/dexie/tagRepository';
 import { TransactionEngine } from '../domain/transactions/transactionEngine';
 import { filterTagOptions, type TagOption } from '../domain/transactions/tagFilterEngine';
 import { validateAttachmentFile, compressImage } from '../lib/imageAttachment';
-import type { Account, Attachment, Transaction } from '../domain/entities';
+import type { Account, Attachment, Transaction, SavedFilterView } from '../domain/entities';
+import { SavedFilterViewRepository } from '../data/dexie/savedFilterViewRepository';
 
 function formatMoney(paise: number): string {
 	return (paise / 100).toLocaleString(undefined, {
@@ -91,6 +93,13 @@ export function TransactionsPage() {
 	const [attachmentCounts, setAttachmentCounts] = useState<Record<string, number>>({});
 	const [attachmentDialogTx, setAttachmentDialogTx] = useState<Transaction | null>(null);
 
+	const [savedViews, setSavedViews] = useState<SavedFilterView[]>([]);
+	const [saveViewOpen, setSaveViewOpen] = useState(false);
+	const [newViewName, setNewViewName] = useState('');
+	const [savingView, setSavingView] = useState(false);
+	const [renamingView, setRenamingView] = useState<SavedFilterView | null>(null);
+	const [renameViewName, setRenameViewName] = useState('');
+
 	const isVirtualized = transactions.length > VIRTUALIZE_THRESHOLD;
 	const { visibleTransactions, topSpacerPx, bottomSpacerPx } = useMemo(() => {
 		if (!isVirtualized) {
@@ -127,6 +136,7 @@ export function TransactionsPage() {
 		try {
 			setAccounts(await AccountRepository.list(key));
 			setTags(await TagRepository.listInUse(key));
+			setSavedViews(await SavedFilterViewRepository.list(key));
 			setTransactions(
 				await TransactionRepository.search(key, {
 					accountId: accountFilter || undefined,
@@ -192,6 +202,116 @@ export function TransactionsPage() {
 		await TransactionEngine.deleteTransaction(key, tx.id);
 		toast.success('Transaction moved to trash');
 		await refresh();
+	}
+
+	async function handleSaveView() {
+		if (!newViewName.trim()) {
+			toast.error('Please enter a name for the view.');
+			return;
+		}
+		setSavingView(true);
+		try {
+			const existing = await SavedFilterViewRepository.findByName(key, newViewName.trim());
+			if (existing) {
+				if (!window.confirm(`A view named "${existing.name}" already exists. Overwrite?`)) {
+					setSavingView(false);
+					return;
+				}
+				await SavedFilterViewRepository.update(key, existing.id, {
+					accountId: accountFilter || null,
+					dateFrom: dateFrom || null,
+					dateTo: dateTo || null,
+					freeText: freeText || null,
+					tagIds: selectedTagIds
+				});
+			} else {
+				await SavedFilterViewRepository.create(key, {
+					name: newViewName.trim(),
+					accountId: accountFilter || null,
+					dateFrom: dateFrom || null,
+					dateTo: dateTo || null,
+					freeText: freeText || null,
+					tagIds: selectedTagIds
+				});
+			}
+			toast.success('View saved successfully.');
+			setSaveViewOpen(false);
+			setNewViewName('');
+			setSavedViews(await SavedFilterViewRepository.list(key));
+		} catch (err) {
+			toast.error(err instanceof Error ? err.message : 'Could not save view.');
+		} finally {
+			setSavingView(false);
+		}
+	}
+
+	async function handleRenameView() {
+		if (!renamingView || !renameViewName.trim()) return;
+		try {
+			const existing = await SavedFilterViewRepository.findByName(key, renameViewName.trim());
+			if (existing && existing.id !== renamingView.id) {
+				toast.error(`A view named "${existing.name}" already exists.`);
+				return;
+			}
+			await SavedFilterViewRepository.update(key, renamingView.id, { name: renameViewName.trim() });
+			toast.success('View renamed.');
+			setRenamingView(null);
+			setSavedViews(await SavedFilterViewRepository.list(key));
+		} catch (err) {
+			toast.error('Could not rename view.');
+		}
+	}
+
+	async function handleDeleteView(id: string) {
+		if (!window.confirm('Delete this saved view?')) return;
+		try {
+			await SavedFilterViewRepository.delete(id);
+			toast.success('Saved view deleted.');
+			setSavedViews(await SavedFilterViewRepository.list(key));
+		} catch (err) {
+			toast.error('Could not delete view.');
+		}
+	}
+
+	function applySavedView(view: SavedFilterView) {
+		let hasMissingAccounts = false;
+		const newAccountId = view.accountId && accounts.some((a) => a.id === view.accountId) ? view.accountId : '';
+		if (view.accountId && !newAccountId) hasMissingAccounts = true;
+
+		const newDateFrom = view.dateFrom || '';
+		const newDateTo = view.dateTo || '';
+		const newFreeText = view.freeText || '';
+
+		let hasMissingTags = false;
+		const newTagIds: string[] = [];
+		for (const tid of view.tagIds) {
+			if (tags.some((t) => t.id === tid)) newTagIds.push(tid);
+			else hasMissingTags = true;
+		}
+
+		setAccountFilter(newAccountId);
+		setDateFrom(newDateFrom);
+		setDateTo(newDateTo);
+		setFreeText(newFreeText);
+		setSelectedTagIds(newTagIds);
+
+		if (hasMissingAccounts || hasMissingTags) {
+			toast.warning('Some filter criteria (like a deleted account or tag) could not be applied.');
+		} else {
+			toast.success(`Applied view "${view.name}"`);
+		}
+
+		setLoading(true);
+		TransactionRepository.search(key, {
+			accountId: newAccountId || undefined,
+			dateFrom: newDateFrom || undefined,
+			dateTo: newDateTo || undefined,
+			freeText: newFreeText || undefined,
+			tagIds: newTagIds.length > 0 ? newTagIds : undefined
+		})
+			.then(setTransactions)
+			.catch(() => toast.error('Failed to apply filter view.'))
+			.finally(() => setLoading(false));
 	}
 
 	return (
@@ -333,6 +453,57 @@ export function TransactionsPage() {
 					<Button variant="secondary" onClick={() => void refresh()}>
 						<Search /> Filter
 					</Button>
+					<div className="ml-auto flex gap-1.5">
+						<DropdownMenu>
+							<DropdownMenuTrigger asChild>
+								<Button variant="outline">
+									<Bookmark className="mr-2" /> Saved Views
+								</Button>
+							</DropdownMenuTrigger>
+							<DropdownMenuContent align="end" className="w-56">
+								{savedViews.length === 0 ? (
+									<div className="p-2 text-center text-sm text-muted-foreground">No saved views</div>
+								) : (
+									savedViews.map((view) => (
+										<div
+											key={view.id}
+											className="group flex items-center justify-between rounded-sm px-2 py-1.5 hover:bg-accent"
+										>
+											<button
+												className="mr-2 flex-1 truncate text-left text-sm"
+												onClick={() => applySavedView(view)}
+											>
+												{view.name}
+											</button>
+											<div className="flex gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+												<button
+													className="rounded p-1 hover:bg-muted"
+													onClick={() => {
+														setRenameViewName(view.name);
+														setRenamingView(view);
+													}}
+													aria-label="Rename"
+												>
+													<Edit2 className="size-3 text-muted-foreground" />
+												</button>
+												<button
+													className="rounded p-1 text-destructive hover:bg-muted"
+													onClick={() => void handleDeleteView(view.id)}
+													aria-label="Delete"
+												>
+													<Trash2 className="size-3" />
+												</button>
+											</div>
+										</div>
+									))
+								)}
+							</DropdownMenuContent>
+						</DropdownMenu>
+
+						<Button variant="outline" onClick={() => setSaveViewOpen(true)}>
+							<Save className="mr-2" /> Save View
+						</Button>
+					</div>
 					{selectedTagIds.length > 0 && (
 						<div className="flex w-full flex-wrap gap-1.5">
 							{selectedTagIds.map((id) => (
@@ -451,6 +622,54 @@ export function TransactionsPage() {
 					onChanged={() => void refreshAttachmentCounts()}
 				/>
 			)}
+
+			<Dialog open={saveViewOpen} onOpenChange={setSaveViewOpen}>
+				<DialogContent>
+					<DialogHeader>
+						<DialogTitle>Save Filter View</DialogTitle>
+					</DialogHeader>
+					<div className="py-4">
+						<Label htmlFor="view-name">View Name</Label>
+						<Input
+							id="view-name"
+							value={newViewName}
+							onChange={(e) => setNewViewName(e.target.value)}
+							autoFocus
+						/>
+					</div>
+					<DialogFooter>
+						<Button variant="outline" onClick={() => setSaveViewOpen(false)}>
+							Cancel
+						</Button>
+						<Button onClick={() => void handleSaveView()} disabled={savingView}>
+							Save
+						</Button>
+					</DialogFooter>
+				</DialogContent>
+			</Dialog>
+
+			<Dialog open={!!renamingView} onOpenChange={(open) => !open && setRenamingView(null)}>
+				<DialogContent>
+					<DialogHeader>
+						<DialogTitle>Rename Filter View</DialogTitle>
+					</DialogHeader>
+					<div className="py-4">
+						<Label htmlFor="rename-view-name">New Name</Label>
+						<Input
+							id="rename-view-name"
+							value={renameViewName}
+							onChange={(e) => setRenameViewName(e.target.value)}
+							autoFocus
+						/>
+					</div>
+					<DialogFooter>
+						<Button variant="outline" onClick={() => setRenamingView(null)}>
+							Cancel
+						</Button>
+						<Button onClick={() => void handleRenameView()}>Rename</Button>
+					</DialogFooter>
+				</DialogContent>
+			</Dialog>
 		</div>
 	);
 }

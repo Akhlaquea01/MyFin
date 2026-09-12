@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { saveAs } from 'file-saver';
-import { DatabaseBackup, ShieldAlert, Upload } from 'lucide-react';
+import { DatabaseBackup, ShieldAlert, Upload, HelpCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -28,6 +28,7 @@ import {
 	type BackupFile,
 	type BackupPayload
 } from '../data/io/backupService';
+import { useQuickTour } from '../hooks/useQuickTour';
 
 const AUTO_BACKUP_KEY = 'myfin.autoBackup';
 const REMINDER_INTERVAL_DAYS = 7;
@@ -77,6 +78,7 @@ function formatBackupDate(iso: string): string {
 export function BackupSettingsPage() {
 	const { getEncryptionKey } = useSession();
 	const key = getEncryptionKey();
+	const { startTour } = useQuickTour();
 
 	const [creating, setCreating] = useState(false);
 	const [autoBackup, setAutoBackup] = useState<AutoBackupSettings>(loadAutoBackupSettings);
@@ -247,6 +249,25 @@ export function BackupSettingsPage() {
 							onCheckedChange={(enabled) => setAutoBackup((s) => ({ ...s, enabled }))}
 						/>
 					</div>
+				</CardContent>
+			</Card>
+
+			<Card className="mb-6">
+				<CardHeader>
+					<CardTitle className="text-base">Help & Support</CardTitle>
+				</CardHeader>
+				<CardContent className="flex flex-col gap-4">
+					<p className="text-sm text-muted-foreground">
+						Need a refresher on how to use the app? Replay the introductory quick tour to see the main areas.
+					</p>
+					<Button
+						type="button"
+						variant="outline"
+						onClick={startTour}
+						className="w-fit"
+					>
+						<HelpCircle className="mr-2 h-4 w-4" /> Replay Quick Tour
+					</Button>
 				</CardContent>
 			</Card>
 

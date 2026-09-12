@@ -483,3 +483,16 @@ export const TransactionRepository = {
 		return grouped;
 	}
 };
+
+export const TransactionSplitRepository = {
+	async listAll(key: CryptoKey): Promise<TransactionSplit[]> {
+		const rows = await db.transactionSplits.toArray();
+		return decryptRows<TransactionSplitRow, TransactionSplit>(key, rows);
+	},
+	async listForTransaction(key: CryptoKey, transactionId: string): Promise<TransactionSplit[]> {
+		const rows = await db.transactionSplits.where('transactionId').equals(transactionId).toArray();
+		return decryptRows<TransactionSplitRow, TransactionSplit>(key, rows);
+	}
+};
+
+

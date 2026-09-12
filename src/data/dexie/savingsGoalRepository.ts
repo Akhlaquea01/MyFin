@@ -83,5 +83,11 @@ export const GoalContributionRepository = {
 	async listForGoal(key: CryptoKey, goalId: string): Promise<GoalContribution[]> {
 		const rows = await db.goalContributions.where('goalId').equals(goalId).toArray();
 		return decryptRows<GoalContributionRow, GoalContribution>(key, rows);
+	},
+
+	async list(key: CryptoKey): Promise<GoalContribution[]> {
+		const rows = await db.goalContributions.toArray();
+		return decryptRows<GoalContributionRow, GoalContribution>(key, rows);
 	}
 };
+

@@ -70,5 +70,10 @@ export const MerchantAliasRepository = {
 	async listForMerchant(key: CryptoKey, merchantId: string): Promise<MerchantAlias[]> {
 		const rows = await db.merchantAliases.where('merchantId').equals(merchantId).toArray();
 		return decryptRows<MerchantAliasRow, MerchantAlias>(key, rows);
+	},
+
+	async list(key: CryptoKey): Promise<MerchantAlias[]> {
+		const rows = await db.merchantAliases.toArray();
+		return decryptRows<MerchantAliasRow, MerchantAlias>(key, rows);
 	}
 };

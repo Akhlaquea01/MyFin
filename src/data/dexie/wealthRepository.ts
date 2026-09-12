@@ -86,8 +86,14 @@ export const InvestmentValuationRepository = {
 	async latestValue(key: CryptoKey, holding: { id: string; costBasis: number }): Promise<number> {
 		const valuations = await this.listForHolding(key, holding.id);
 		return valuations[0]?.value ?? holding.costBasis;
+	},
+
+	async list(key: CryptoKey): Promise<InvestmentValuation[]> {
+		const rows = await db.investmentValuations.toArray();
+		return decryptRows<InvestmentValuationRow, InvestmentValuation>(key, rows);
 	}
 };
+
 
 export const LiabilityRepository = {
 	async create(

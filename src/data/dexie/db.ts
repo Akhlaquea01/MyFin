@@ -167,6 +167,11 @@ export interface PersonLoanRepaymentRow extends EncryptedRow {
 	deletedAt: number;
 }
 
+export interface SavedFilterViewRow extends EncryptedRow {
+	createdAt: number;
+}
+
+
 /**
  * Holds the derived encryption key across a page reload so the app doesn't have to force a
  * fresh PIN/biometric entry on every refresh (spec 009). `key` is stored as a *non-extractable*
@@ -211,6 +216,7 @@ class MyFinDatabase extends Dexie {
 	people!: EntityTable<PersonRow, 'id'>;
 	personLoans!: EntityTable<PersonLoanRow, 'id'>;
 	personLoanRepayments!: EntityTable<PersonLoanRepaymentRow, 'id'>;
+	savedFilterViews!: EntityTable<SavedFilterViewRow, 'id'>;
 	// Unencrypted by design — see research.md #11 "Exception — UserProfile".
 	userProfile!: EntityTable<UserProfile, 'id'>;
 	sessionKeys!: EntityTable<SessionKeyRow, 'id'>;
@@ -279,14 +285,17 @@ class MyFinDatabase extends Dexie {
 			merchantAliases: 'id, merchantId, aliasHash',
 			tags: 'id, nameHash'
 		});
-		// v9: adds personal lending/borrowing (IOU) tracking — people, loans, and their
-		// repayments (spec 010). Additive-only.
 		this.version(9).stores({
 			people: 'id, deletedAt',
 			personLoans: 'id, personId, accountId, direction, deletedAt',
 			personLoanRepayments: 'id, loanId, accountId, deletedAt'
 		});
+		// v10: adds saved filter views for transactions (spec 013). Additive-only.
+		this.version(10).stores({
+			savedFilterViews: 'id, createdAt'
+		});
 	}
 }
+
 
 export const db = new MyFinDatabase();

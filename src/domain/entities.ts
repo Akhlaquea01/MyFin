@@ -320,3 +320,14 @@ export interface UserProfile {
 }
 
 export const DEFAULT_AUTO_LOCK_TIMEOUT_MS = 5 * 60 * 1000; // FR-003, spec clarification
+
+/** User-defined filter views for Transactions list. */
+export interface SavedFilterView extends Timestamped {
+	id: ID;
+	name: string;
+	accountId: ID | null;
+	dateFrom: ISODateString | null;
+	dateTo: ISODateString | null;
+	freeText: string | null;
+	tagIds: ID[];
+}

@@ -31,11 +31,11 @@ import { Sheet, SheetContent, SheetTrigger } from './ui/sheet';
 
 const NAV_ITEMS = [
 	{ to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true },
-	{ to: '/accounts', label: 'Accounts', icon: Wallet },
-	{ to: '/transactions', label: 'Transactions', icon: ArrowLeftRight },
+	{ to: '/accounts', label: 'Accounts', icon: Wallet, dataTour: 'accounts-nav' },
+	{ to: '/transactions', label: 'Transactions', icon: ArrowLeftRight, dataTour: 'transactions-nav' },
 	{ to: '/quick-add', label: 'Quick Add', icon: Sparkles },
 	{ to: '/review', label: 'Review', icon: Inbox },
-	{ to: '/budgets', label: 'Budgets', icon: PiggyBank },
+	{ to: '/budgets', label: 'Budgets', icon: PiggyBank, dataTour: 'budgets-nav' },
 	{ to: '/savings-goals', label: 'Savings Goals', icon: Target },
 	{ to: '/people', label: 'People', icon: Users },
 	{ to: '/recurring', label: 'Recurring', icon: CalendarClock },
@@ -47,22 +47,23 @@ const NAV_ITEMS = [
 	{ to: '/analytics', label: 'Analytics', icon: BarChart3 },
 	{ to: '/import', label: 'Import', icon: Upload },
 	{ to: '/export', label: 'Export', icon: Download },
-	{ to: '/backup', label: 'Backup', icon: DatabaseBackup },
+	{ to: '/backup', label: 'Backup', icon: DatabaseBackup, dataTour: 'settings-nav' },
 	{ to: '/notification-settings', label: 'Notifications', icon: Bell },
 	{ to: '/categorization-rules', label: 'Auto-Categorize', icon: Wand2 },
-	{ to: '/categories', label: 'Categories', icon: Tags },
+	{ to: '/categories', label: 'Categories', icon: Tags, dataTour: 'categories-nav' },
 	{ to: '/trash', label: 'Trash', icon: Trash2 }
 ];
 
 function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
 	return (
 		<nav className="flex flex-col gap-1">
-			{NAV_ITEMS.map(({ to, label, icon: Icon, end }) => (
+			{NAV_ITEMS.map(({ to, label, icon: Icon, end, dataTour }) => (
 				<NavLink
 					key={to}
 					to={to}
 					end={end}
 					onClick={onNavigate}
+					data-tour={dataTour}
 					className={({ isActive }) =>
 						cn(
 							'flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors',

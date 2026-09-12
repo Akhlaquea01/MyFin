@@ -43,6 +43,9 @@ import { ImportPage } from './pages/ImportPage';
 import { ExportPage } from './pages/ExportPage';
 import { BackupSettingsPage } from './pages/BackupSettingsPage';
 import { CategorizationRulesPage } from './pages/CategorizationRulesPage';
+import { QuickTourProvider } from './components/ui/quick-tour/QuickTourProvider';
+import { QuickTourOverlay } from './components/ui/quick-tour/QuickTourOverlay';
+import { QUICK_TOUR_STEPS } from './components/ui/quick-tour/tour-steps';
 
 /**
  * Work that needs an encryption key and should happen once per unlock, whether that unlock was
@@ -145,54 +148,57 @@ function Gate() {
 	if (session.isLocked) return <LockScreen onunlock={handleUnlock} />;
 
 	return (
-		<BrowserRouter>
-			<ErrorBoundary onReset={lock}>
-				{showStorageWarning && <StorageWarningBanner />}
-				{showEnrollPrompt && (
-					<BiometricEnrollmentPrompt
-						getPin={() => transientPinRef.current}
-						onDone={() => {
-							transientPinRef.current = null;
-							setShowEnrollPrompt(false);
-						}}
-					/>
-				)}
-				<NotificationPermissionPrompt />
-				<Routes>
-					<Route element={<AppShell />}>
-						<Route index element={<DashboardPage />} />
-						<Route path="accounts" element={<AccountsPage />} />
-						<Route path="transactions" element={<TransactionsPage />} />
-						<Route path="transactions/new" element={<NewTransactionPage />} />
-						<Route path="transactions/transfer" element={<TransferPage />} />
-						<Route path="categories" element={<CategoriesPage />} />
-						<Route path="trash" element={<TrashPage />} />
-						<Route path="quick-add" element={<QuickAddPage />} />
-						<Route path="review" element={<ReviewPage />} />
-						<Route path="import/bulk-text" element={<BulkTextImportPage />} />
-						<Route path="budgets" element={<BudgetsPage />} />
-						<Route path="savings-goals" element={<SavingsGoalsPage />} />
-						<Route path="people" element={<PeoplePage />} />
-						<Route path="recurring" element={<RecurringPage />} />
-						<Route path="recurring/upcoming" element={<RecurringUpcomingPage />} />
-						<Route path="investments" element={<InvestmentsPage />} />
-						<Route path="liabilities" element={<LiabilitiesPage />} />
-						<Route path="liabilities/payoff-planner" element={<DebtPayoffPlannerPage />} />
-						<Route path="net-worth" element={<NetWorthPage />} />
-						<Route path="financial-health" element={<FinancialHealthPage />} />
-						<Route path="analytics" element={<AnalyticsPage />} />
-						<Route path="import" element={<ImportPage />} />
-						<Route path="export" element={<ExportPage />} />
-						<Route path="backup" element={<BackupSettingsPage />} />
-						<Route path="notification-settings" element={<NotificationSettingsPage />} />
-						<Route path="categorization-rules" element={<CategorizationRulesPage />} />
-					</Route>
-					{/* Spec 008: a pure redirect, deliberately outside AppShell — no nav shell needed
-					    for what's only ever a brief loading state before navigating onward. */}
-					<Route path="share-target-landing" element={<ShareTargetLandingPage />} />
-				</Routes>
-			</ErrorBoundary>
-		</BrowserRouter>
+		<QuickTourProvider totalSteps={QUICK_TOUR_STEPS.length}>
+			<BrowserRouter>
+				<ErrorBoundary onReset={lock}>
+					{showStorageWarning && <StorageWarningBanner />}
+					{showEnrollPrompt && (
+						<BiometricEnrollmentPrompt
+							getPin={() => transientPinRef.current}
+							onDone={() => {
+								transientPinRef.current = null;
+								setShowEnrollPrompt(false);
+							}}
+						/>
+					)}
+					<NotificationPermissionPrompt />
+					<QuickTourOverlay />
+					<Routes>
+						<Route element={<AppShell />}>
+							<Route index element={<DashboardPage />} />
+							<Route path="accounts" element={<AccountsPage />} />
+							<Route path="transactions" element={<TransactionsPage />} />
+							<Route path="transactions/new" element={<NewTransactionPage />} />
+							<Route path="transactions/transfer" element={<TransferPage />} />
+							<Route path="categories" element={<CategoriesPage />} />
+							<Route path="trash" element={<TrashPage />} />
+							<Route path="quick-add" element={<QuickAddPage />} />
+							<Route path="review" element={<ReviewPage />} />
+							<Route path="import/bulk-text" element={<BulkTextImportPage />} />
+							<Route path="budgets" element={<BudgetsPage />} />
+							<Route path="savings-goals" element={<SavingsGoalsPage />} />
+							<Route path="people" element={<PeoplePage />} />
+							<Route path="recurring" element={<RecurringPage />} />
+							<Route path="recurring/upcoming" element={<RecurringUpcomingPage />} />
+							<Route path="investments" element={<InvestmentsPage />} />
+							<Route path="liabilities" element={<LiabilitiesPage />} />
+							<Route path="liabilities/payoff-planner" element={<DebtPayoffPlannerPage />} />
+							<Route path="net-worth" element={<NetWorthPage />} />
+							<Route path="financial-health" element={<FinancialHealthPage />} />
+							<Route path="analytics" element={<AnalyticsPage />} />
+							<Route path="import" element={<ImportPage />} />
+							<Route path="export" element={<ExportPage />} />
+							<Route path="backup" element={<BackupSettingsPage />} />
+							<Route path="notification-settings" element={<NotificationSettingsPage />} />
+							<Route path="categorization-rules" element={<CategorizationRulesPage />} />
+						</Route>
+						{/* Spec 008: a pure redirect, deliberately outside AppShell — no nav shell needed
+						    for what's only ever a brief loading state before navigating onward. */}
+						<Route path="share-target-landing" element={<ShareTargetLandingPage />} />
+					</Routes>
+				</ErrorBoundary>
+			</BrowserRouter>
+		</QuickTourProvider>
 	);
 }
 

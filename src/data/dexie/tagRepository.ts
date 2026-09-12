@@ -4,7 +4,7 @@ import { blindIndex } from '../crypto/cryptoService';
 import { getBlindIndexSalt } from './blindIndexSalt';
 import { NOT_DELETED } from './indexable';
 import { distinctTagIdsInUse, normalizeTagText, type TagOption } from '../../domain/transactions/tagFilterEngine';
-import type { Tag } from '../../domain/entities';
+import type { Tag, TransactionTag } from '../../domain/entities';
 
 export const TagRepository = {
 	async getOrCreate(key: CryptoKey, name: string): Promise<Tag> {
@@ -57,5 +57,11 @@ export const TransactionTagRepository = {
 	async getTagIds(transactionId: string): Promise<string[]> {
 		const rows = await db.transactionTags.where('transactionId').equals(transactionId).toArray();
 		return rows.map((r) => r.tagId);
+	},
+
+	async list(): Promise<TransactionTag[]> {
+		const rows = await db.transactionTags.toArray();
+		return rows.map((r) => ({ transactionId: r.transactionId, tagId: r.tagId }));
 	}
 };
+

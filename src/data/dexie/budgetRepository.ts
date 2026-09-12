@@ -86,5 +86,10 @@ export const BudgetItemRepository = {
 		const rows = await db.budgetItems.where('budgetId').equals(budgetId).toArray();
 		const items = await decryptRows<BudgetItemRow, BudgetItem>(key, rows);
 		return items.sort((a, b) => (a.periodStart < b.periodStart ? 1 : -1));
+	},
+
+	async list(key: CryptoKey): Promise<BudgetItem[]> {
+		const rows = await db.budgetItems.toArray();
+		return decryptRows<BudgetItemRow, BudgetItem>(key, rows);
 	}
 };

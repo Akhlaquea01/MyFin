@@ -67,5 +67,11 @@ export const AttachmentRepository = {
 
 	async purgeForTransaction(_key: CryptoKey, transactionId: string): Promise<void> {
 		await db.attachments.where('transactionId').equals(transactionId).delete();
+	},
+
+	async list(key: CryptoKey): Promise<Attachment[]> {
+		const rows = await db.attachments.toArray();
+		return decryptRows<AttachmentRow, Attachment>(key, rows);
 	}
 };
+

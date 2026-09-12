@@ -46,18 +46,18 @@ const PROGRESS_INTERVAL = 100;
 
 /** ±1 day, same-amount duplicate rule (FR-020/FR-038), expressed as an in-memory lookup so
  *  it costs one index build per import rather than one index walk per row. */
-function duplicateKey(date: string, amount: number): string {
+export function duplicateKey(date: string, amount: number): string {
 	return `${date}|${amount}`;
 }
 
-function shiftIsoDay(date: string, deltaDays: number): string {
+export function shiftIsoDay(date: string, deltaDays: number): string {
 	const parsed = new Date(`${date}T00:00:00Z`);
 	if (Number.isNaN(parsed.getTime())) return date;
 	parsed.setUTCDate(parsed.getUTCDate() + deltaDays);
 	return parsed.toISOString().slice(0, 10);
 }
 
-function findDuplicateId(index: Map<string, string>, date: string, amount: number): string | null {
+export function findDuplicateId(index: Map<string, string>, date: string, amount: number): string | null {
 	for (const delta of [0, -1, 1]) {
 		const found = index.get(duplicateKey(shiftIsoDay(date, delta), amount));
 		if (found) return found;

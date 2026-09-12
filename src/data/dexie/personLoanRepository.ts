@@ -325,5 +325,13 @@ export const LoanRepaymentRepository = {
 			.filter((row) => row.deletedAt === NOT_DELETED)
 			.toArray();
 		return decryptRows<PersonLoanRepaymentRow, LoanRepayment>(key, rows);
+	},
+
+	async listAll(key: CryptoKey): Promise<LoanRepayment[]> {
+		const rows = await db.personLoanRepayments
+			.filter((row) => row.deletedAt === NOT_DELETED)
+			.toArray();
+		return decryptRows<PersonLoanRepaymentRow, LoanRepayment>(key, rows);
 	}
 };
+
