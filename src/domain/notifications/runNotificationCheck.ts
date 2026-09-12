@@ -8,6 +8,12 @@ import {
 import { generateExpectedEvents, markMissedPastDue } from '../recurring/recurringEngine';
 import { ensureCurrentBudgetItem } from '../budgets/budgetEngine';
 import { findDueRecurringEvents, findCrossedBudgetThresholds } from './notificationEngine';
+import {
+	PersonRepository,
+	PersonLoanRepository,
+	LoanRepaymentRepository
+} from '../../data/dexie/personLoanRepository';
+import { computePendingBalance, findOverduePersonLoans } from '../personLoans/loanProgress';
 import type { NotificationCandidate } from './types';
 
 /** Matches RecurringUpcomingPage's own lookahead horizon, so this check sees the same
@@ -88,7 +94,30 @@ export async function runNotificationCheck(
 		preference.budgetThresholdPercent
 	);
 
-	for (const candidate of [...recurringCandidates, ...budgetCandidates]) {
+	// Feature 010, User Story 4 (FR-013): overdue personal loans, reusing the same
+	// pure-candidate + NotifiedItemRepository dedupe pattern as the two sources above.
+	const openLoans = await PersonLoanRepository.listAllOpen(key);
+	const people = await PersonRepository.list(key);
+	const personNameById = new Map(people.map((p) => [p.id, p.name]));
+	const overdueLoanInputs = await Promise.all(
+		openLoans.map(async (loan) => {
+			const repayments = await LoanRepaymentRepository.listForLoan(key, loan.id);
+			return {
+				id: loan.id,
+				personName: personNameById.get(loan.personId) ?? 'Someone',
+				direction: loan.direction,
+				dueDate: loan.dueDate,
+				pendingBalance: computePendingBalance({
+					principalAmount: loan.principalAmount,
+					writeOffAmount: loan.writeOffAmount,
+					repayments
+				})
+			};
+		})
+	);
+	const personLoanCandidates = findOverduePersonLoans(overdueLoanInputs, asOfDate);
+
+	for (const candidate of [...recurringCandidates, ...budgetCandidates, ...personLoanCandidates]) {
 		if (await NotifiedItemRepository.exists(key, candidate.key)) continue;
 		if (await dispatchAndLog(key, candidate)) dispatched.push(candidate);
 	}

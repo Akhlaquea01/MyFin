@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowRightLeft, Paperclip, Plus, Search, X } from 'lucide-react';
+import { ArrowRightLeft, Check, Paperclip, Plus, Search, Tag as TagIcon, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -8,6 +8,7 @@ import { Label } from '../components/ui/label';
 import { Badge } from '../components/ui/badge';
 import { Card, CardContent } from '../components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../components/ui/dialog';
+import { Popover, PopoverContent, PopoverTrigger } from '../components/ui/popover';
 import {
 	Select,
 	SelectContent,
@@ -27,7 +28,9 @@ import { useSession } from '../context/SessionContext';
 import { AccountRepository } from '../data/dexie/accountRepository';
 import { TransactionRepository } from '../data/dexie/transactionRepository';
 import { AttachmentRepository } from '../data/dexie/attachmentRepository';
+import { TagRepository } from '../data/dexie/tagRepository';
 import { TransactionEngine } from '../domain/transactions/transactionEngine';
+import { filterTagOptions, type TagOption } from '../domain/transactions/tagFilterEngine';
 import { validateAttachmentFile, compressImage } from '../lib/imageAttachment';
 import type { Account, Attachment, Transaction } from '../domain/entities';
 
@@ -79,6 +82,9 @@ export function TransactionsPage() {
 	const [dateFrom, setDateFrom] = useState('');
 	const [dateTo, setDateTo] = useState('');
 	const [freeText, setFreeText] = useState('');
+	const [tags, setTags] = useState<TagOption[]>([]);
+	const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
+	const [tagQuery, setTagQuery] = useState('');
 	const [loading, setLoading] = useState(true);
 	const [scrollTop, setScrollTop] = useState(0);
 	const scrollerRef = useRef<HTMLDivElement>(null);
@@ -106,16 +112,28 @@ export function TransactionsPage() {
 		return accounts.find((a) => a.id === id)?.name ?? id;
 	}
 
+	function tagName(id: string): string {
+		return tags.find((t) => t.id === id)?.name ?? id;
+	}
+
+	function toggleTag(id: string) {
+		setSelectedTagIds((prev) =>
+			prev.includes(id) ? prev.filter((existing) => existing !== id) : [...prev, id]
+		);
+	}
+
 	async function refresh() {
 		setLoading(true);
 		try {
 			setAccounts(await AccountRepository.list(key));
+			setTags(await TagRepository.listInUse(key));
 			setTransactions(
 				await TransactionRepository.search(key, {
 					accountId: accountFilter || undefined,
 					dateFrom: dateFrom || undefined,
 					dateTo: dateTo || undefined,
-					freeText: freeText || undefined
+					freeText: freeText || undefined,
+					tagIds: selectedTagIds.length > 0 ? selectedTagIds : undefined
 				})
 			);
 			setScrollTop(0);
@@ -239,9 +257,72 @@ export function TransactionsPage() {
 							onChange={(e) => setDateTo(e.target.value)}
 						/>
 					</div>
+					<div className="flex flex-col gap-1.5">
+						<Label className="text-xs text-muted-foreground">Tags</Label>
+						<Popover
+							onOpenChange={(open) => {
+								if (!open) setTagQuery('');
+							}}
+						>
+							<PopoverTrigger asChild>
+								<Button variant="outline" className="w-40 justify-start">
+									<TagIcon />
+									{selectedTagIds.length > 0 ? `${selectedTagIds.length} selected` : 'All tags'}
+								</Button>
+							</PopoverTrigger>
+							<PopoverContent className="w-64">
+								{tags.length === 0 ? (
+									<p className="text-sm text-muted-foreground">No tags yet.</p>
+								) : (
+									<div className="flex flex-col gap-2">
+										<Input
+											placeholder="Search tags…"
+											value={tagQuery}
+											onChange={(e) => setTagQuery(e.target.value)}
+											autoFocus
+										/>
+										<p className="text-xs text-muted-foreground">
+											Shows transactions matching any selected tag.
+										</p>
+										<div className="flex max-h-56 flex-col gap-0.5 overflow-y-auto">
+											{filterTagOptions(tags, tagQuery).length === 0 ? (
+												<p className="px-2 py-1 text-sm text-muted-foreground">
+													No tags match &ldquo;{tagQuery}&rdquo;.
+												</p>
+											) : (
+												filterTagOptions(tags, tagQuery).map((t) => (
+													<button
+														key={t.id}
+														type="button"
+														className="flex items-center gap-2 rounded-md px-2 py-1 text-left text-sm hover:bg-accent"
+														onClick={() => toggleTag(t.id)}
+													>
+														<span className="flex size-4 items-center justify-center">
+															{selectedTagIds.includes(t.id) && <Check className="size-4" />}
+														</span>
+														{t.name}
+													</button>
+												))
+											)}
+										</div>
+										{selectedTagIds.length > 0 && (
+											<Button
+												variant="ghost"
+												size="sm"
+												className="self-start"
+												onClick={() => setSelectedTagIds([])}
+											>
+												Clear tags
+											</Button>
+										)}
+									</div>
+								)}
+							</PopoverContent>
+						</Popover>
+					</div>
 					<div className="flex flex-1 flex-col gap-1.5">
 						<Label htmlFor="tx-filter-search" className="text-xs text-muted-foreground">
-							Search notes
+							Search (notes or tags)
 						</Label>
 						<Input
 							id="tx-filter-search"
@@ -252,6 +333,22 @@ export function TransactionsPage() {
 					<Button variant="secondary" onClick={() => void refresh()}>
 						<Search /> Filter
 					</Button>
+					{selectedTagIds.length > 0 && (
+						<div className="flex w-full flex-wrap gap-1.5">
+							{selectedTagIds.map((id) => (
+								<Badge key={id} variant="secondary" className="gap-1">
+									{tagName(id)}
+									<button
+										type="button"
+										aria-label={`Remove tag filter ${tagName(id)}`}
+										onClick={() => toggleTag(id)}
+									>
+										<X className="size-3" />
+									</button>
+								</Badge>
+							))}
+						</div>
+					)}
 				</CardContent>
 			</Card>
 

@@ -21,6 +21,7 @@ import {
 	Trash2,
 	TrendingUp,
 	Upload,
+	Users,
 	Wallet,
 	Wand2
 } from 'lucide-react';
@@ -36,6 +37,7 @@ const NAV_ITEMS = [
 	{ to: '/review', label: 'Review', icon: Inbox },
 	{ to: '/budgets', label: 'Budgets', icon: PiggyBank },
 	{ to: '/savings-goals', label: 'Savings Goals', icon: Target },
+	{ to: '/people', label: 'People', icon: Users },
 	{ to: '/recurring', label: 'Recurring', icon: CalendarClock },
 	{ to: '/investments', label: 'Investments', icon: LineChart },
 	{ to: '/liabilities', label: 'Liabilities', icon: CreditCard },

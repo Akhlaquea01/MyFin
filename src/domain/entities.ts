@@ -239,6 +239,49 @@ export interface MerchantCategorySignal extends Timestamped {
 	recentCategoryIds: ID[];
 }
 
+/** A contact the user lends money to or borrows money from (spec 010). Not linked to phone
+ *  contacts or any external directory — purely local app data. */
+export interface Person extends Timestamped, SoftDeletable {
+	id: ID;
+	name: string;
+	notes: string | null;
+}
+
+export type LoanDirection = 'lent' | 'borrowed';
+
+/** A single lending or borrowing event between the user and a Person (spec 010). Pending
+ *  balance is always derived (principal - repayments - writeOffAmount), never stored — same
+ *  precedent as SavingsGoal/GoalContribution. `direction`/`principalAmount`/`accountId`/`date`
+ *  are immutable after creation (data-model.md): changing them after the linked Transaction
+ *  has posted would silently invert or corrupt money already moved. */
+export interface PersonLoan extends Timestamped, SoftDeletable {
+	id: ID;
+	personId: ID;
+	direction: LoanDirection;
+	principalAmount: number;
+	date: ISODateString;
+	dueDate: ISODateString | null;
+	notes: string | null;
+	accountId: ID;
+	/** The Transaction this loan's principal movement posted (research.md §1: a single-sided
+	 *  `type: 'transfer'` transaction, never null). */
+	transactionId: ID;
+	/** 0 until written off. Set together with `writeOffAt`, never independently. */
+	writeOffAmount: number;
+	writeOffAt: EpochMillis | null;
+}
+
+/** A single repayment logged against an open PersonLoan (spec 010). */
+export interface LoanRepayment extends Timestamped, SoftDeletable {
+	id: ID;
+	loanId: ID;
+	amount: number;
+	date: ISODateString;
+	accountId: ID;
+	/** The Transaction this repayment posted (research.md §1); never null. */
+	transactionId: ID;
+}
+
 export interface BackupRecord extends Timestamped {
 	id: ID;
 	schemaVersion: string;

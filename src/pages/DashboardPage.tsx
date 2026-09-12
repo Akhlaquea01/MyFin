@@ -6,6 +6,9 @@ import { Badge } from '../components/ui/badge';
 import { Sparkline } from '../components/Sparkline';
 import { useSession } from '../context/SessionContext';
 import { getDashboardSummary, type DashboardSummary } from '../domain/analytics/dashboardService';
+import { PersonLoanRepository, LoanRepaymentRepository } from '../data/dexie/personLoanRepository';
+import { computePendingBalance, computeOpenLoanTotals } from '../domain/personLoans/loanProgress';
+import type { OpenLoanTotals } from '../domain/personLoans/types';
 
 function formatMoney(paise: number): string {
 	return (paise / 100).toLocaleString(undefined, {
@@ -14,15 +17,36 @@ function formatMoney(paise: number): string {
 	});
 }
 
+/** Feature 010, User Story 3 (FR-010): "you're owed / you owe" totals across all open loans. */
+async function getLendingSummary(key: CryptoKey): Promise<OpenLoanTotals> {
+	const loans = await PersonLoanRepository.listAllOpen(key);
+	const withBalances = await Promise.all(
+		loans.map(async (loan) => {
+			const repayments = await LoanRepaymentRepository.listForLoan(key, loan.id);
+			return {
+				direction: loan.direction,
+				pendingBalance: computePendingBalance({
+					principalAmount: loan.principalAmount,
+					writeOffAmount: loan.writeOffAmount,
+					repayments
+				})
+			};
+		})
+	);
+	return computeOpenLoanTotals({ loans: withBalances });
+}
+
 // User Story 3 (P3): at-a-glance summary reconciled exactly with the ledger (FR-016/017).
 export function DashboardPage() {
 	const { getEncryptionKey } = useSession();
 	const key = getEncryptionKey();
 
 	const [summary, setSummary] = useState<DashboardSummary | null>(null);
+	const [lending, setLending] = useState<OpenLoanTotals | null>(null);
 
 	useEffect(() => {
 		void getDashboardSummary(key).then(setSummary);
+		void getLendingSummary(key).then(setLending);
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, []);
 
@@ -34,7 +58,7 @@ export function DashboardPage() {
 		<div className="mx-auto max-w-4xl px-4 py-8 sm:px-6">
 			<h1 className="mb-6 text-2xl font-semibold tracking-tight">Dashboard</h1>
 
-			<div className="mb-6 grid gap-4 sm:grid-cols-3">
+			<div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
 				<Card>
 					<CardHeader className="pb-2">
 						<CardTitle className="text-sm font-medium text-muted-foreground">
@@ -46,6 +70,27 @@ export function DashboardPage() {
 						{summary.balanceTrend.length > 1 && <Sparkline values={summary.balanceTrend} />}
 					</CardContent>
 				</Card>
+				<Link to="/people">
+					<Card className="h-full transition-colors hover:bg-muted/50">
+						<CardHeader className="pb-2">
+							<CardTitle className="text-sm font-medium text-muted-foreground">Lending</CardTitle>
+						</CardHeader>
+						<CardContent className="flex flex-col gap-1">
+							<p className="text-sm">
+								You're owed{' '}
+								<span className="font-mono font-semibold">
+									{formatMoney(lending?.totalLent ?? 0)}
+								</span>
+							</p>
+							<p className="text-sm">
+								You owe{' '}
+								<span className="font-mono font-semibold">
+									{formatMoney(lending?.totalBorrowed ?? 0)}
+								</span>
+							</p>
+						</CardContent>
+					</Card>
+				</Link>
 				<Card>
 					<CardHeader className="pb-2">
 						<CardTitle className="text-sm font-medium text-muted-foreground">Net Worth</CardTitle>

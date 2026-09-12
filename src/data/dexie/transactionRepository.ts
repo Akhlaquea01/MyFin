@@ -2,6 +2,8 @@ import { db, type TransactionRow, type TransactionSplitRow } from './db';
 import { encryptRow, getDecrypted, decryptRows } from './encryptedTable';
 import { deletedAtIndex, nullableIdIndex, NOT_DELETED } from './indexable';
 import { AttachmentRepository } from './attachmentRepository';
+import { TagRepository } from './tagRepository';
+import { normalizeTagText, transactionMatchesFreeText } from '../../domain/transactions/tagFilterEngine';
 import type {
 	Transaction,
 	TransactionSplit,
@@ -41,7 +43,8 @@ export const UNCATEGORIZED_CATEGORY_ID = '__uncategorized__';
 export interface TransactionFilter {
 	accountId?: string;
 	categoryId?: string;
-	tagId?: string;
+	/** Matches a transaction carrying *any* of these tag ids (OR) — spec 012, FR-002. */
+	tagIds?: string[];
 	dateFrom?: string;
 	dateTo?: string;
 	freeText?: string;
@@ -397,15 +400,28 @@ export const TransactionRepository = {
 			transactions = transactions.filter((tx) => idsWithCategory.has(tx.id));
 		}
 
-		if (filter.tagId) {
-			const tagRows = await db.transactionTags.where('tagId').equals(filter.tagId).toArray();
-			const idsWithTag = new Set(tagRows.map((t) => t.transactionId));
-			transactions = transactions.filter((tx) => idsWithTag.has(tx.id));
+		if (filter.tagIds && filter.tagIds.length > 0) {
+			const tagRows = await db.transactionTags.where('tagId').anyOf(filter.tagIds).toArray();
+			const idsWithAnyTag = new Set(tagRows.map((t) => t.transactionId));
+			transactions = transactions.filter((tx) => idsWithAnyTag.has(tx.id));
 		}
 
 		if (filter.freeText) {
-			const needle = filter.freeText.trim().toLowerCase();
-			transactions = transactions.filter((tx) => (tx.notes ?? '').toLowerCase().includes(needle));
+			const needle = normalizeTagText(filter.freeText);
+			const candidateIds = transactions.map((tx) => tx.id);
+			const tagRows = await db.transactionTags.where('transactionId').anyOf(candidateIds).toArray();
+			const tagNameById = new Map((await TagRepository.list(key)).map((t) => [t.id, t.name]));
+			const tagNamesByTx = new Map<string, string[]>();
+			for (const row of tagRows) {
+				const name = tagNameById.get(row.tagId);
+				if (!name) continue;
+				const names = tagNamesByTx.get(row.transactionId) ?? [];
+				names.push(name);
+				tagNamesByTx.set(row.transactionId, names);
+			}
+			transactions = transactions.filter((tx) =>
+				transactionMatchesFreeText(tx.notes, tagNamesByTx.get(tx.id) ?? [], needle)
+			);
 		}
 
 		return sortNewestFirst(transactions);

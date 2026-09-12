@@ -12,6 +12,7 @@ import {
 	netWorthHistory
 } from '../../src/domain/wealth/wealthEngine';
 import { deriveEncryptionKey, randomSaltBase64 } from '../../src/data/crypto/cryptoService';
+import { PersonRepository, PersonLoanRepository } from '../../src/data/dexie/personLoanRepository';
 
 describe('Wealth engine', () => {
 	let key: CryptoKey;
@@ -80,5 +81,86 @@ describe('Wealth engine', () => {
 		const history = await netWorthHistory(key);
 		expect(history.map((s) => s.date)).toEqual(['2026-01-01', '2026-02-01']);
 		expect(history[0].netWorth).toBe(10000);
+	});
+
+	// Feature 010, FR-014/SC-006: open lending/borrowing balances count as a receivable/payable
+	// so cash moving in/out for a loan doesn't distort net worth (quickstart.md Scenario 8).
+	it('nets an open "lent" loan back in as a receivable, leaving net worth unchanged', async () => {
+		const account = await AccountRepository.create(key, {
+			name: 'Cash',
+			type: 'cash',
+			openingBalance: 100000,
+			creditLimit: null,
+			billingCycleDay: null
+		});
+		const before = await computeNetWorth(key);
+
+		const person = await PersonRepository.create(key, { name: 'Asha' });
+		await PersonLoanRepository.create(key, {
+			personId: person.id,
+			direction: 'lent',
+			principalAmount: 20000,
+			date: '2026-09-01',
+			dueDate: null,
+			notes: null,
+			accountId: account.id
+		});
+
+		const after = await computeNetWorth(key);
+		expect(after.cashBalance).toBe(before.cashBalance - 20000);
+		expect(after.totalAssets).toBe(before.totalAssets);
+		expect(after.netWorth).toBe(before.netWorth);
+	});
+
+	it('nets an open "borrowed" loan back out as a payable, leaving net worth unchanged', async () => {
+		const account = await AccountRepository.create(key, {
+			name: 'Cash',
+			type: 'cash',
+			openingBalance: 100000,
+			creditLimit: null,
+			billingCycleDay: null
+		});
+		const before = await computeNetWorth(key);
+
+		const person = await PersonRepository.create(key, { name: 'Rohit' });
+		await PersonLoanRepository.create(key, {
+			personId: person.id,
+			direction: 'borrowed',
+			principalAmount: 15000,
+			date: '2026-09-01',
+			dueDate: null,
+			notes: null,
+			accountId: account.id
+		});
+
+		const after = await computeNetWorth(key);
+		expect(after.cashBalance).toBe(before.cashBalance + 15000);
+		expect(after.totalLiabilities).toBe(before.totalLiabilities + 15000);
+		expect(after.netWorth).toBe(before.netWorth);
+	});
+
+	it('writing off a lent loan decreases net worth by the forgiven amount', async () => {
+		const account = await AccountRepository.create(key, {
+			name: 'Cash',
+			type: 'cash',
+			openingBalance: 100000,
+			creditLimit: null,
+			billingCycleDay: null
+		});
+		const person = await PersonRepository.create(key, { name: 'Meera' });
+		const loan = await PersonLoanRepository.create(key, {
+			personId: person.id,
+			direction: 'lent',
+			principalAmount: 5000,
+			date: '2026-09-01',
+			dueDate: null,
+			notes: null,
+			accountId: account.id
+		});
+		const beforeWriteOff = await computeNetWorth(key);
+
+		await PersonLoanRepository.writeOff(key, loan.id);
+		const afterWriteOff = await computeNetWorth(key);
+		expect(afterWriteOff.netWorth).toBe(beforeWriteOff.netWorth - 5000);
 	});
 });

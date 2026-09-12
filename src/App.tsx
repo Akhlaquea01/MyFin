@@ -34,6 +34,7 @@ import { InvestmentsPage } from './pages/InvestmentsPage';
 import { LiabilitiesPage } from './pages/LiabilitiesPage';
 import { DebtPayoffPlannerPage } from './pages/DebtPayoffPlannerPage';
 import { SavingsGoalsPage } from './pages/SavingsGoalsPage';
+import { PeoplePage } from './pages/PeoplePage';
 import { NotificationSettingsPage } from './pages/NotificationSettingsPage';
 import { NetWorthPage } from './pages/NetWorthPage';
 import { AnalyticsPage } from './pages/AnalyticsPage';
@@ -171,6 +172,7 @@ function Gate() {
 						<Route path="import/bulk-text" element={<BulkTextImportPage />} />
 						<Route path="budgets" element={<BudgetsPage />} />
 						<Route path="savings-goals" element={<SavingsGoalsPage />} />
+						<Route path="people" element={<PeoplePage />} />
 						<Route path="recurring" element={<RecurringPage />} />
 						<Route path="recurring/upcoming" element={<RecurringUpcomingPage />} />
 						<Route path="investments" element={<InvestmentsPage />} />

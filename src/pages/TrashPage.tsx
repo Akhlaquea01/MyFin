@@ -8,7 +8,10 @@ import {
 	type AccountRow,
 	type SavingsGoalRow,
 	type TransactionRow,
-	type CategorizationRuleRow
+	type CategorizationRuleRow,
+	type PersonRow,
+	type PersonLoanRow,
+	type PersonLoanRepaymentRow
 } from '../data/dexie/db';
 import { decryptRows } from '../data/dexie/encryptedTable';
 import { NOT_DELETED } from '../data/dexie/indexable';
@@ -18,6 +21,11 @@ import { TransactionRepository } from '../data/dexie/transactionRepository';
 import { CategorizationRuleRepository } from '../data/dexie/categorizationRuleRepository';
 import { MerchantRepository } from '../data/dexie/merchantRepository';
 import { CategoryRepository } from '../data/dexie/categoryRepository';
+import {
+	PersonRepository,
+	PersonLoanRepository,
+	LoanRepaymentRepository
+} from '../data/dexie/personLoanRepository';
 import { TransactionEngine } from '../domain/transactions/transactionEngine';
 import { useSession } from '../context/SessionContext';
 import type {
@@ -25,6 +33,9 @@ import type {
 	CategorizationRule,
 	Category,
 	Merchant,
+	Person,
+	PersonLoan,
+	LoanRepayment,
 	SavingsGoal,
 	Transaction
 } from '../domain/entities';
@@ -38,6 +49,10 @@ export function TrashPage() {
 	const [deletedTransactions, setDeletedTransactions] = useState<Transaction[]>([]);
 	const [deletedGoals, setDeletedGoals] = useState<SavingsGoal[]>([]);
 	const [deletedRules, setDeletedRules] = useState<CategorizationRule[]>([]);
+	const [deletedPeople, setDeletedPeople] = useState<Person[]>([]);
+	const [people, setPeople] = useState<Person[]>([]);
+	const [deletedLoans, setDeletedLoans] = useState<PersonLoan[]>([]);
+	const [deletedRepayments, setDeletedRepayments] = useState<LoanRepayment[]>([]);
 	const [merchants, setMerchants] = useState<Merchant[]>([]);
 	const [categories, setCategories] = useState<Category[]>([]);
 	const [loading, setLoading] = useState(true);
@@ -45,21 +60,41 @@ export function TrashPage() {
 	async function refresh() {
 		setLoading(true);
 		try {
-			const [accountRows, transactionRows, goalRows, ruleRows, allMerchants, allCategories] =
-				await Promise.all([
-					db.accounts.filter((r) => r.deletedAt !== NOT_DELETED).toArray(),
-					db.transactions.filter((r) => r.deletedAt !== NOT_DELETED).toArray(),
-					db.savingsGoals.filter((r) => r.deletedAt !== NOT_DELETED).toArray(),
-					db.categorizationRules.filter((r) => r.deletedAt !== NOT_DELETED).toArray(),
-					MerchantRepository.list(key),
-					CategoryRepository.list(key)
-				]);
+			const [
+				accountRows,
+				transactionRows,
+				goalRows,
+				ruleRows,
+				personRows,
+				loanRows,
+				repaymentRows,
+				allMerchants,
+				allCategories,
+				allPeople
+			] = await Promise.all([
+				db.accounts.filter((r) => r.deletedAt !== NOT_DELETED).toArray(),
+				db.transactions.filter((r) => r.deletedAt !== NOT_DELETED).toArray(),
+				db.savingsGoals.filter((r) => r.deletedAt !== NOT_DELETED).toArray(),
+				db.categorizationRules.filter((r) => r.deletedAt !== NOT_DELETED).toArray(),
+				db.people.filter((r) => r.deletedAt !== NOT_DELETED).toArray(),
+				db.personLoans.filter((r) => r.deletedAt !== NOT_DELETED).toArray(),
+				db.personLoanRepayments.filter((r) => r.deletedAt !== NOT_DELETED).toArray(),
+				MerchantRepository.list(key),
+				CategoryRepository.list(key),
+				PersonRepository.list(key)
+			]);
 			setDeletedAccounts(await decryptRows<AccountRow, Account>(key, accountRows));
 			setDeletedTransactions(await decryptRows<TransactionRow, Transaction>(key, transactionRows));
 			setDeletedGoals(await decryptRows<SavingsGoalRow, SavingsGoal>(key, goalRows));
 			setDeletedRules(await decryptRows<CategorizationRuleRow, CategorizationRule>(key, ruleRows));
+			setDeletedPeople(await decryptRows<PersonRow, Person>(key, personRows));
+			setDeletedLoans(await decryptRows<PersonLoanRow, PersonLoan>(key, loanRows));
+			setDeletedRepayments(
+				await decryptRows<PersonLoanRepaymentRow, LoanRepayment>(key, repaymentRows)
+			);
 			setMerchants(allMerchants);
 			setCategories(allCategories);
+			setPeople(allPeople);
 		} catch (err) {
 			toast.error(err instanceof Error ? err.message : 'Could not load this page.');
 		} finally {
@@ -102,6 +137,27 @@ export function TrashPage() {
 	async function restoreRule(rule: CategorizationRule) {
 		await CategorizationRuleRepository.restore(key, rule.id);
 		await refresh();
+	}
+
+	async function restorePerson(person: Person) {
+		await PersonRepository.restore(key, person.id);
+		await refresh();
+	}
+
+	async function restoreLoan(loan: PersonLoan) {
+		await PersonLoanRepository.restore(key, loan.id);
+		await refresh();
+	}
+
+	async function restoreRepayment(repayment: LoanRepayment) {
+		await LoanRepaymentRepository.restore(key, repayment.id);
+		await refresh();
+	}
+
+	function personName(id: string): string {
+		return (
+			people.find((p) => p.id === id)?.name ?? deletedPeople.find((p) => p.id === id)?.name ?? id
+		);
 	}
 
 	function merchantName(id: string): string {
@@ -209,6 +265,74 @@ export function TrashPage() {
 											{merchantName(rule.merchantId)} → {categoryName(rule.categoryId)}
 										</span>
 										<Button variant="link" size="sm" onClick={() => restoreRule(rule)}>
+											Restore
+										</Button>
+									</div>
+								))}
+							</div>
+						)}
+					</section>
+
+					<section>
+						<h2 className="mb-2 text-sm font-medium text-muted-foreground">People</h2>
+						{deletedPeople.length === 0 ? (
+							<EmptyTrashCard />
+						) : (
+							<div className="flex flex-col gap-2">
+								{deletedPeople.map((person) => (
+									<div
+										key={person.id}
+										className="flex items-center justify-between rounded-lg border px-4 py-2"
+									>
+										<span className="text-sm">{person.name}</span>
+										<Button variant="link" size="sm" onClick={() => restorePerson(person)}>
+											Restore
+										</Button>
+									</div>
+								))}
+							</div>
+						)}
+					</section>
+
+					<section>
+						<h2 className="mb-2 text-sm font-medium text-muted-foreground">Loans</h2>
+						{deletedLoans.length === 0 ? (
+							<EmptyTrashCard />
+						) : (
+							<div className="flex flex-col gap-2">
+								{deletedLoans.map((loan) => (
+									<div
+										key={loan.id}
+										className="flex items-center justify-between rounded-lg border px-4 py-2"
+									>
+										<span className="text-sm">
+											{loan.direction === 'lent' ? 'Lent to' : 'Borrowed from'}{' '}
+											{personName(loan.personId)}
+										</span>
+										<Button variant="link" size="sm" onClick={() => restoreLoan(loan)}>
+											Restore
+										</Button>
+									</div>
+								))}
+							</div>
+						)}
+					</section>
+
+					<section>
+						<h2 className="mb-2 text-sm font-medium text-muted-foreground">Loan Repayments</h2>
+						{deletedRepayments.length === 0 ? (
+							<EmptyTrashCard />
+						) : (
+							<div className="flex flex-col gap-2">
+								{deletedRepayments.map((repayment) => (
+									<div
+										key={repayment.id}
+										className="flex items-center justify-between rounded-lg border px-4 py-2"
+									>
+										<span className="text-sm">
+											{repayment.date} · {(repayment.amount / 100).toFixed(2)}
+										</span>
+										<Button variant="link" size="sm" onClick={() => restoreRepayment(repayment)}>
 											Restore
 										</Button>
 									</div>

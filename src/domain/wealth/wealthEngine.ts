@@ -5,6 +5,11 @@ import {
 	LiabilityRepository,
 	NetWorthSnapshotRepository
 } from '../../data/dexie/wealthRepository';
+import {
+	PersonLoanRepository,
+	LoanRepaymentRepository
+} from '../../data/dexie/personLoanRepository';
+import { computePendingBalance, computeOpenLoanTotals } from '../personLoans/loanProgress';
 import type { NetWorthSnapshot } from '../../domain/entities';
 
 export interface NetWorthBreakdown {
@@ -15,12 +20,20 @@ export interface NetWorthBreakdown {
 	netWorth: number;
 }
 
-/** Net worth = (cash accounts + investments) − liabilities (FR-034). */
+/**
+ * Net worth = (cash accounts + investments + open amounts lent) − (liabilities + open amounts
+ * borrowed) (FR-034; open-loan terms per spec 010 FR-014, research.md §5). Money lent out
+ * already left the relevant account's `currentBalance`, so without adding it back as a
+ * receivable here, net worth would understate the user's true wealth by that amount; money
+ * borrowed already arrived in `currentBalance`, so without counting it as a payable here, net
+ * worth would overstate it.
+ */
 export async function computeNetWorth(key: CryptoKey): Promise<NetWorthBreakdown> {
-	const [accounts, holdings, liabilities] = await Promise.all([
+	const [accounts, holdings, liabilities, openLoans] = await Promise.all([
 		AccountRepository.list(key, false),
 		InvestmentHoldingRepository.list(key),
-		LiabilityRepository.list(key)
+		LiabilityRepository.list(key),
+		PersonLoanRepository.listAllOpen(key)
 	]);
 
 	const cashBalance = accounts.reduce((sum, a) => sum + a.currentBalance, 0);
@@ -30,8 +43,24 @@ export async function computeNetWorth(key: CryptoKey): Promise<NetWorthBreakdown
 	);
 	const investmentValue = holdingValues.reduce((sum, v) => sum + v, 0);
 
-	const totalLiabilities = liabilities.reduce((sum, l) => sum + l.outstandingBalance, 0);
-	const totalAssets = cashBalance + investmentValue;
+	const loansWithBalance = await Promise.all(
+		openLoans.map(async (loan) => {
+			const repayments = await LoanRepaymentRepository.listForLoan(key, loan.id);
+			return {
+				direction: loan.direction,
+				pendingBalance: computePendingBalance({
+					principalAmount: loan.principalAmount,
+					writeOffAmount: loan.writeOffAmount,
+					repayments
+				})
+			};
+		})
+	);
+	const { totalLent, totalBorrowed } = computeOpenLoanTotals({ loans: loansWithBalance });
+
+	const totalLiabilities =
+		liabilities.reduce((sum, l) => sum + l.outstandingBalance, 0) + totalBorrowed;
+	const totalAssets = cashBalance + investmentValue + totalLent;
 
 	return {
 		cashBalance,

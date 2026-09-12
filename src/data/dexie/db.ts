@@ -150,6 +150,23 @@ export interface CategorizationRuleRow extends EncryptedRow {
 // `id` are needed.
 export type MerchantCategorySignalRow = EncryptedRow;
 
+export interface PersonRow extends EncryptedRow {
+	deletedAt: number;
+}
+
+export interface PersonLoanRow extends EncryptedRow {
+	personId: string;
+	accountId: string;
+	direction: 'lent' | 'borrowed';
+	deletedAt: number;
+}
+
+export interface PersonLoanRepaymentRow extends EncryptedRow {
+	loanId: string;
+	accountId: string;
+	deletedAt: number;
+}
+
 /**
  * Holds the derived encryption key across a page reload so the app doesn't have to force a
  * fresh PIN/biometric entry on every refresh (spec 009). `key` is stored as a *non-extractable*
@@ -191,6 +208,9 @@ class MyFinDatabase extends Dexie {
 	attachments!: EntityTable<AttachmentRow, 'id'>;
 	categorizationRules!: EntityTable<CategorizationRuleRow, 'id'>;
 	merchantCategorySignals!: EntityTable<MerchantCategorySignalRow, 'id'>;
+	people!: EntityTable<PersonRow, 'id'>;
+	personLoans!: EntityTable<PersonLoanRow, 'id'>;
+	personLoanRepayments!: EntityTable<PersonLoanRepaymentRow, 'id'>;
 	// Unencrypted by design — see research.md #11 "Exception — UserProfile".
 	userProfile!: EntityTable<UserProfile, 'id'>;
 	sessionKeys!: EntityTable<SessionKeyRow, 'id'>;
@@ -258,6 +278,13 @@ class MyFinDatabase extends Dexie {
 		this.version(8).stores({
 			merchantAliases: 'id, merchantId, aliasHash',
 			tags: 'id, nameHash'
+		});
+		// v9: adds personal lending/borrowing (IOU) tracking — people, loans, and their
+		// repayments (spec 010). Additive-only.
+		this.version(9).stores({
+			people: 'id, deletedAt',
+			personLoans: 'id, personId, accountId, direction, deletedAt',
+			personLoanRepayments: 'id, loanId, accountId, deletedAt'
 		});
 	}
 }
