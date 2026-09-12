@@ -1,7 +1,29 @@
 {
 	"name": "myfin",
-	"private": true,
+	"private": false,
 	"version": "0.0.1",
+	"description": "Offline-first, zero-knowledge personal finance manager and encrypted ledger.",
+	"author": "akhalque <akhalquea01@gmail.com> (https://github.com/Akhlaquea01)",
+	"license": "MIT",
+	"homepage": "https://github.com/Akhlaquea01/MyFin#readme",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/Akhlaquea01/MyFin.git"
+	},
+	"bugs": {
+		"url": "https://github.com/Akhlaquea01/MyFin/issues"
+	},
+	"keywords": [
+		"personal-finance",
+		"pwa",
+		"zero-knowledge",
+		"encrypted-ledger",
+		"dexie",
+		"indexeddb",
+		"offline-first",
+		"react",
+		"tailwindcss"
+	],
 	"type": "module",
 	"scripts": {
 		"dev": "vite",
