@@ -1,3 +1,4 @@
+import { PiggyBank, AlertTriangle } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Badge } from './ui/badge';
 import { Progress } from './ui/progress';
@@ -25,8 +26,14 @@ export function BudgetProgressCard({
 	return (
 		<Card>
 			<CardHeader className="flex items-center justify-between space-y-0 pb-2">
-				<CardTitle className="text-base">{categoryName}</CardTitle>
-				{isOverspent && <Badge variant="destructive">Over budget</Badge>}
+				<CardTitle className="flex items-center gap-2 text-base">
+					<PiggyBank className="size-4 text-primary" /> {categoryName}
+				</CardTitle>
+				{isOverspent && (
+					<Badge variant="destructive" className="gap-1">
+						<AlertTriangle className="size-3" /> Over budget
+					</Badge>
+				)}
 			</CardHeader>
 			<CardContent>
 				<div className="mb-2 flex items-baseline justify-between text-sm">

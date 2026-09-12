@@ -13,6 +13,7 @@ import { LockScreen } from './components/LockScreen';
 import { BlockedScreen } from './components/BlockedScreen';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { StorageWarningBanner } from './components/StorageWarningBanner';
+import { UpdateAvailableBanner } from './components/UpdateAvailableBanner';
 import { BiometricEnrollmentPrompt } from './components/BiometricEnrollmentPrompt';
 import { NotificationPermissionPrompt } from './components/NotificationPermissionPrompt';
 import { AppShell } from './components/AppShell';
@@ -43,6 +44,7 @@ import { ImportPage } from './pages/ImportPage';
 import { ExportPage } from './pages/ExportPage';
 import { BackupSettingsPage } from './pages/BackupSettingsPage';
 import { CategorizationRulesPage } from './pages/CategorizationRulesPage';
+import { AboutPage } from './pages/AboutPage';
 import { QuickTourProvider } from './components/ui/quick-tour/QuickTourProvider';
 import { QuickTourOverlay } from './components/ui/quick-tour/QuickTourOverlay';
 import { QUICK_TOUR_STEPS } from './components/ui/quick-tour/tour-steps';
@@ -151,6 +153,7 @@ function Gate() {
 		<QuickTourProvider totalSteps={QUICK_TOUR_STEPS.length}>
 			<BrowserRouter>
 				<ErrorBoundary onReset={lock}>
+					<UpdateAvailableBanner />
 					{showStorageWarning && <StorageWarningBanner />}
 					{showEnrollPrompt && (
 						<BiometricEnrollmentPrompt
@@ -191,6 +194,7 @@ function Gate() {
 							<Route path="backup" element={<BackupSettingsPage />} />
 							<Route path="notification-settings" element={<NotificationSettingsPage />} />
 							<Route path="categorization-rules" element={<CategorizationRulesPage />} />
+							<Route path="about" element={<AboutPage />} />
 						</Route>
 						{/* Spec 008: a pure redirect, deliberately outside AppShell — no nav shell needed
 						    for what's only ever a brief loading state before navigating onward. */}

@@ -10,6 +10,7 @@ import {
 	Download,
 	HeartPulse,
 	Inbox,
+	Info,
 	Landmark,
 	LayoutDashboard,
 	LineChart,
@@ -32,7 +33,12 @@ import { Sheet, SheetContent, SheetTrigger } from './ui/sheet';
 const NAV_ITEMS = [
 	{ to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true },
 	{ to: '/accounts', label: 'Accounts', icon: Wallet, dataTour: 'accounts-nav' },
-	{ to: '/transactions', label: 'Transactions', icon: ArrowLeftRight, dataTour: 'transactions-nav' },
+	{
+		to: '/transactions',
+		label: 'Transactions',
+		icon: ArrowLeftRight,
+		dataTour: 'transactions-nav'
+	},
 	{ to: '/quick-add', label: 'Quick Add', icon: Sparkles },
 	{ to: '/review', label: 'Review', icon: Inbox },
 	{ to: '/budgets', label: 'Budgets', icon: PiggyBank, dataTour: 'budgets-nav' },
@@ -51,7 +57,8 @@ const NAV_ITEMS = [
 	{ to: '/notification-settings', label: 'Notifications', icon: Bell },
 	{ to: '/categorization-rules', label: 'Auto-Categorize', icon: Wand2 },
 	{ to: '/categories', label: 'Categories', icon: Tags, dataTour: 'categories-nav' },
-	{ to: '/trash', label: 'Trash', icon: Trash2 }
+	{ to: '/trash', label: 'Trash', icon: Trash2 },
+	{ to: '/about', label: 'About', icon: Info }
 ];
 
 function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
@@ -86,7 +93,7 @@ export function AppShell() {
 
 	return (
 		<div className="flex min-h-dvh">
-			<aside className="hidden w-56 shrink-0 border-r bg-card/50 p-4 md:flex md:flex-col">
+			<aside className="hidden w-56 shrink-0 overflow-y-auto border-r bg-card/50 p-4 md:sticky md:top-0 md:flex md:h-dvh md:max-h-dvh md:flex-col">
 				<div className="mb-6 flex items-center gap-2 px-2">
 					<Wallet className="size-5 text-primary" />
 					<span className="font-semibold">MyFin</span>

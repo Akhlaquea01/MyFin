@@ -7,11 +7,12 @@ import {
 	LinearScale,
 	CategoryScale
 } from 'chart.js';
+import { getPrimaryColor } from '../lib/chartColors';
 
 Chart.register(LineController, LineElement, PointElement, LinearScale, CategoryScale);
 
 /** A minimal, axis-less trend line for dashboard cards (User Story 3). */
-export function Sparkline({ values, color = '#0f766e' }: { values: number[]; color?: string }) {
+export function Sparkline({ values, color }: { values: number[]; color?: string }) {
 	const canvasRef = useRef<HTMLCanvasElement>(null);
 	const chartRef = useRef<Chart | null>(null);
 
@@ -24,7 +25,7 @@ export function Sparkline({ values, color = '#0f766e' }: { values: number[]; col
 				datasets: [
 					{
 						data: values,
-						borderColor: color,
+						borderColor: color ?? getPrimaryColor(),
 						borderWidth: 2,
 						pointRadius: 0,
 						tension: 0.35

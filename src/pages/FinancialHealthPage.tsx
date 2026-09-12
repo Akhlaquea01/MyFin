@@ -1,7 +1,6 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
 	Chart,
-	type ChartConfiguration,
 	LineController,
 	LineElement,
 	PointElement,
@@ -13,9 +12,11 @@ import {
 import { HeartPulse } from 'lucide-react';
 import { Badge } from '../components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
+import { ChartCanvas } from '../components/ChartCanvas';
 import { Progress } from '../components/ui/progress';
 import { DateRangeSelector, type DateRange } from '../components/DateRangeSelector';
 import { useSession } from '../context/SessionContext';
+import { getChartPalette, getAxisColor, getGridColor, withAlpha } from '../lib/chartColors';
 import {
 	getFinancialHealthTrend,
 	getFinancialHealthScore
@@ -51,33 +52,6 @@ function defaultRange(): DateRange {
 	const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 5, 1));
 	return { from: start.toISOString().slice(0, 10), to: now.toISOString().slice(0, 10) };
 }
-
-/** Mounts/updates/destroys a Chart.js chart on a canvas as `config` changes (same pattern as
- *  AnalyticsPage.tsx's ChartCanvas). */
-function ChartCanvas({ config, label }: { config: ChartConfiguration; label: string }) {
-	const canvasRef = useRef<HTMLCanvasElement>(null);
-	const chartRef = useRef<Chart | null>(null);
-
-	useEffect(() => {
-		if (!canvasRef.current) return;
-		chartRef.current = new Chart(canvasRef.current, config);
-		return () => chartRef.current?.destroy();
-	}, [config]);
-
-	return (
-		<div className="h-64 w-full">
-			<canvas ref={canvasRef} role="img" aria-label={label} />
-		</div>
-	);
-}
-
-const AXIS_COLOR = 'rgba(148, 163, 184, 0.6)';
-const GRID_COLOR = 'rgba(148, 163, 184, 0.15)';
-
-const baseScales = {
-	x: { ticks: { color: AXIS_COLOR }, grid: { color: GRID_COLOR } },
-	y: { ticks: { color: AXIS_COLOR }, grid: { color: GRID_COLOR } }
-};
 
 function MetricCard({ label, value }: { label: string; value: string }) {
 	return (
@@ -153,6 +127,14 @@ function ScoreCard({ score }: { score: FinancialHealthScore | null }) {
 export function FinancialHealthPage() {
 	const { getEncryptionKey } = useSession();
 	const key = getEncryptionKey();
+
+	const palette = getChartPalette();
+	const axisColor = getAxisColor();
+	const gridColor = getGridColor();
+	const baseScales = {
+		x: { ticks: { color: axisColor }, grid: { color: gridColor } },
+		y: { ticks: { color: axisColor }, grid: { color: gridColor } }
+	};
 
 	const [range, setRange] = useState<DateRange>(defaultRange);
 	const [loading, setLoading] = useState(true);
@@ -241,16 +223,16 @@ export function FinancialHealthPage() {
 													data: trend.map((m) =>
 														m.savingsRate === null ? null : m.savingsRate * 100
 													),
-													borderColor: '#0f766e',
-													backgroundColor: 'rgba(15, 118, 110, 0.2)',
+													borderColor: palette[0],
+													backgroundColor: withAlpha(palette[0], 0.2),
 													spanGaps: true,
 													tension: 0.3
 												},
 												{
 													label: 'Budget adherence (%)',
 													data: trend.map((m) => m.budgetAdherence),
-													borderColor: '#6366f1',
-													backgroundColor: 'rgba(99, 102, 241, 0.2)',
+													borderColor: palette[1],
+													backgroundColor: withAlpha(palette[1], 0.2),
 													spanGaps: true,
 													tension: 0.3
 												}
@@ -260,7 +242,7 @@ export function FinancialHealthPage() {
 											responsive: true,
 											maintainAspectRatio: false,
 											scales: baseScales,
-											plugins: { legend: { labels: { color: AXIS_COLOR } } }
+											plugins: { legend: { labels: { color: axisColor } } }
 										}
 									}}
 								/>

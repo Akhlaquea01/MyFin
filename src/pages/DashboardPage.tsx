@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowDownLeft, ArrowUpRight, Wallet } from 'lucide-react';
+import { ArrowDownLeft, ArrowUpRight, Wallet, TrendingUp } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
 import { Sparkline } from '../components/Sparkline';
@@ -93,7 +93,9 @@ export function DashboardPage() {
 				</Link>
 				<Card>
 					<CardHeader className="pb-2">
-						<CardTitle className="text-sm font-medium text-muted-foreground">Net Worth</CardTitle>
+						<CardTitle className="flex items-center gap-1.5 text-sm font-medium text-muted-foreground">
+							<TrendingUp className="size-3.5 text-primary" /> Net Worth
+						</CardTitle>
 					</CardHeader>
 					<CardContent>
 						<p className="font-mono text-2xl font-semibold">{formatMoney(summary.netWorth)}</p>

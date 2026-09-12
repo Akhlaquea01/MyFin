@@ -55,7 +55,7 @@
 	--card-foreground: oklch(0.145 0 0);
 	--popover: oklch(1 0 0);
 	--popover-foreground: oklch(0.145 0 0);
-	--primary: oklch(0.205 0 0);
+	--primary: oklch(0.511 0.096 186.391);
 	--primary-foreground: oklch(0.985 0 0);
 	--secondary: oklch(0.97 0 0);
 	--secondary-foreground: oklch(0.205 0 0);
@@ -67,11 +67,13 @@
 	--border: oklch(0.922 0 0);
 	--input: oklch(0.922 0 0);
 	--ring: oklch(0.708 0 0);
-	--chart-1: oklch(0.87 0 0);
-	--chart-2: oklch(0.556 0 0);
-	--chart-3: oklch(0.439 0 0);
-	--chart-4: oklch(0.371 0 0);
-	--chart-5: oklch(0.269 0 0);
+	/* Chart series palette: teal / indigo / amber / rose / violet — real hues instead of the
+	   previous all-grayscale placeholders, which meant nothing rendered in color by default. */
+	--chart-1: oklch(0.704 0.14 182.503);
+	--chart-2: oklch(0.585 0.233 277.117);
+	--chart-3: oklch(0.769 0.188 70.08);
+	--chart-4: oklch(0.645 0.246 16.439);
+	--chart-5: oklch(0.606 0.25 292.717);
 	--radius: 0.625rem;
 	--sidebar: oklch(0.985 0 0);
 	--sidebar-foreground: oklch(0.145 0 0);
@@ -90,7 +92,7 @@
 	--card-foreground: oklch(0.985 0 0);
 	--popover: oklch(0.205 0 0);
 	--popover-foreground: oklch(0.985 0 0);
-	--primary: oklch(0.922 0 0);
+	--primary: oklch(0.777 0.152 181.912);
 	--primary-foreground: oklch(0.205 0 0);
 	--secondary: oklch(0.269 0 0);
 	--secondary-foreground: oklch(0.985 0 0);
@@ -102,11 +104,13 @@
 	--border: oklch(1 0 0 / 10%);
 	--input: oklch(1 0 0 / 15%);
 	--ring: oklch(0.556 0 0);
-	--chart-1: oklch(0.87 0 0);
-	--chart-2: oklch(0.556 0 0);
-	--chart-3: oklch(0.439 0 0);
-	--chart-4: oklch(0.371 0 0);
-	--chart-5: oklch(0.269 0 0);
+	/* Same series as :root, lifted a step brighter (400 instead of 500) for contrast against
+	   the dark background — see the :root block's comment. */
+	--chart-1: oklch(0.777 0.152 181.912);
+	--chart-2: oklch(0.673 0.182 276.935);
+	--chart-3: oklch(0.828 0.189 84.429);
+	--chart-4: oklch(0.712 0.194 13.428);
+	--chart-5: oklch(0.702 0.183 293.541);
 	--sidebar: oklch(0.205 0 0);
 	--sidebar-foreground: oklch(0.985 0 0);
 	--sidebar-primary: oklch(0.488 0.243 264.376);

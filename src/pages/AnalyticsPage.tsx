@@ -1,7 +1,6 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
 	Chart,
-	type ChartConfiguration,
 	BarController,
 	BarElement,
 	LineController,
@@ -12,12 +11,14 @@ import {
 	Tooltip,
 	Legend
 } from 'chart.js';
-import { BarChart3 } from 'lucide-react';
+import { BarChart3, PieChart, ArrowLeftRight, Activity, TrendingUp, Target } from 'lucide-react';
 import { toast } from 'sonner';
 import { Badge } from '../components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
+import { ChartCanvas } from '../components/ChartCanvas';
 import { DateRangeSelector, type DateRange } from '../components/DateRangeSelector';
 import { useSession } from '../context/SessionContext';
+import { getChartPalette, getAxisColor, getGridColor, withAlpha } from '../lib/chartColors';
 import {
 	categoryBreakdown,
 	incomeExpenseTrend,
@@ -56,37 +57,21 @@ function defaultRange(): DateRange {
 	return { from: start.toISOString().slice(0, 10), to: now.toISOString().slice(0, 10) };
 }
 
-/** Mounts/updates/destroys a Chart.js chart on a canvas as `config` changes. */
-function ChartCanvas({ config, label }: { config: ChartConfiguration; label: string }) {
-	const canvasRef = useRef<HTMLCanvasElement>(null);
-	const chartRef = useRef<Chart | null>(null);
-
-	useEffect(() => {
-		if (!canvasRef.current) return;
-		chartRef.current = new Chart(canvasRef.current, config);
-		return () => chartRef.current?.destroy();
-	}, [config]);
-
-	return (
-		<div className="h-64 w-full">
-			<canvas ref={canvasRef} role="img" aria-label={label} />
-		</div>
-	);
-}
-
-const AXIS_COLOR = 'rgba(148, 163, 184, 0.6)';
-const GRID_COLOR = 'rgba(148, 163, 184, 0.15)';
-
-const baseScales = {
-	x: { ticks: { color: AXIS_COLOR }, grid: { color: GRID_COLOR } },
-	y: { ticks: { color: AXIS_COLOR }, grid: { color: GRID_COLOR } }
-};
-
 // User Story 8 (P8): visual breakdowns of spending, income/expense, cash flow, budget
 // performance, and net worth trend over a selectable range (FR-035/FR-036).
 export function AnalyticsPage() {
 	const { getEncryptionKey } = useSession();
 	const key = getEncryptionKey();
+
+	// Resolved once per render from CSS custom properties (index.css) rather than hardcoded —
+	// see src/lib/chartColors.ts for why canvas needs literal color strings, not var(...).
+	const palette = getChartPalette();
+	const axisColor = getAxisColor();
+	const gridColor = getGridColor();
+	const baseScales = {
+		x: { ticks: { color: axisColor }, grid: { color: gridColor } },
+		y: { ticks: { color: axisColor }, grid: { color: gridColor } }
+	};
 
 	const [range, setRange] = useState<DateRange>(defaultRange);
 	const [loading, setLoading] = useState(true);
@@ -140,7 +125,9 @@ export function AnalyticsPage() {
 				<div className="grid gap-4 sm:grid-cols-2">
 					<Card>
 						<CardHeader>
-							<CardTitle className="text-base">Spending by category</CardTitle>
+							<CardTitle className="flex items-center gap-2 text-base">
+								<PieChart className="size-4 text-primary" /> Spending by category
+							</CardTitle>
 						</CardHeader>
 						<CardContent>
 							{categories.length === 0 ? (
@@ -158,7 +145,7 @@ export function AnalyticsPage() {
 												{
 													label: 'Spent',
 													data: categories.map((c) => c.total / 100),
-													backgroundColor: 'rgba(15, 118, 110, 0.7)'
+													backgroundColor: categories.map((_, i) => palette[i % palette.length])
 												}
 											]
 										},
@@ -176,7 +163,9 @@ export function AnalyticsPage() {
 
 					<Card>
 						<CardHeader>
-							<CardTitle className="text-base">Income vs. expense</CardTitle>
+							<CardTitle className="flex items-center gap-2 text-base">
+								<ArrowLeftRight className="size-4 text-primary" /> Income vs. expense
+							</CardTitle>
 						</CardHeader>
 						<CardContent>
 							{trend.length === 0 ? (
@@ -210,7 +199,7 @@ export function AnalyticsPage() {
 											responsive: true,
 											maintainAspectRatio: false,
 											scales: baseScales,
-											plugins: { legend: { labels: { color: AXIS_COLOR } } }
+											plugins: { legend: { labels: { color: axisColor } } }
 										}
 									}}
 								/>
@@ -220,7 +209,9 @@ export function AnalyticsPage() {
 
 					<Card>
 						<CardHeader>
-							<CardTitle className="text-base">Cash flow</CardTitle>
+							<CardTitle className="flex items-center gap-2 text-base">
+								<Activity className="size-4 text-primary" /> Cash flow
+							</CardTitle>
 						</CardHeader>
 						<CardContent>
 							{cashFlow.length === 0 ? (
@@ -238,8 +229,8 @@ export function AnalyticsPage() {
 												{
 													label: 'Cumulative',
 													data: cashFlow.map((f) => f.cumulativeFlow / 100),
-													borderColor: '#0f766e',
-													backgroundColor: 'rgba(15, 118, 110, 0.2)',
+													borderColor: palette[0],
+													backgroundColor: withAlpha(palette[0], 0.2),
 													fill: true,
 													tension: 0.3
 												}
@@ -259,7 +250,9 @@ export function AnalyticsPage() {
 
 					<Card>
 						<CardHeader>
-							<CardTitle className="text-base">Net worth trend</CardTitle>
+							<CardTitle className="flex items-center gap-2 text-base">
+								<TrendingUp className="size-4 text-primary" /> Net worth trend
+							</CardTitle>
 						</CardHeader>
 						<CardContent>
 							{netWorth.length === 0 ? (
@@ -277,8 +270,8 @@ export function AnalyticsPage() {
 												{
 													label: 'Net worth',
 													data: netWorth.map((p) => p.netWorth / 100),
-													borderColor: '#6366f1',
-													backgroundColor: 'rgba(99, 102, 241, 0.2)',
+													borderColor: palette[1],
+													backgroundColor: withAlpha(palette[1], 0.2),
 													fill: true,
 													tension: 0.3
 												}
@@ -298,7 +291,9 @@ export function AnalyticsPage() {
 
 					<Card className="sm:col-span-2">
 						<CardHeader>
-							<CardTitle className="text-base">Budget performance</CardTitle>
+							<CardTitle className="flex items-center gap-2 text-base">
+								<Target className="size-4 text-primary" /> Budget performance
+							</CardTitle>
 						</CardHeader>
 						<CardContent>
 							{budgets.length === 0 ? (
