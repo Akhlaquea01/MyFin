@@ -1,253 +1,207 @@
-# Multi-Account CSV/XLSX Import
+# Feature Specification: Multi-Account Transaction Import
 
-**Status:** Design  
-**Priority:** P3  
-**User Story:** P3 (Nice-to-have enhancement)  
-**Related:** FR-037, FR-038 (existing CSV/XLSX import)
+**Feature Branch**: `009-multi-account-import`
 
-## Overview
+**Created**: 2026-09-12
 
-Extend the existing CSV/XLSX import feature to support optional per-row account mapping. Currently, all transactions in a single import file are assigned to one pre-selected account. This feature allows users to import transactions destined for different accounts in a single file by adding an optional "Account" column.
+**Status**: Draft
 
-## Problem Statement
+**Input**: User description: "Extend the existing CSV/XLSX transaction import so a single
+file can contain transactions for multiple accounts, routing each row to the correct
+account automatically instead of requiring one file per account."
 
-Users with multiple accounts (checking, savings, credit card) often need to import bulk transactions from various sources. Currently:
-- Bank exports for Checking and Savings must be imported separately
-- Users must split files by account before importing
-- Multi-account data (e.g., consolidated statements) requires manual account assignment
-- Increases friction for bulk imports and error risk from misrouting transactions
+## Clarifications
 
-## Desired Outcomes
+### Session 2026-09-12
 
-✅ Users can import transactions for multiple accounts in one file  
-✅ Backward compatible (account column remains optional)  
-✅ Clear validation and error reporting  
-✅ Same duplicate detection, categorization, and review workflow as single-account imports
+- Q: When an import file's account value (e.g., "Checking") matches more than one existing
+  account with that same name, how should the system resolve it? → A: Block the entire
+  import up front and require the user to rename one of the duplicate accounts before
+  proceeding.
+- Q: Should an archived (deactivated) account be a valid match when the system resolves an
+  account name from the import file? → A: Yes — archived accounts are valid matches just
+  like active accounts.
 
-## Functional Requirements
+## User Scenarios & Testing _(mandatory)_
 
-### FR-041: Optional Account Column Mapping
-- **What:** Users can optionally select an "Account column" when configuring column mappings
-- **How:** 
-  - Add "Account column (optional)" dropdown to import configuration
-  - If selected, read account name/ID from each row
-  - If not selected, use legacy behavior (single pre-selected account)
-- **Input validation:**
-  - Account column values must match an existing account name
-  - If account doesn't exist, skip row with reason "Account not found"
-  - Empty/blank account cells treated as error
-- **UI feedback:** 
-  - Show in preview which account each row will import to
-  - Report account resolution errors in import result
+### User Story 1 - Import One File Covering Several Accounts (Priority: P1)
 
-### FR-042: Account Resolution
-- **Lookup:** Match account column value against:
-  - Account names (case-insensitive)
-  - Account IDs (exact match)
-- **Fallback:** Try name match first, then ID
-- **Error handling:** 
-  - Row rejected if account cannot be resolved
-  - Reported in `skippedMalformedRows` with reason "Account 'XYZ' not found"
+A user has a consolidated export (e.g., from their bank's "all accounts" download) or has
+combined statements from checking, savings, and a credit card into one file. Instead of
+splitting the file by account and importing it three separate times, they import it once,
+mark which column identifies the account for each row, and the system routes each
+transaction to the correct account automatically.
 
-### FR-043: Transfer Transaction Support
-- **Recognition:** If a row has special markers in description, optionally create as transfer:
-  - Description contains "transfer" keyword (case-insensitive)
-  - Special prefix like `[TRANSFER]` or `->` 
-  - Not required; can be regular expense/income if user prefers
-- **Behavior:** 
-  - Regular flow: amount on specified account (negative = expense)
-  - For now: let user create transfers manually if needed (keep scope tight)
+**Why this priority**: This is the entire value of the feature. Without it, users must
+manually split files and run multiple imports, which is the exact friction this feature
+removes.
 
-### FR-044: Import Result Reporting
-- Update `ImportResult` to include per-account summary:
-  ```typescript
-  {
-    createdCount: 150,
-    perAccountSummary: {
-      "account-id-1": { count: 50, accountName: "Checking" },
-      "account-id-2": { count: 100, accountName: "Savings" }
-    },
-    skippedMalformedRows: [...],
-    flaggedDuplicates: [...]
-  }
-  ```
+**Independent Test**: Import a file containing rows for three different existing accounts,
+each row carrying an account name in one column, and verify all transactions land in the
+correct account with no manual splitting.
 
-## Data Model Changes
+**Acceptance Scenarios**:
 
-### ColumnMapping Interface (Update)
-```typescript
-export interface ColumnMapping {
-  dateColumn: string;
-  amountColumn: string;
-  descriptionColumn?: string;
-  accountColumn?: string;  // NEW: optional account column
-  accountId: string;       // EXISTING: used only if accountColumn is not set
-  dateFormat: string;
-  amountSignConvention: 'negative-is-expense' | 'separate-debit-credit-columns';
-  debitColumn?: string;
-  creditColumn?: string;
-}
-```
+1. **Given** a file with a column identifying the account per row, **When** the user maps
+   that column during import configuration, **Then** each transaction is created under the
+   account named in its row.
+2. **Given** a file with no account-identifying column, **When** the user imports it,
+   **Then** the system behaves exactly as it does today — every row goes to the single
+   account the user selects for the whole import.
 
-### ImportResult Interface (Update)
-```typescript
-export interface ImportResult {
-  createdCount: number;
-  skippedMalformedRows: { rowNumber: number; reason: string }[];
-  flaggedDuplicates: { rowNumber: number; existingTransactionId: string }[];
-  perAccountSummary?: Record<string, { count: number; accountName: string }>;  // NEW
-}
-```
+---
 
-## UI/UX Changes
+### User Story 2 - Catch Misrouted or Unmatched Accounts Before Importing (Priority: P2)
 
-### ImportPage.tsx Updates
+Before committing an import, the user wants to see which account each row will go to, and
+be warned about any row whose account reference doesn't match one of their existing
+accounts (e.g., a typo, an account they haven't created yet, or a blank cell) — so nothing
+is silently imported to the wrong place or lost.
 
-1. **New Control: Account Column Selector**
-   - Add below existing account selector
-   - Label: "Account column (optional)"
-   - Placeholder: "None - use selected account below"
-   - Options: Parsed headers + "None"
-   - Help text: "If set, reads account from each row. All rows use the account selected below if this is empty."
+**Why this priority**: Multi-account routing only becomes trustworthy if mistakes are
+visible before data is committed. This is what makes User Story 1 safe to rely on.
 
-2. **Conditional Account Selector**
-   - When account column is NOT selected: Show "Account" dropdown (required)
-   - When account column IS selected: Show "Account" dropdown (for fallback only, grayed out with note)
-   - Note: "This account is used as fallback only when account column is empty or invalid"
+**Independent Test**: Import a file where one row's account value doesn't match any
+existing account, and verify the preview clearly flags that row and explains why, before
+any transactions are created.
 
-3. **Preview Update**
-   - Add column showing resolved account name for each row
-   - Highlight rows where account couldn't be resolved
-   - Show account resolution status in preview table
+**Acceptance Scenarios**:
 
-4. **Result Summary**
-   - Show breakdown by account: "Imported 50 to Checking, 100 to Savings"
-   - List which accounts received transactions
+1. **Given** a mapped account column, **When** the user views the import preview, **Then**
+   each row shows the account it will be imported to.
+2. **Given** a row whose account value doesn't match any existing account (typo, blank, or
+   unrecognized), **When** the user views the preview, **Then** that row is visibly flagged
+   with the reason and will not be imported.
+3. **Given** flagged rows exist, **When** the user proceeds with the import anyway,
+   **Then** only the resolvable rows are imported and the flagged rows are excluded and
+   reported.
+4. **Given** the account value on a row matches the name of more than one existing account,
+   **When** the user attempts the import, **Then** the entire import is blocked (no
+   transactions from any row are created) and the user is told which account name is
+   duplicated so they can rename one of the accounts and retry.
 
-### Sample UI Layout
-```
-┌─────────────────────────────────────┐
-│ Import Configuration                │
-├─────────────────────────────────────┤
-│ Account (fallback)         │ Checking ▼ │
-│ Account column (optional)  │ None     ▼ │
-│ Date column                │ Date     ▼ │
-│ Date format                │ YYYY-MM-DD  │
-│ Amount column              │ Amount   ▼ │
-│ Description column         │ Notes    ▼ │
-│ Amount convention          │ Single   ▼ │
-└─────────────────────────────────────┘
+---
 
-Preview:
-┌────────┬──────────┬────────┬───────────┐
-│ Date   │ Amount   │ Notes  │ Account   │
-├────────┼──────────┼────────┼───────────┤
-│ 09-01  │ -45.50   │ Grocery│ Checking ✓│
-│ 09-02  │ 3500.00  │ Salary │ Checking ✓│
-│ 09-03  │ 250.00   │ Xfer   │ ??? ✗     │ (Account not found)
-└────────┴──────────┴────────┴───────────┘
-```
+### User Story 3 - See Results Broken Down by Account (Priority: P3)
 
-## Validation Rules
+After a multi-account import completes, the user wants a summary showing how many
+transactions went to each account, so they can quickly confirm the import matched their
+expectations without having to open each account individually.
 
-| Scenario | Behavior |
-|----------|----------|
-| Account column set, value matches existing account | ✅ Use that account |
-| Account column set, value is blank/empty | ❌ Skip row "Account column is empty" |
-| Account column set, value doesn't match any account | ❌ Skip row "Account 'XYZ' not found" |
-| Account column NOT set, single account selected | ✅ Use selected account (legacy) |
-| Account column NOT set, no account selected | ❌ Validation error "Choose an account" |
+**Why this priority**: A nice confirmation/confidence step on top of the core import, but
+the feature is still useful without it — users could otherwise check each account manually.
 
-## Implementation Plan
+**Independent Test**: Complete a multi-account import and verify the result summary lists
+a transaction count per account that matches the source file.
 
-### Phase 1: Backend (importService.ts)
-1. Update `ColumnMapping` interface to include optional `accountColumn`
-2. Create `resolveAccount()` function:
-   - Input: account identifier (name or ID), encryption key, all accounts list
-   - Output: account ID or null if not found
-3. Update `importRows()` to:
-   - Accept accounts list in parameters
-   - For each row: resolve account from column or use fallback
-   - Handle account resolution errors gracefully
-4. Update `ImportResult` interface for per-account summary
-5. Build per-account summary in import result
+**Acceptance Scenarios**:
 
-### Phase 2: Frontend (ImportPage.tsx)
-1. Fetch accounts list (already done in `useEffect`)
-2. Add "Account column" selector state
-3. Add conditional UI rendering:
-   - If account column selected: gray out main account picker, show fallback note
-   - If not selected: require main account picker
-4. Update validation logic:
-   - If accountColumn: don't require accountId
-   - If !accountColumn: require accountId
-5. Update preview to show resolved account for each row
-6. Pass accounts list to `importRows()` call
-7. Display per-account summary in result card
+1. **Given** a completed multi-account import, **When** the result is displayed, **Then**
+   it shows the number of transactions created for each affected account.
+2. **Given** a completed single-account import (no account column used), **When** the
+   result is displayed, **Then** it shows the existing single-account summary unchanged.
 
-### Phase 3: Testing
-- Unit tests for `resolveAccount()` with various inputs
-- Integration test: import file with multiple accounts
-- Edge cases: blank cells, typos, ID lookups
-- Backward compatibility: ensure single-account imports still work
+---
 
-## Sample Import File
+### Edge Cases
 
-```csv
-Date,Description,Amount,Account
-2025-09-01,Coffee,-5.50,Checking
-2025-09-02,Paycheck,3500.00,Checking
-2025-09-03,ATM Withdrawal,-200.00,Savings
-2025-09-04,Interest,0.05,Savings
-2025-09-05,CC Payment,-1000.00,Credit Card
-```
+- What happens when the account column is blank for a row? → Row is treated as
+  unresolved/skipped and reported, not silently assigned to a default account.
+- What happens when an account value has different casing or extra whitespace than the
+  account's actual name (e.g., " checking " vs "Checking")? → Still matches; comparison is
+  case-insensitive and ignores surrounding whitespace.
+- What happens when an account value matches more than one existing account (the app does
+  not currently prevent two accounts from sharing a name)? → The entire import is blocked
+  before any transactions are created; the user is told which account name is duplicated
+  and must rename one of the colliding accounts before retrying.
+- What happens when a file mixes rows with and without an account value, while an account
+  column is mapped? → Rows with a resolvable value are routed accordingly; rows with a
+  blank/unresolved value are skipped and reported, not assigned to any implicit default.
+- What happens when an account value matches only an archived (deactivated) account? →
+  It still resolves normally; archived accounts are valid import destinations the same as
+  active ones.
+- What happens to duplicate detection when rows for the same date/amount exist across
+  different accounts? → Duplicate detection still applies, scoped to each row's resolved
+  account, exactly as it does for single-account imports.
+- What happens if every row's account value fails to resolve? → No transactions are
+  created; the user sees zero created and every row reported as unresolved, rather than a
+  confusing partial or failed state.
 
-Result:
-```
-Imported 2 to Checking, 2 to Savings, 1 to Credit Card
-5 total transactions created, 0 flagged as duplicates
-```
+## Requirements _(mandatory)_
 
-## Edge Cases & Decisions
+### Functional Requirements
 
-1. **Case sensitivity:** Account names are case-insensitive match (Checking = checking = CHECKING)
-2. **Whitespace:** Trim account name values before lookup
-3. **Empty cells:** Treated as "account not provided" error, skip row
-4. **Account IDs vs names:** Support both; name match tried first for UX
-5. **Non-existent accounts:** Skip row with clear error message
-6. **Fallback account:** Used only when account column is empty or invalid (future enhancement)
-7. **Duplicates:** Checked per-account (same amount, date, account = possible duplicate)
+- **FR-001**: When configuring an import, users MUST be able to designate one column in
+  the file as the account indicator for each row, in addition to the existing date, amount,
+  and description column mappings.
+- **FR-002**: The account indicator column MUST be optional; when it is not designated, the
+  import MUST behave exactly as it does today, importing every row into the single account
+  selected for the whole import (backward compatible).
+- **FR-003**: When an account indicator column is designated, the system MUST resolve each
+  row's account by matching its value against the user's existing accounts — including
+  archived accounts, which are eligible matches like any other — ignoring case and
+  surrounding whitespace.
+- **FR-004**: Any row whose account value is blank or does not match any existing account
+  MUST be excluded from the import and reported to the user with the row and the reason,
+  using the same reporting mechanism as other malformed rows.
+- **FR-005**: Before any transactions are created, the import preview MUST show, for every
+  row, which account it will be imported to, and MUST visibly distinguish rows that will be
+  excluded due to an unresolved account.
+- **FR-006**: If an account value used anywhere in the file matches the name of more than
+  one existing account, the system MUST block the entire import — no transactions from any
+  row are created — and MUST tell the user which account name is duplicated so they can
+  rename one of the colliding accounts and retry. This is a whole-import block, distinct
+  from the per-row exclusion in FR-004.
+- **FR-007**: The system MUST apply the same duplicate-detection, categorization, and
+  review workflow used for single-account imports to multi-account imports, scoped to each
+  row's resolved account.
+- **FR-008**: After an import completes, the system MUST report the number of transactions
+  created, broken down per account when more than one account was involved.
+- **FR-009**: The system MUST NOT create an account automatically on the basis of an import
+  file's account column; rows referencing an account the user has not already created are
+  treated as unresolved (see FR-004).
 
-## Success Criteria
+### Key Entities
 
-- ✅ Can import CSV with "Account" column, transactions routed correctly
-- ✅ Preview shows account resolution status
-- ✅ Import result shows per-account summary
-- ✅ Invalid accounts reported with row numbers
-- ✅ Backward compatible: single-account imports unchanged
-- ✅ No changes to duplicate detection, categorization, or review workflow
-- ✅ Works with both debit/credit and single-amount column modes
+- **Account**: An existing user-owned account (e.g., checking, savings, credit card) that
+  transactions can be imported into, including archived accounts. Identified to the import
+  process by its name.
+- **Import File Row**: One line of the uploaded file, carrying the data needed to create a
+  transaction (date, amount, description) plus, optionally, an account indicator value used
+  to determine its destination account.
+- **Import Result**: The outcome of an import operation, including how many transactions
+  were created, which rows were excluded and why, which were flagged as possible
+  duplicates, and — for multi-account imports — a count of transactions created per
+  account.
 
-## Future Enhancements (Out of Scope)
+## Success Criteria _(mandatory)_
 
-- Auto-detect account from transaction data (memo analysis)
-- Fallback account for unresolved rows (use fallback instead of skip)
-- Automatic transfer pair creation from special markers
-- Account aliases ("My Checking" = "Checking Account")
-- Multi-file batch import with account routing
+### Measurable Outcomes
 
-## Risks & Mitigations
+- **SC-001**: A user can import a single file containing transactions for three or more
+  accounts in one operation, with every resolvable row routed to the correct account,
+  eliminating the need to split the file or repeat the import per account.
+- **SC-002**: 100% of rows with an unresolvable account reference are caught and reported
+  before import, with zero transactions silently created against the wrong account.
+- **SC-003**: The post-import summary's per-account transaction counts match the source
+  file exactly, verifiable without inspecting each account individually.
+- **SC-004**: Files that don't use an account column continue to import with identical
+  results to today's single-account behavior, with no regression.
+- **SC-005**: When an account name used in the file is shared by more than one existing
+  account, the user is stopped before any data is imported and is told exactly which name
+  is duplicated, with zero transactions created from that attempt.
 
-| Risk | Mitigation |
-|------|-----------|
-| User imports to wrong account by mistake | Always show preview with account column resolved |
-| Typo in account name breaks import | Clear error message showing which accounts exist |
-| Silent transaction loss | Report skipped rows with reasons in result |
-| Backward compatibility broken | Test with single-account files; make accountColumn optional |
+## Assumptions
 
-## Related User Stories
-
-- FR-037, FR-038: CSV/XLSX import (existing)
-- FR-020, FR-038: Duplicate detection (existing)
-- FR-002, spec-006: Auto-categorization (existing)
-- FR-011: Transfer between accounts (existing; can create manually after import)
+- Users import into accounts they have already created; this feature does not create
+  accounts on their behalf.
+- Account matching is by name, case-insensitive and whitespace-trimmed. The existing
+  account management feature does not currently enforce unique account names, so this
+  feature must detect name collisions itself (see FR-006) rather than assume they can't
+  occur.
+- Rows with a blank or unrecognized account value are skipped and reported without
+  blocking the rest of the import (FR-004); a name that resolves to more than one existing
+  account instead blocks the entire import (FR-006), since silently guessing which account
+  was meant is not acceptable.
+- Detecting or creating transfer pairs between accounts from within an import is out of
+  scope; imported rows are treated as ordinary income/expense transactions.

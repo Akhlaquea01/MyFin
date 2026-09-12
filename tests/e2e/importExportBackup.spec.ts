@@ -34,7 +34,7 @@ test('CSV import, export, backup, and restore round trip; a corrupted backup is 
 	// setInputFiles sets the file directly without triggering a native file-picker dialog.
 	await page.locator('input[type="file"]').setInputFiles(csvPath);
 
-	await page.getByLabel('Account').click();
+	await page.getByLabel('Account', { exact: true }).click();
 	await page.getByRole('option', { name: 'Checking', exact: true }).click();
 	await expect(page.getByRole('columnheader', { name: 'Date' })).toBeVisible();
 

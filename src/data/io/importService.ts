@@ -4,12 +4,16 @@ import { TransactionRepository } from '../dexie/transactionRepository';
 import { TransactionEngine } from '../../domain/transactions/transactionEngine';
 import { resolveMerchant, normalizeMerchantText } from '../../domain/parser/merchantResolver';
 import { parseMoneyToMinorUnits } from '../../domain/shared/money';
+import type { Account } from '../../domain/entities';
 
 export interface ColumnMapping {
 	dateColumn: string;
 	amountColumn: string;
 	descriptionColumn?: string;
 	accountId: string;
+	/** Optional column carrying a per-row account name. When set, each row is routed to the
+	 *  account it names instead of `accountId` (FR-002/FR-003). */
+	accountColumn?: string;
 	dateFormat: string; // e.g. "DD/MM/YYYY", tokens: YYYY, MM, DD
 	amountSignConvention: 'negative-is-expense' | 'separate-debit-credit-columns';
 	debitColumn?: string;
@@ -20,6 +24,9 @@ export interface ImportResult {
 	createdCount: number;
 	skippedMalformedRows: { rowNumber: number; reason: string }[];
 	flaggedDuplicates: { rowNumber: number; existingTransactionId: string }[];
+	/** Present only when `mapping.accountColumn` was used (FR-007); one entry per account
+	 *  that received at least one created transaction. */
+	perAccountSummary?: Record<string, { count: number; accountName: string }>;
 }
 
 export interface ParsedFile {
@@ -176,6 +183,43 @@ function parseAmount(
 }
 
 /**
+ * Resolves a multi-account import row's destination account (FR-003) by matching `value`
+ * against `accounts` by name, case-insensitively and whitespace-trimmed. `accounts` must
+ * include archived accounts — they are equally valid matches here (FR-003) even though the
+ * plain single-account picker excludes them. Matching is name-only: an account's internal id
+ * is never checked, since it is an opaque UUID no real source file would contain
+ * (research.md §6).
+ */
+export function resolveAccountForRow(value: string, accounts: Account[]): Account | null {
+	const trimmed = value.trim();
+	if (!trimmed) return null;
+	return accounts.find((a) => a.name.trim().toLowerCase() === trimmed.toLowerCase()) ?? null;
+}
+
+/**
+ * Whole-file pre-pass (FR-006): the app does not enforce unique account names today, so a
+ * value that matches more than one account is ambiguous, not resolvable. Returns the distinct
+ * values (first-seen order) that match more than one account; an empty result means every
+ * value is safe to resolve individually via `resolveAccountForRow`.
+ */
+export function findAccountNameCollisions(values: string[], accounts: Account[]): string[] {
+	const seen = new Set<string>();
+	const distinct: string[] = [];
+	for (const raw of values) {
+		const trimmed = raw.trim();
+		if (!trimmed) continue;
+		const key = trimmed.toLowerCase();
+		if (seen.has(key)) continue;
+		seen.add(key);
+		distinct.push(trimmed);
+	}
+	return distinct.filter((value) => {
+		const matches = accounts.filter((a) => a.name.trim().toLowerCase() === value.toLowerCase());
+		return matches.length > 1;
+	});
+}
+
+/**
  * Commits mapped rows as transactions (FR-037/FR-038): a row that fails to parse under the
  * given mapping is reported in `skippedMalformedRows` rather than silently guessed at, and
  * a likely duplicate (FR-020/FR-038 rule) is still created — flagged and left unreviewed —
@@ -185,6 +229,7 @@ export async function importRows(
 	key: CryptoKey,
 	rows: Record<string, string>[],
 	mapping: ColumnMapping,
+	accounts: Account[] = [],
 	onProgress?: (done: number, total: number) => void
 ): Promise<ImportResult> {
 	const result: ImportResult = { createdCount: 0, skippedMalformedRows: [], flaggedDuplicates: [] };
@@ -195,13 +240,37 @@ export async function importRows(
 		);
 	}
 
-	// Fetch the account's existing date/amount pairs once. `findPossibleDuplicates` walks the
-	// `accountId` index on every call, so calling it per row made duplicate detection scale with
-	// (rows x existing transactions) — and it has to see rows added earlier in *this* import too,
-	// which is why the index below is appended to as we go.
-	const existing = await TransactionRepository.search(key, { accountId: mapping.accountId });
-	const duplicateIndex = new Map<string, string>();
-	for (const tx of existing) duplicateIndex.set(duplicateKey(tx.date, tx.amount), tx.id);
+	// Whole-file pre-pass (FR-006): block the ENTIRE import — before any transaction is
+	// created — if an account name referenced anywhere in the file is ambiguous. The app does
+	// not enforce unique account names today, so this can't be assumed away (research.md §3).
+	if (mapping.accountColumn) {
+		const distinctValues = rows
+			.map((r) => r[mapping.accountColumn!]?.trim())
+			.filter((v): v is string => !!v);
+		const collisions = findAccountNameCollisions(distinctValues, accounts);
+		if (collisions.length > 0) {
+			throw new Error(
+				`Account name "${collisions[0]}" matches more than one account. Rename one of ` +
+					`them and try again.`
+			);
+		}
+	}
+
+	// Per-account duplicate index, built lazily the first time a row resolves to that account
+	// (research.md §4) — a file that references a handful of accounts should only pay the cost
+	// of fetching those accounts' existing transactions, not every account regardless of use.
+	const duplicateIndexes = new Map<string, Map<string, string>>();
+	async function duplicateIndexFor(accountId: string): Promise<Map<string, string>> {
+		let index = duplicateIndexes.get(accountId);
+		if (!index) {
+			const existing = await TransactionRepository.search(key, { accountId });
+			index = new Map<string, string>();
+			for (const tx of existing) index.set(duplicateKey(tx.date, tx.amount), tx.id);
+			duplicateIndexes.set(accountId, index);
+		}
+		return index;
+	}
+	const touchedAccountIds = new Set<string>();
 
 	for (let i = 0; i < rows.length; i++) {
 		const row = rows[i];
@@ -212,6 +281,28 @@ export async function importRows(
 		if (i > 0 && i % PROGRESS_INTERVAL === 0) {
 			onProgress?.(i, rows.length);
 			await new Promise((resolve) => setTimeout(resolve, 0));
+		}
+
+		// Resolve the row's destination account (FR-002/FR-003/FR-004). A blank or unresolved
+		// value is skipped and reported — it never falls back to `mapping.accountId`.
+		let txAccountId: string;
+		if (mapping.accountColumn) {
+			const rawValue = row[mapping.accountColumn] ?? '';
+			if (!rawValue.trim()) {
+				result.skippedMalformedRows.push({ rowNumber, reason: 'Account column is empty.' });
+				continue;
+			}
+			const resolvedAccount = resolveAccountForRow(rawValue, accounts);
+			if (!resolvedAccount) {
+				result.skippedMalformedRows.push({
+					rowNumber,
+					reason: `Account "${rawValue.trim()}" not found.`
+				});
+				continue;
+			}
+			txAccountId = resolvedAccount.id;
+		} else {
+			txAccountId = mapping.accountId;
 		}
 
 		const dateIso = parseDateWithFormat(row[mapping.dateColumn] ?? '', mapping.dateFormat);
@@ -225,6 +316,7 @@ export async function importRows(
 			continue;
 		}
 
+		const duplicateIndex = await duplicateIndexFor(txAccountId);
 		const duplicateOfId = findDuplicateId(duplicateIndex, dateIso, amount.amountPaise);
 		const notes = mapping.descriptionColumn ? (row[mapping.descriptionColumn] ?? null) : null;
 		// Auto-categorization (spec 006, FR-002) needs a resolved Merchant to match rules/
@@ -237,7 +329,7 @@ export async function importRows(
 		const created = await TransactionEngine.recordTransaction(
 			key,
 			{
-				accountId: mapping.accountId,
+				accountId: txAccountId,
 				date: dateIso,
 				amount: amount.amountPaise,
 				type: amount.amountPaise >= 0 ? 'income' : 'expense',
@@ -254,15 +346,24 @@ export async function importRows(
 			{ deferBalance: true }
 		);
 		duplicateIndex.set(duplicateKey(dateIso, amount.amountPaise), created.id);
+		touchedAccountIds.add(txAccountId);
 
 		result.createdCount++;
 		if (duplicateOfId) {
 			result.flaggedDuplicates.push({ rowNumber, existingTransactionId: duplicateOfId });
 		}
+		if (mapping.accountColumn) {
+			result.perAccountSummary ??= {};
+			const accountName = accounts.find((a) => a.id === txAccountId)?.name ?? txAccountId;
+			const entry = (result.perAccountSummary[txAccountId] ??= { count: 0, accountName });
+			entry.count++;
+		}
 	}
 
-	if (result.createdCount > 0) {
-		await TransactionEngine.recalculateAccountBalance(key, mapping.accountId);
+	// Recalculate balance once per touched account (research.md §5) — not once per row, and
+	// not just for `mapping.accountId`, since a multi-account import can touch several.
+	for (const accountId of touchedAccountIds) {
+		await TransactionEngine.recalculateAccountBalance(key, accountId);
 	}
 	onProgress?.(rows.length, rows.length);
 	return result;

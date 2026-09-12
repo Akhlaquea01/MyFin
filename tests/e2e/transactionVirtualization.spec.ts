@@ -35,7 +35,7 @@ test('the transaction list virtualizes rendering once the ledger is large', asyn
 
 	await page.getByRole('link', { name: 'Import' }).click();
 	await page.locator('input[type="file"]').setInputFiles(csvPath);
-	await page.getByLabel('Account').click();
+	await page.getByLabel('Account', { exact: true }).click();
 	await page.getByRole('option', { name: 'Checking', exact: true }).click();
 	await page.getByLabel('Date column').click();
 	await page.getByRole('option', { name: 'Date', exact: true }).click();

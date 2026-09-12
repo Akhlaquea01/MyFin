@@ -1,5 +1,12 @@
 # Multi-Account Import - Test Cases & Examples
 
+> Updated to match the finalized [spec.md](spec.md) clarifications: matching is by name only
+> (Test Case 5 below replaces the earlier "Account ID Lookup" case, which described a matching
+> path this feature does not implement), archived accounts are valid matches (Test Case 11),
+> and an account name shared by two accounts blocks the entire import rather than picking one
+> silently (Test Case 12 / Scenario D). See [quickstart.md](quickstart.md) for the authoritative
+> end-to-end scenarios; this file's CSV examples are illustrative test data, not a spec.
+
 ## Test Data Files
 
 ### Test Case 1: Multi-Account with Valid Data
@@ -52,7 +59,7 @@ Date,Description,Amount,Account
 - ✅ Savings: 2 transactions
 - ❌ Skipped rows report:
   ```
-  Row 5: Account 'TransitAccount' not found
+  Row 5: Account "TransitAccount" not found.
   ```
 
 ---
@@ -75,7 +82,7 @@ Date,Description,Amount,Account
 - ✅ Savings: 2 transactions
 - Skipped rows report:
   ```
-  Row 3: Account column is empty
+  Row 3: Account column is empty.
   ```
 
 ---
@@ -101,26 +108,28 @@ Date,Description,Amount,Account
 
 ---
 
-### Test Case 5: Account ID Lookup (Not Name)
-**File:** `test_account_id_lookup.csv`
+### Test Case 5: Account Names Only — Not IDs
+
+**File:** `test_account_id_not_matched.csv`
 
 ```csv
 Date,Description,Amount,Account
 2025-09-01,Grocery,-45.50,acc-001
 2025-09-02,Salary,3500.00,acc-001
-2025-09-03,ATM Withdrawal,-200,acc-002
-2025-09-04,Interest,0.05,acc-002
 ```
 
 **Assumptions:**
-- Account with ID "acc-001" exists (named "Checking")
-- Account with ID "acc-002" exists (named "Savings")
+- No account is actually *named* "acc-001" — that string is only an internal account id,
+  never shown to the user anywhere in the app.
 
 **Expected Result:**
-- ✅ All 4 transactions created
-- ✅ Resolved by ID lookup (name lookup fails, ID lookup succeeds)
-- ✅ Checking (acc-001): 2 transactions
-- ✅ Savings (acc-002): 2 transactions
+- ❌ Both rows skipped: `Account "acc-001" not found.`
+- ✅ Confirms matching is name-only (research.md §6) — a value that happens to look like an
+  id is not specially resolved, since account ids are opaque UUIDs a real source file would
+  never realistically contain.
+
+*(This case replaces an earlier draft of this document, which incorrectly assumed ID-based
+matching would be supported for "power users".)*
 
 ---
 
@@ -160,7 +169,8 @@ Date,Description,Amount
 - ✅ All 3 transactions created
 - ✅ All assigned to "Checking" (legacy behavior)
 - ✅ No account column required in file
-- ✅ Result shows single account (no per-account breakdown needed)
+- ✅ Result shows single account (no per-account breakdown; `perAccountSummary` is
+  `undefined`)
 
 ---
 
@@ -238,6 +248,48 @@ Savings: 4 (atm deposit, transfer, transfer, interest)
 
 ---
 
+### Test Case 11: Archived Account is a Valid Destination (FR-003)
+**File:** `test_archived_account.csv`
+
+```csv
+Date,Description,Amount,Account
+2025-09-01,Old Wallet Cleanup,-10.00,Old Wallet
+```
+
+**Assumptions:**
+- "Old Wallet" exists but has been archived via Accounts → Archive.
+
+**Expected Result:**
+- ✅ Row imports successfully into "Old Wallet" — archived accounts are eligible matches for
+  column-based resolution (unlike the plain fallback "Account" dropdown, which still excludes
+  archived accounts).
+
+---
+
+### Test Case 12: Duplicated Account Name Blocks the Whole Import (FR-006)
+**File:** `test_duplicate_account_name.csv`
+
+```csv
+Date,Description,Amount,Account
+2025-09-01,Grocery,-45.50,Checking
+2025-09-02,ATM,-200.00,Savings
+```
+
+**Assumptions:**
+- The user has TWO accounts both named "Checking" (the app does not prevent this today — see
+  data-model.md's "Known pre-existing constraint").
+
+**Expected Result:**
+- ❌ Created 0 transactions — for *any* row in the file, including the "Savings" row, which
+  is on its own unambiguous.
+- ✅ The UI states that "Checking" matches more than one account and blocks Import before the
+  user can even attempt it; if attempted via a direct `importRows()` call, it throws with the
+  same message before processing any row.
+- After renaming one of the two "Checking" accounts and retrying with the same file, the
+  import proceeds normally.
+
+---
+
 ## Edge Case Scenarios
 
 ### Scenario A: All Accounts Invalid
@@ -253,8 +305,8 @@ Date,Description,Amount,Account
 - ✅ Skipped 2 rows
 - Errors:
   ```
-  Row 2: Account 'InvalidBank' not found
-  Row 3: Account 'FakeAccount' not found
+  Row 2: Account "InvalidBank" not found.
+  Row 3: Account "FakeAccount" not found.
   ```
 
 ---
@@ -276,8 +328,8 @@ Date,Description,Amount,Account
 - ✅ Skipped 2 rows (account column empty on both)
 - Errors:
   ```
-  Row 2: Account column is empty
-  Row 3: Account column is empty
+  Row 2: Account column is empty.
+  Row 3: Account column is empty.
   ```
 
 ---
@@ -302,64 +354,121 @@ Date,Description,Amount,Account
 
 ---
 
+### Scenario D: Collision Affects Only Some Rows, Still Blocks Everything
+**File:**
+```csv
+Date,Description,Amount,Account
+2025-09-01,Grocery,-45.50,Checking
+2025-09-02,ATM,-200.00,Savings
+2025-09-03,Salary,3500.00,Checking
+```
+
+**Assumptions:**
+- Two accounts are both named "Checking"; "Savings" is unambiguous.
+
+**Expected:**
+- ❌ Created 0 transactions — including row 3 (Savings), which on its own would have imported
+  fine. FR-006 blocks the entire file, not just the rows naming "Checking" (see data-model.md
+  and research.md §3 for why this is a whole-file pre-pass rather than a per-row check).
+
+---
+
 ## Unit Test Cases (Code Level)
 
-### resolveAccount() Function
+### resolveAccountForRow() Function
 
-**Test 1: Exact name match (case-sensitive)**
+**Test 1: Exact name match**
 ```typescript
-it('should match account by exact name', async () => {
-  const accounts = [{ id: '1', name: 'Checking' }];
-  const result = await resolveAccount('Checking', accounts);
+it('should match account by exact name', () => {
+  const accounts = [{ id: '1', name: 'Checking', isArchived: false } as Account];
+  const result = resolveAccountForRow('Checking', accounts);
   expect(result?.id).toBe('1');
 });
 ```
 
 **Test 2: Case-insensitive name match**
 ```typescript
-it('should match account by name (case-insensitive)', async () => {
-  const accounts = [{ id: '1', name: 'Checking' }];
-  const result = await resolveAccount('checking', accounts);
+it('should match account by name (case-insensitive)', () => {
+  const accounts = [{ id: '1', name: 'Checking', isArchived: false } as Account];
+  const result = resolveAccountForRow('checking', accounts);
   expect(result?.id).toBe('1');
 });
 ```
 
-**Test 3: ID lookup**
+**Test 3: Whitespace trimming**
 ```typescript
-it('should match account by ID', async () => {
-  const accounts = [{ id: 'acc-001', name: 'Checking' }];
-  const result = await resolveAccount('acc-001', accounts);
-  expect(result?.id).toBe('acc-001');
-});
-```
-
-**Test 4: Name priority over ID**
-```typescript
-it('should prefer name match over ID when both exist', async () => {
-  const accounts = [
-    { id: '1', name: 'Checking' },
-    { id: 'acc-001', name: 'Savings' }
-  ];
-  const result = await resolveAccount('Checking', accounts);
+it('should trim whitespace', () => {
+  const accounts = [{ id: '1', name: 'Checking', isArchived: false } as Account];
+  const result = resolveAccountForRow('  Checking  ', accounts);
   expect(result?.id).toBe('1');
 });
 ```
 
-**Test 5: Whitespace trimming**
+**Test 4: Not found**
 ```typescript
-it('should trim whitespace', async () => {
-  const accounts = [{ id: '1', name: 'Checking' }];
-  const result = await resolveAccount('  Checking  ', accounts);
-  expect(result?.id).toBe('1');
-});
-```
-
-**Test 6: Not found**
-```typescript
-it('should return null if account not found', async () => {
-  const accounts = [{ id: '1', name: 'Checking' }];
-  const result = await resolveAccount('NonExistent', accounts);
+it('should return null if account not found', () => {
+  const accounts = [{ id: '1', name: 'Checking', isArchived: false } as Account];
+  const result = resolveAccountForRow('NonExistent', accounts);
   expect(result).toBeNull();
+});
+```
+
+**Test 5: Blank value**
+```typescript
+it('should return null for a blank value without matching anything', () => {
+  const accounts = [{ id: '1', name: 'Checking', isArchived: false } as Account];
+  const result = resolveAccountForRow('   ', accounts);
+  expect(result).toBeNull();
+});
+```
+
+**Test 6: Archived account matches like any other (FR-003)**
+```typescript
+it('should match an archived account the same as an active one', () => {
+  const accounts = [{ id: '1', name: 'Old Wallet', isArchived: true } as Account];
+  const result = resolveAccountForRow('Old Wallet', accounts);
+  expect(result?.id).toBe('1');
+});
+```
+
+**Test 7: Value matching an account id is NOT resolved (research.md §6)**
+```typescript
+it('should not match a raw account id — matching is name-only', () => {
+  const accounts = [{ id: 'acc-001', name: 'Checking', isArchived: false } as Account];
+  const result = resolveAccountForRow('acc-001', accounts);
+  expect(result).toBeNull();
+});
+```
+
+### findAccountNameCollisions() Function
+
+**Test 8: No collisions when every name is unique**
+```typescript
+it('should return no collisions when account names are unique', () => {
+  const accounts = [
+    { id: '1', name: 'Checking', isArchived: false } as Account,
+    { id: '2', name: 'Savings', isArchived: false } as Account
+  ];
+  expect(findAccountNameCollisions(['Checking', 'Savings'], accounts)).toEqual([]);
+});
+```
+
+**Test 9: Flags a name shared by two accounts (FR-006)**
+```typescript
+it('should flag an account name matching more than one account', () => {
+  const accounts = [
+    { id: '1', name: 'Checking', isArchived: false } as Account,
+    { id: '2', name: 'Checking', isArchived: false } as Account
+  ];
+  expect(findAccountNameCollisions(['Checking'], accounts)).toEqual(['Checking']);
+});
+```
+
+**Test 10: A value matching zero accounts is not a collision**
+```typescript
+it('should not treat an unmatched value as a collision', () => {
+  const accounts = [{ id: '1', name: 'Checking', isArchived: false } as Account];
+  expect(findAccountNameCollisions(['NonExistent'], accounts)).toEqual([]);
 });
 ```
 
@@ -380,6 +489,15 @@ it('should return null if account not found', async () => {
 │ 09/04/25 │ Transfer       │ -500   │ ❌ NotFound           │
 │ 09/05/25 │ Interest       │ 0.05   │ ✅ Savings            │
 └──────────┴────────────────┴────────┴───────────────────────┘
+```
+
+**When two accounts share a name referenced in the file (FR-006):**
+```
+┌────────────────────────────────────────────────────────────┐
+│ ⚠ Account name "Checking" matches more than one account.   │
+│   Rename one of them before importing.                     │
+└────────────────────────────────────────────────────────────┘
+[Import] ← disabled
 ```
 
 **When account column NOT selected:**
@@ -403,7 +521,7 @@ it('should return null if account not found', async () => {
 After implementation, verify:
 - ✅ Can import 100+ transactions with 5+ accounts in one file
 - ✅ Account resolution < 100ms per 1000 rows
-- ✅ Preview renders correctly with account column
+- ✅ Preview renders correctly with account column, including the collision banner
 - ✅ Error messages clear and actionable
 - ✅ No performance regression on single-account imports
-- ✅ All test cases pass
+- ✅ All test cases in this file, and all tasks in tasks.md, pass

@@ -28,6 +28,8 @@ import {
 	parseXlsx,
 	previewRows,
 	importRows,
+	resolveAccountForRow,
+	findAccountNameCollisions,
 	MAX_IMPORT_ROWS,
 	type ColumnMapping,
 	type ParsedFile,
@@ -44,6 +46,7 @@ export function ImportPage() {
 
 	const [accounts, setAccounts] = useState<Account[]>([]);
 	const [accountId, setAccountId] = useState('');
+	const [accountColumn, setAccountColumn] = useState(NONE);
 	const [parsed, setParsed] = useState<ParsedFile | null>(null);
 	const [dateColumn, setDateColumn] = useState('');
 	const [dateFormat, setDateFormat] = useState('YYYY-MM-DD');
@@ -59,9 +62,23 @@ export function ImportPage() {
 	const fileInputRef = useRef<HTMLInputElement>(null);
 
 	useEffect(() => {
-		void AccountRepository.list(key, false).then(setAccounts);
+		// Includes archived accounts: they're valid destinations for column-based resolution
+		// (FR-003), even though the plain fallback picker below must stay active-only.
+		void AccountRepository.list(key, true).then(setAccounts);
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, []);
+	const activeAccounts = accounts.filter((a) => !a.isArchived);
+
+	// Whole-file collision pre-check (FR-006), recomputed whenever the file or the account
+	// column selection changes — mirrors the check importRows() itself performs, surfaced
+	// early so the user isn't left waiting for a throw.
+	const accountNameCollisions =
+		accountColumn !== NONE && parsed
+			? findAccountNameCollisions(
+					parsed.rows.map((r) => r[accountColumn] ?? ''),
+					accounts
+				)
+			: [];
 
 	async function handleFileChange(event: React.ChangeEvent<HTMLInputElement>) {
 		const file = event.target.files?.[0];
@@ -91,19 +108,24 @@ export function ImportPage() {
 		setDateColumn('');
 		setAmountColumn('');
 		setDescriptionColumn(NONE);
+		setAccountColumn(NONE);
 	}
 
 	async function handleImport() {
-		if (!parsed || !accountId || !dateColumn || !dateFormat) return;
+		const hasAccountColumn = accountColumn !== NONE;
+		if (!parsed || !dateColumn || !dateFormat) return;
+		if (!hasAccountColumn && !accountId) return;
 		if (signConvention === 'negative-is-expense' && !amountColumn) return;
 		if (signConvention === 'separate-debit-credit-columns' && (!debitColumn || !creditColumn))
 			return;
+		if (accountNameCollisions.length > 0) return;
 
 		const mapping: ColumnMapping = {
 			dateColumn,
 			amountColumn,
 			descriptionColumn: descriptionColumn === NONE ? undefined : descriptionColumn,
 			accountId,
+			accountColumn: hasAccountColumn ? accountColumn : undefined,
 			dateFormat,
 			amountSignConvention: signConvention,
 			debitColumn: signConvention === 'separate-debit-credit-columns' ? debitColumn : undefined,
@@ -113,7 +135,7 @@ export function ImportPage() {
 		setImporting(true);
 		setProgress({ done: 0, total: parsed.rows.length });
 		try {
-			const importResult = await importRows(key, parsed.rows, mapping, (done, total) =>
+			const importResult = await importRows(key, parsed.rows, mapping, accounts, (done, total) =>
 				setProgress({ done, total })
 			);
 			setResult(importResult);
@@ -128,7 +150,8 @@ export function ImportPage() {
 
 	const canImport =
 		!!parsed &&
-		!!accountId &&
+		(accountColumn !== NONE || !!accountId) &&
+		accountNameCollisions.length === 0 &&
 		!!dateColumn &&
 		!!dateFormat &&
 		(signConvention === 'negative-is-expense' ? !!amountColumn : !!debitColumn && !!creditColumn);
@@ -163,19 +186,47 @@ export function ImportPage() {
 						<>
 							<div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
 								<div className="flex flex-col gap-1.5">
-									<Label htmlFor="import-account">Account</Label>
-									<Select value={accountId} onValueChange={setAccountId}>
+									<Label htmlFor="import-account">
+										Account{accountColumn !== NONE ? ' (fallback, not used)' : ''}
+									</Label>
+									<Select
+										value={accountId}
+										onValueChange={setAccountId}
+										disabled={accountColumn !== NONE}
+									>
 										<SelectTrigger id="import-account" className="w-full">
 											<SelectValue placeholder="Choose account…" />
 										</SelectTrigger>
 										<SelectContent>
-											{accounts.map((a) => (
+											{activeAccounts.map((a) => (
 												<SelectItem key={a.id} value={a.id}>
 													{a.name}
 												</SelectItem>
 											))}
 										</SelectContent>
 									</Select>
+								</div>
+								<div className="flex flex-col gap-1.5">
+									<Label htmlFor="import-account-col">Account column (optional)</Label>
+									<Select value={accountColumn} onValueChange={setAccountColumn}>
+										<SelectTrigger id="import-account-col" className="w-full">
+											<SelectValue />
+										</SelectTrigger>
+										<SelectContent>
+											<SelectItem value={NONE}>None - use selected account</SelectItem>
+											{parsed.headers.map((h) => (
+												<SelectItem key={h} value={h}>
+													{h}
+												</SelectItem>
+											))}
+										</SelectContent>
+									</Select>
+									{accountColumn !== NONE && (
+										<p className="text-xs text-muted-foreground">
+											Account will be read from the "{accountColumn}" column per row (including
+											archived accounts).
+										</p>
+									)}
 								</div>
 								<div className="flex flex-col gap-1.5">
 									<Label htmlFor="import-date-format">Date format</Label>
@@ -290,6 +341,14 @@ export function ImportPage() {
 								)}
 							</div>
 
+							{accountNameCollisions.length > 0 && (
+								<div className="rounded-md border border-destructive/40 bg-destructive/5 p-3">
+									<p className="text-xs font-medium text-destructive">
+										Account name "{accountNameCollisions[0]}" matches more than one account.
+										Rename one of them before importing.
+									</p>
+								</div>
+							)}
 							{parsed.errors.length > 0 && (
 								<div className="mb-3 rounded-md border border-destructive/40 bg-destructive/5 p-3">
 									<p className="text-xs font-medium text-destructive">
@@ -314,6 +373,7 @@ export function ImportPage() {
 												{parsed.headers.map((h) => (
 													<TableHead key={h}>{h}</TableHead>
 												))}
+												{accountColumn !== NONE && <TableHead>Account (resolved)</TableHead>}
 											</TableRow>
 										</TableHeader>
 										<TableBody>
@@ -322,6 +382,23 @@ export function ImportPage() {
 													{parsed.headers.map((h) => (
 														<TableCell key={h}>{row[h]}</TableCell>
 													))}
+													{accountColumn !== NONE &&
+														(() => {
+															const resolvedAccount = resolveAccountForRow(
+																row[accountColumn] ?? '',
+																accounts
+															);
+															const raw = row[accountColumn]?.trim();
+															return (
+																<TableCell>
+																	{resolvedAccount
+																		? `✅ ${resolvedAccount.name}`
+																		: raw
+																			? `❌ ${raw} (not found)`
+																			: '❌ Empty'}
+																</TableCell>
+															);
+														})()}
 												</TableRow>
 											))}
 										</TableBody>
@@ -353,6 +430,19 @@ export function ImportPage() {
 								{result.flaggedDuplicates.length} flagged as possible duplicates.
 							</p>
 						)}
+						{result.perAccountSummary &&
+							Object.keys(result.perAccountSummary).length > 1 && (
+								<div>
+									<p className="mb-1 text-sm font-medium">Imported by account:</p>
+									<ul className="list-inside list-disc text-xs text-muted-foreground">
+										{Object.entries(result.perAccountSummary).map(([accId, summary]) => (
+											<li key={accId}>
+												{summary.count} to {summary.accountName}
+											</li>
+										))}
+									</ul>
+								</div>
+							)}
 						{result.skippedMalformedRows.length > 0 && (
 							<div>
 								<p className="mb-1 text-sm text-muted-foreground">
