@@ -1,31 +1,27 @@
 <!--
 Sync Impact Report
-- Version change: 1.1.0 → 2.0.0
+- Version change: 2.0.0 → 3.0.0
 - Modified principles:
-  - II. Privacy & Encryption by Default (NON-NEGOTIABLE) — the derived encryption key's
-    persistence rule is redefined from an absolute "MUST be held only in memory and MUST NOT
-    be persisted in any form" to a narrower, conditional rule: it MUST NOT be persisted in any
-    form from which raw key bytes are extractable, but MAY be persisted as a non-extractable
-    Web Crypto `CryptoKey` handle strictly to resume an already-unlocked session across a page
-    reload, bounded by the same auto-lock timeout and cleared on explicit lock. This reconciles
-    the constitution with the already-shipped session-persistence feature
-    (`src/data/dexie/sessionKeyRepository.ts`), which the prior absolute wording forbade. This
-    is a MAJOR bump per this document's own versioning policy: a NON-NEGOTIABLE principle's
-    literal rule is being redefined, even though the underlying guarantee it exists to protect
-    (raw key bytes never reachable by any script, ever) is unchanged and independently
-    verified — see the session's own testing: `crypto.subtle.exportKey('raw', ...)` against
-    the persisted row throws `InvalidAccessError: key is not extractable`.
-- Modified sections: none beyond Principle II's body and rationale above.
-- Added sections: none.
+  - I. Local-First & Zero-Server — added a narrow, opt-in exception permitting the user to
+    sync the existing AES-GCM encrypted backup blob (already produced by the manual
+    backup/export feature, Principle II) to a cloud storage provider of their own choosing
+    (e.g. their personal Google Drive), strictly for off-device redundancy. This is a MAJOR
+    bump per this document's own versioning policy: a principle's literal "no cloud sync"
+    rule is being redefined, even though the underlying guarantee it protects — this project
+    owes its user zero server-side trust, and no vendor can ever read usable financial data —
+    is unchanged. The exception only ever transmits ciphertext already produced by the
+    existing PIN-derived-key encryption; the key and PIN never leave the device, matching the
+    reasoning already used for the Principle II session-key exception.
+- Modified sections: Principle I body and rationale.
+- Added sections: none (the exception is folded into Principle I rather than added as a new
+  principle, matching the existing pattern).
 - Removed sections: none.
-- Deferred / TODO placeholders: none.
-- Templates requiring follow-up (not modified by this command; flagged for a future pass):
-  - specs/001-personal-finance-manager/contracts/repository-interfaces.md line 93-94 and
-    research.md still describe the encryption key as never persisted, held only in an
-    in-memory module singleton — now only true outside the session-resume path. Update when
-    that spec's docs are next touched.
-  - specs/001-personal-finance-manager/plan.md line 54 ("key held only in memory (never
-    persisted)") has the same staleness for the same reason.
+- Deferred / TODO placeholders:
+  - No implementation exists yet. This amendment only makes the capability constitutionally
+    permitted; a future `/speckit-plan` for the cloud-backup-sync feature must still pass its
+    own Constitution Check — in particular, satisfying every bullet under Principle I's
+    exception — before implementation begins.
+- Templates requiring follow-up: none identified.
 -->
 
 # Personal Finance Manager (PWA) Constitution
@@ -34,15 +30,38 @@ Sync Impact Report
 
 ### I. Local-First & Zero-Server
 
-The application MUST run entirely client-side with no backend server, no cloud sync, and
-no server-side processing of user data. All application state and financial records MUST
-be persisted on-device (IndexedDB) and MUST remain fully functional offline after first
-load (via Service Worker asset caching). Any feature that would require a server-side
-component (remote sync, cloud backup, server-side analytics) is out of scope unless the
-constitution is amended.
+The application MUST run entirely client-side with no backend server of its own and no
+server-side processing of user data. Cloud sync is disabled by default. All application
+state and financial records MUST be persisted on-device (IndexedDB) and MUST remain fully
+functional offline after first load (via Service Worker asset caching). Any feature that
+would require a server-side component of this project's own (server-side analytics,
+server-side processing, or any backend that receives plaintext or otherwise usable
+financial data) is out of scope unless the constitution is amended.
+
+The sole permitted exception: the user MAY opt in to syncing their encrypted backup — the
+same AES-GCM ciphertext blob already produced by the manual backup/export feature
+(Principle II) — to a cloud storage provider of their own choosing (e.g. their personal
+Google Drive), strictly for off-device redundancy. This exception MUST satisfy all of the
+following, or it is not permitted:
+- Disabled by default; the user must explicitly opt in from Settings, per provider account.
+- The app MUST transmit only the same ciphertext payload the manual export already
+  produces — never a separate, weaker, partial, or unencrypted representation of financial
+  data.
+- The encryption key and PIN MUST NOT be transmitted or derivable by the cloud provider;
+  the provider must only ever be capable of storing and returning opaque bytes.
+- The user MUST be able to disable the sync and delete the remote copy at any time from
+  within the app.
+- The integration MUST talk directly from the client to the provider's own free-tier API
+  (Principle V) with no backend of this project's own in between.
 **Rationale**: The project's entire value proposition is a private, zero-cost financial
-tool the user fully controls. A server introduces cost, attack surface, and a trust
-boundary the user explicitly rejected.
+tool the user fully controls. A server of this project's own introduces cost, attack
+surface, and a trust boundary the user explicitly rejected — that guarantee is absolute
+and this exception does not touch it. What the exception trades away is narrower: some
+users want off-device redundancy for a lost/wiped device, and a backup that leaves the
+device only as ciphertext the user's own PIN can decrypt does not weaken Principle II's
+guarantee, does not require this project to run or pay for any infrastructure (Principle
+V), and remains fully opt-in — a user who never enables it gets the original zero-network
+behavior unchanged.
 
 ### II. Privacy & Encryption by Default (NON-NEGOTIABLE)
 
@@ -169,4 +188,4 @@ Versioning policy (semantic versioning applied to governance):
 - MINOR: A new principle or materially expanded section is added.
 - PATCH: Wording clarifications, typo fixes, or non-semantic refinements.
 
-**Version**: 2.0.0 | **Ratified**: 2026-09-06 | **Last Amended**: 2026-09-07
+**Version**: 3.0.0 | **Ratified**: 2026-09-06 | **Last Amended**: 2026-09-13

@@ -14,7 +14,7 @@ We take the security and privacy of MyFin seriously. If you discover a security 
 
 Instead, please send a detailed report to:
 
-**[akhalquea01@gmail.com](mailto:akhalquea01@gmail.com)**
+**[akhlaquea01@gmail.com](mailto:akhlaquea01@gmail.com)**
 
 Please include:
 - A description of the vulnerability and its potential impact.

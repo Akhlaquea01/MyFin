@@ -127,7 +127,7 @@ Contributions are welcome! Whether you are reporting a bug, proposing a feature,
 
 ## 🔒 Vulnerability Disclosure
 
-If you discover a security vulnerability, please review our **[Security Policy](SECURITY.md)** and contact us directly at **[akhalquea01@gmail.com](mailto:akhalquea01@gmail.com)** instead of opening a public issue.
+If you discover a security vulnerability, please review our **[Security Policy](SECURITY.md)** and contact us directly at **[akhlaquea01@gmail.com](mailto:akhlaquea01@gmail.com)** instead of opening a public issue.
 
 ---
 
@@ -135,4 +135,4 @@ If you discover a security vulnerability, please review our **[Security Policy](
 
 MyFin is open-source software licensed under the **[MIT License](LICENSE)**.
 
-Copyright (c) 2026 [akhalque](https://github.com/Akhlaquea01).
+Copyright (c) 2026 [Akhlaque](https://github.com/Akhlaquea01).

@@ -38,13 +38,15 @@ export function AboutPage() {
 				</CardHeader>
 				<CardContent className="flex flex-col gap-2 text-sm">
 					<p className="text-muted-foreground">
-						A private, offline-first personal finance manager. Your data never leaves your device.
+						A private, offline-first personal finance manager. Your data stays on your device by
+						default — encrypted cloud backup, when added, will always be opt-in and end-to-end
+						encrypted before it ever leaves your device.
 					</p>
 					<dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
 						<dt className="text-muted-foreground">Version</dt>
 						<dd className="font-mono">{__APP_VERSION__}</dd>
 						<dt className="text-muted-foreground">Created by</dt>
-						<dd>akhalque</dd>
+						<dd>Akhlaque</dd>
 					</dl>
 				</CardContent>
 			</Card>
