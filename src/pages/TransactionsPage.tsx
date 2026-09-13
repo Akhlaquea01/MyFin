@@ -199,9 +199,13 @@ export function TransactionsPage() {
 	}
 
 	async function remove(tx: Transaction) {
-		await TransactionEngine.deleteTransaction(key, tx.id);
-		toast.success('Transaction moved to trash');
-		await refresh();
+		try {
+			await TransactionEngine.deleteTransaction(key, tx.id);
+			toast.success('Transaction moved to trash');
+			await refresh();
+		} catch (err) {
+			toast.error(err instanceof Error ? err.message : 'Could not delete transaction.');
+		}
 	}
 
 	async function handleSaveView() {
@@ -729,9 +733,16 @@ function AttachmentsDialog({
 	}
 
 	async function removeAttachment(attachment: Attachment) {
-		await AttachmentRepository.remove(key, attachment.id);
-		await refreshAttachments();
-		onChanged();
+		// AttachmentRepository.remove is a permanent hard delete (no Trash entry, no undo) —
+		// unlike a transaction's own soft-delete above, this needs its own confirmation.
+		if (!window.confirm('Permanently delete this receipt? This cannot be undone.')) return;
+		try {
+			await AttachmentRepository.remove(key, attachment.id);
+			await refreshAttachments();
+			onChanged();
+		} catch (err) {
+			toast.error(err instanceof Error ? err.message : 'Could not delete receipt.');
+		}
 	}
 
 	return (

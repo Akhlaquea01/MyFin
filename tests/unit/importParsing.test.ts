@@ -37,6 +37,16 @@ describe('parseDateWithFormat', () => {
 		expect(parseDateWithFormat('ab/cd/efgh', 'DD/MM/YYYY')).toBeNull();
 		expect(parseDateWithFormat('06/09/26', 'DD/MM/YYYY')).toBeNull(); // 2-digit year
 	});
+
+	/**
+	 * Regression: a value part was only `padStart`'d, never trimmed, so whitespace around the
+	 * separator (plausible in a hand-edited or copy-pasted statement) failed the length check
+	 * and rejected an otherwise valid date.
+	 */
+	it('tolerates whitespace around the separator', () => {
+		expect(parseDateWithFormat('06 / 09 / 2026', 'DD/MM/YYYY')).toBe('2026-09-06');
+		expect(parseDateWithFormat(' 6/9/2026 ', 'DD/MM/YYYY')).toBe('2026-09-06');
+	});
 });
 
 describe('normalizeMerchantText', () => {

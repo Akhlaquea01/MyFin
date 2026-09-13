@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowDownLeft, ArrowUpRight, Wallet, TrendingUp } from 'lucide-react';
+import { toast } from 'sonner';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
 import { Sparkline } from '../components/Sparkline';
@@ -43,13 +44,35 @@ export function DashboardPage() {
 
 	const [summary, setSummary] = useState<DashboardSummary | null>(null);
 	const [lending, setLending] = useState<OpenLoanTotals | null>(null);
+	const [loadError, setLoadError] = useState(false);
 
 	useEffect(() => {
-		void getDashboardSummary(key).then(setSummary);
-		void getLendingSummary(key).then(setLending);
+		let cancelled = false;
+		setLoadError(false);
+		Promise.all([getDashboardSummary(key), getLendingSummary(key)])
+			.then(([nextSummary, nextLending]) => {
+				if (cancelled) return;
+				setSummary(nextSummary);
+				setLending(nextLending);
+			})
+			.catch((err: unknown) => {
+				if (cancelled) return;
+				setLoadError(true);
+				toast.error(err instanceof Error ? err.message : 'Could not load dashboard.');
+			});
+		return () => {
+			cancelled = true;
+		};
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, []);
 
+	if (loadError && !summary) {
+		return (
+			<div className="mx-auto max-w-4xl px-4 py-8 text-sm text-destructive sm:px-6">
+				Could not load the dashboard. Try reloading the page.
+			</div>
+		);
+	}
 	if (!summary) {
 		return <div className="mx-auto max-w-4xl px-4 py-8 sm:px-6">Loading…</div>;
 	}

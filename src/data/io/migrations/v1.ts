@@ -23,7 +23,12 @@ export function migrateFromV1(payload: BackupPayload): BackupPayload {
 			attachments: payload.exportedEntities.attachments ?? [],
 			// spec 006: nor did auto-categorization rules/learning signals.
 			categorizationRules: payload.exportedEntities.categorizationRules ?? [],
-			merchantCategorySignals: payload.exportedEntities.merchantCategorySignals ?? []
+			merchantCategorySignals: payload.exportedEntities.merchantCategorySignals ?? [],
+			// spec 010/013: nor did people/loans/repayments or saved filter views.
+			people: payload.exportedEntities.people ?? [],
+			personLoans: payload.exportedEntities.personLoans ?? [],
+			personLoanRepayments: payload.exportedEntities.personLoanRepayments ?? [],
+			savedFilterViews: payload.exportedEntities.savedFilterViews ?? []
 		}
 	};
 }

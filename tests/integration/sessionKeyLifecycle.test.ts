@@ -42,9 +42,9 @@ describe('session key persistence', () => {
 		expect(restored).not.toBeNull();
 
 		// The whole basis of the exception: the round-tripped handle is still non-extractable.
-		expect(restored!.extractable).toBe(false);
-		await expect(crypto.subtle.exportKey('raw', restored!)).rejects.toThrow();
-		await expect(crypto.subtle.exportKey('jwk', restored!)).rejects.toThrow();
+		expect(restored!.key.extractable).toBe(false);
+		await expect(crypto.subtle.exportKey('raw', restored!.key)).rejects.toThrow();
+		await expect(crypto.subtle.exportKey('jwk', restored!.key)).rejects.toThrow();
 	});
 
 	it('derives non-extractable keys in the first place', async () => {

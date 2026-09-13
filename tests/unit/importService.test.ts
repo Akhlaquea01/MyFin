@@ -4,12 +4,14 @@ import { AccountRepository } from '../../src/data/dexie/accountRepository';
 import { TransactionRepository } from '../../src/data/dexie/transactionRepository';
 import {
 	parseCsv,
+	parseXlsx,
 	parseDateWithFormat,
 	importRows,
 	resolveAccountForRow,
 	findAccountNameCollisions,
 	type ColumnMapping
 } from '../../src/data/io/importService';
+import ExcelJS from 'exceljs';
 import { deriveEncryptionKey, randomSaltBase64 } from '../../src/data/crypto/cryptoService';
 import type { Account } from '../../src/domain/entities';
 
@@ -107,6 +109,59 @@ describe('Import service', () => {
 		expect(result.createdCount).toBe(2);
 		const transactions = await TransactionRepository.search(key, { accountId });
 		expect(transactions.map((t) => t.amount).sort((a, b) => a - b)).toEqual([-4000, 50000]);
+	});
+
+	it('distinguishes an unparseable amount from a legitimately-parsed zero amount', async () => {
+		const mapping: ColumnMapping = {
+			dateColumn: 'Date',
+			amountColumn: 'Amount',
+			accountId,
+			dateFormat: 'YYYY-MM-DD',
+			amountSignConvention: 'negative-is-expense'
+		};
+		const rows = [
+			{ Date: '2026-03-05', Amount: 'not-a-number' },
+			{ Date: '2026-03-06', Amount: '0.00' }
+		];
+		const result = await importRows(key, rows, mapping);
+		expect(result.createdCount).toBe(0);
+		expect(result.skippedMalformedRows).toEqual([
+			{ rowNumber: 2, reason: 'Unparseable amount.' },
+			{ rowNumber: 3, reason: 'Zero-amount transactions are not imported.' }
+		]);
+	});
+
+	it('fails fast with one clear error when debit/credit columns are not configured, instead of skipping every row', async () => {
+		const mapping: ColumnMapping = {
+			dateColumn: 'Date',
+			amountColumn: 'Amount',
+			accountId,
+			dateFormat: 'YYYY-MM-DD',
+			amountSignConvention: 'separate-debit-credit-columns'
+			// debitColumn/creditColumn deliberately omitted — the misconfiguration under test.
+		};
+		const rows = [{ Date: '2026-03-05', Debit: '40.00', Credit: '' }];
+		await expect(importRows(key, rows, mapping)).rejects.toThrow(/debit column and a credit column/);
+
+		const transactions = await TransactionRepository.search(key, { accountId });
+		expect(transactions).toHaveLength(0);
+	});
+
+	it('skips a styled-but-empty XLSX row instead of reporting it as an unparseable date', async () => {
+		const workbook = new ExcelJS.Workbook();
+		const sheet = workbook.addWorksheet('Sheet1');
+		sheet.addRow(['Date', 'Description', 'Amount']);
+		sheet.addRow(['2026-03-05', 'Groceries', '-40.00']);
+		// A spacer row with borders/fill applied but no cell values (ExcelJS still counts these
+		// cells, so `row.cellCount` alone would not catch it).
+		const spacerRow = sheet.addRow([]);
+		spacerRow.getCell(1).border = { top: { style: 'thin' } };
+		sheet.addRow(['2026-03-06', 'Salary', '500.00']);
+
+		const buffer = await workbook.xlsx.writeBuffer();
+		const parsed = await parseXlsx(buffer as ArrayBuffer);
+		expect(parsed.rows).toHaveLength(2);
+		expect(parsed.rows.map((r) => r.Date)).toEqual(['2026-03-05', '2026-03-06']);
 	});
 
 	describe('resolveAccountForRow (FR-003)', () => {

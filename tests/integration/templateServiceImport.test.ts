@@ -2,12 +2,22 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { db } from '../../src/data/dexie/db';
 import { AccountRepository } from '../../src/data/dexie/accountRepository';
 import { CategoryRepository } from '../../src/data/dexie/categoryRepository';
+import { MerchantRepository } from '../../src/data/dexie/merchantRepository';
 import { TagRepository, TransactionTagRepository } from '../../src/data/dexie/tagRepository';
 import { TransactionRepository, TransactionSplitRepository } from '../../src/data/dexie/transactionRepository';
 import { BudgetRepository } from '../../src/data/dexie/budgetRepository';
 import { InvestmentHoldingRepository } from '../../src/data/dexie/wealthRepository';
 import { AttachmentRepository } from '../../src/data/dexie/attachmentRepository';
 import { UserProfileRepository } from '../../src/data/dexie/userProfileRepository';
+import {
+	PersonRepository,
+	PersonLoanRepository,
+	LoanRepaymentRepository
+} from '../../src/data/dexie/personLoanRepository';
+import { SavedFilterViewRepository } from '../../src/data/dexie/savedFilterViewRepository';
+import { MerchantCategorySignalRepository } from '../../src/data/dexie/merchantCategorySignalRepository';
+import { NotificationPreferenceRepository } from '../../src/data/dexie/notificationRepository';
+import { DebtPlannerPreferenceRepository } from '../../src/data/dexie/debtPlannerPreferenceRepository';
 import { importDataTemplate } from '../../src/data/io/templateService';
 import type { DataTemplate } from '../../src/data/io/templateTypes';
 import {
@@ -300,5 +310,263 @@ describe('templateService - Fresh install import (User Story 2)', () => {
 
 		const budgetsInDb = await BudgetRepository.list(key);
 		expect(budgetsInDb.length).toBe(0);
+	});
+
+	it('imports people, person loans, loan repayments, and singleton preferences on a fresh install', async () => {
+		const template: DataTemplate = {
+			container: 'myfin-data-template',
+			templateVersion: 1,
+			exportedAt: new Date().toISOString(),
+			entities: {
+				accounts: [
+					{
+						id: 'old-acc-1',
+						name: 'Checking Account',
+						type: 'bank',
+						openingBalance: 100000,
+						currentBalance: 100000,
+						creditLimit: null,
+						billingCycleDay: null,
+						isArchived: false,
+						createdAt: 1000,
+						updatedAt: 1000,
+						deletedAt: null
+					}
+				],
+				categories: [],
+				merchants: [],
+				merchantAliases: [],
+				tags: [],
+				investmentHoldings: [],
+				investmentValuations: [],
+				liabilities: [],
+				netWorthSnapshots: [],
+				savingsGoals: [],
+				goalContributions: [],
+				budgets: [],
+				budgetItems: [],
+				recurringRules: [],
+				expectedEvents: [],
+				categorizationRules: [],
+				merchantCategorySignals: [],
+				notificationPreference: {
+					id: 'local-user',
+					enabled: false,
+					reminderLeadDays: 5,
+					budgetThresholdPercent: 90,
+					permissionPromptDismissed: true,
+					createdAt: 1000,
+					updatedAt: 1000
+				},
+				debtPlannerPreference: {
+					id: 'local-user',
+					strategy: 'snowball',
+					extraMonthlyPayment: 2500,
+					createdAt: 1000,
+					updatedAt: 1000
+				},
+				transactions: [
+					{
+						id: 'old-tx-loan',
+						accountId: 'old-acc-1',
+						date: '2026-09-01',
+						amount: -20000,
+						type: 'transfer',
+						transferPairId: null,
+						merchantId: null,
+						notes: 'Lent to Alex',
+						source: 'manual',
+						reviewStatus: 'confirmed',
+						duplicateOfId: null,
+						createdAt: 1000,
+						updatedAt: 1000,
+						deletedAt: null
+					},
+					{
+						id: 'old-tx-repayment',
+						accountId: 'old-acc-1',
+						date: '2026-09-15',
+						amount: 5000,
+						type: 'transfer',
+						transferPairId: null,
+						merchantId: null,
+						notes: 'Repayment from Alex',
+						source: 'manual',
+						reviewStatus: 'confirmed',
+						duplicateOfId: null,
+						createdAt: 1000,
+						updatedAt: 1000,
+						deletedAt: null
+					}
+				],
+				transactionSplits: [],
+				transactionTags: [],
+				attachments: [],
+				people: [
+					{
+						id: 'old-person-1',
+						name: 'Alex',
+						notes: null,
+						createdAt: 1000,
+						updatedAt: 1000,
+						deletedAt: null
+					}
+				],
+				personLoans: [
+					{
+						id: 'old-loan-1',
+						personId: 'old-person-1',
+						direction: 'lent',
+						principalAmount: 20000,
+						date: '2026-09-01',
+						dueDate: null,
+						notes: null,
+						accountId: 'old-acc-1',
+						transactionId: 'old-tx-loan',
+						writeOffAmount: 0,
+						writeOffAt: null,
+						createdAt: 1000,
+						updatedAt: 1000,
+						deletedAt: null
+					}
+				],
+				loanRepayments: [
+					{
+						id: 'old-repayment-1',
+						loanId: 'old-loan-1',
+						amount: 5000,
+						date: '2026-09-15',
+						accountId: 'old-acc-1',
+						transactionId: 'old-tx-repayment',
+						createdAt: 1000,
+						updatedAt: 1000,
+						deletedAt: null
+					}
+				],
+				savedFilterViews: [
+					{
+						id: 'old-view-1',
+						name: 'This month',
+						accountId: 'old-acc-1',
+						dateFrom: null,
+						dateTo: null,
+						freeText: null,
+						tagIds: [],
+						createdAt: 1000,
+						updatedAt: 1000
+					}
+				]
+			}
+		};
+
+		const result = await importDataTemplate(key, template);
+
+		expect(result.rejected).toBeUndefined();
+		expect(result.perEntity.people?.created).toBe(1);
+		expect(result.perEntity.personLoans?.created).toBe(1);
+		expect(result.perEntity.loanRepayments?.created).toBe(1);
+		expect(result.perEntity.savedFilterViews?.created).toBe(1);
+		expect(result.perEntity.notificationPreference?.created).toBe(1);
+		expect(result.perEntity.debtPlannerPreference?.created).toBe(1);
+
+		const people = await PersonRepository.list(key);
+		expect(people).toHaveLength(1);
+		expect(people[0].name).toBe('Alex');
+
+		const loans = await PersonLoanRepository.listAllOpen(key);
+		expect(loans).toHaveLength(1);
+		expect(loans[0].personId).toBe(people[0].id);
+		expect(loans[0].principalAmount).toBe(20000);
+
+		const repayments = await LoanRepaymentRepository.listForLoan(key, loans[0].id);
+		expect(repayments).toHaveLength(1);
+		expect(repayments[0].amount).toBe(5000);
+
+		// The loan/repayment must reuse the already-imported Transaction, not post a duplicate
+		// movement — exactly two transactions should exist (loan + repayment), not four.
+		const txs = await TransactionRepository.search(key);
+		expect(txs).toHaveLength(2);
+		expect(repayments[0].transactionId).not.toBe(loans[0].transactionId);
+		expect(txs.map((t) => t.id).sort()).toEqual(
+			[loans[0].transactionId, repayments[0].transactionId].sort()
+		);
+
+		const accounts = await AccountRepository.list(key);
+		// 1000.00 opening - 200.00 lent + 50.00 repaid = 850.00
+		expect(accounts[0].currentBalance).toBe(100000 - 20000 + 5000);
+
+		const views = await SavedFilterViewRepository.list(key);
+		expect(views).toHaveLength(1);
+		expect(views[0].accountId).toBe(accounts[0].id);
+
+		const notificationPref = await NotificationPreferenceRepository.get(key);
+		expect(notificationPref.reminderLeadDays).toBe(5);
+		expect(notificationPref.enabled).toBe(false);
+
+		const debtPref = await DebtPlannerPreferenceRepository.get(key);
+		expect(debtPref.strategy).toBe('snowball');
+		expect(debtPref.extraMonthlyPayment).toBe(2500);
+	});
+
+	it('reports a merged merchant category signal as updated, not created, on a second import', async () => {
+		const baseTemplate: DataTemplate = {
+			container: 'myfin-data-template',
+			templateVersion: 1,
+			exportedAt: new Date().toISOString(),
+			entities: {
+				accounts: [],
+				categories: [
+					{
+						id: 'old-cat-1',
+						name: 'Dining',
+						parentId: null,
+						icon: null,
+						createdAt: 1000,
+						updatedAt: 1000,
+						deletedAt: null
+					}
+				],
+				merchants: [
+					{ id: 'old-merch-1', name: 'Cafe Bloom', createdAt: 1000, updatedAt: 1000, deletedAt: null }
+				],
+				merchantAliases: [],
+				tags: [],
+				investmentHoldings: [],
+				investmentValuations: [],
+				liabilities: [],
+				netWorthSnapshots: [],
+				savingsGoals: [],
+				goalContributions: [],
+				budgets: [],
+				budgetItems: [],
+				recurringRules: [],
+				expectedEvents: [],
+				categorizationRules: [],
+				merchantCategorySignals: [
+					{ id: 'old-merch-1', recentCategoryIds: ['old-cat-1'], createdAt: 1000, updatedAt: 1000 }
+				],
+				notificationPreference: null,
+				debtPlannerPreference: null,
+				transactions: [],
+				transactionSplits: [],
+				transactionTags: [],
+				attachments: []
+			}
+		};
+
+		const first = await importDataTemplate(key, baseTemplate);
+		expect(first.perEntity.merchantCategorySignals?.created).toBe(1);
+		expect(first.perEntity.merchantCategorySignals?.updated ?? 0).toBe(0);
+
+		const second = await importDataTemplate(key, baseTemplate);
+		expect(second.perEntity.merchantCategorySignals?.updated).toBe(1);
+		expect(second.perEntity.merchantCategorySignals?.created ?? 0).toBe(0);
+
+		const merchants = await MerchantRepository.list(key);
+		const categories = await CategoryRepository.list(key);
+		const signal = await MerchantCategorySignalRepository.get(key, merchants[0].id);
+		// The same real category, resolved fresh both times (matched by name on the second
+		// import, not recreated), appended to the rolling window rather than replacing it.
+		expect(signal?.recentCategoryIds).toEqual([categories[0].id, categories[0].id]);
 	});
 });

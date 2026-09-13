@@ -1,5 +1,5 @@
 import { db, type AttachmentRow } from './db';
-import { putEncrypted, decryptRows } from './encryptedTable';
+import { encryptRow, decryptRows } from './encryptedTable';
 import type { Attachment } from '../../domain/entities';
 
 const MAX_ATTACHMENTS_PER_TRANSACTION = 5;
@@ -9,16 +9,6 @@ export const AttachmentRepository = {
 		key: CryptoKey,
 		input: { transactionId: string; mimeType: string; data: string; sizeBytes: number }
 	): Promise<Attachment> {
-		const existingCount = await db.attachments
-			.where('transactionId')
-			.equals(input.transactionId)
-			.count();
-		if (existingCount >= MAX_ATTACHMENTS_PER_TRANSACTION) {
-			throw new Error(
-				`A transaction can have at most ${MAX_ATTACHMENTS_PER_TRANSACTION} attachments.`
-			);
-		}
-
 		const now = Date.now();
 		const attachment: Attachment = {
 			id: crypto.randomUUID(),
@@ -29,8 +19,24 @@ export const AttachmentRepository = {
 			createdAt: now,
 			updatedAt: now
 		};
-		await putEncrypted(db.attachments, key, attachment, {
+		// Pre-encrypted outside the transaction (Web Crypto breaks Dexie's transaction zone —
+		// see encryptedTable.ts), so the count-check-write below is one atomic Dexie
+		// transaction with no async gap two concurrent calls could both slip through.
+		const row = await encryptRow<AttachmentRow, Attachment>(key, attachment, {
 			transactionId: attachment.transactionId
+		});
+
+		await db.transaction('rw', db.attachments, async () => {
+			const existingCount = await db.attachments
+				.where('transactionId')
+				.equals(input.transactionId)
+				.count();
+			if (existingCount >= MAX_ATTACHMENTS_PER_TRANSACTION) {
+				throw new Error(
+					`A transaction can have at most ${MAX_ATTACHMENTS_PER_TRANSACTION} attachments.`
+				);
+			}
+			await db.attachments.put(row);
 		});
 		return attachment;
 	},

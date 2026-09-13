@@ -3,12 +3,15 @@ import { decryptRows } from '../../data/dexie/encryptedTable';
 import { BudgetItemRepository } from '../../data/dexie/budgetRepository';
 import type { TransactionSplitRow } from '../../data/dexie/db';
 import { NOT_DELETED } from '../../data/dexie/indexable';
-import type { Budget, BudgetItem, TransactionSplit } from '../../domain/entities';
+import type { Budget, BudgetItem, BudgetPeriodType, TransactionSplit } from '../../domain/entities';
 
-/** How many empty periods to walk back through when looking for a rollover source. Two years
- *  of monthly periods — far enough to cover a realistic gap, bounded so a brand-new budget
- *  doesn't scan indefinitely. */
-const MAX_ROLLOVER_LOOKBACK = 24;
+/** How many empty periods to walk back through when looking for a rollover source, scaled by
+ *  period type so both bound to roughly the same two years — a flat cap applied to yearly
+ *  budgets too would let a pathological case walk back 24 *years* instead of 2. */
+const MAX_ROLLOVER_LOOKBACK: Record<BudgetPeriodType, number> = {
+	monthly: 24,
+	yearly: 2
+};
 
 export interface PeriodRange {
 	periodStart: string;
@@ -101,8 +104,12 @@ export async function ensureCurrentBudgetItem(
 	const existing = await BudgetItemRepository.findForPeriod(key, budget.id, periodStart);
 	if (existing) {
 		const actualAmount = await recalcActualAmount(key, budget.categoryId, periodStart, periodEnd);
-		if (actualAmount !== existing.actualAmount) {
-			return BudgetItemRepository.update(key, existing.id, { actualAmount });
+		// Reflects a mid-period edit to the parent Budget's amount in the *current* period only
+		// — rolloverInAmount is left as already stored (it was fixed when this item was first
+		// created) so an edit doesn't retroactively change how much rolled in from before.
+		const plannedAmount = budget.amount + existing.rolloverInAmount;
+		if (actualAmount !== existing.actualAmount || plannedAmount !== existing.plannedAmount) {
+			return BudgetItemRepository.update(key, existing.id, { actualAmount, plannedAmount });
 		}
 		return existing;
 	}
@@ -116,7 +123,7 @@ export async function ensureCurrentBudgetItem(
 		let cursor = getPreviousPeriodRange(budget.periodType, periodStart);
 		let prevItem = await BudgetItemRepository.findForPeriod(key, budget.id, cursor.periodStart);
 		let skippedPeriods = 0;
-		while (!prevItem && skippedPeriods < MAX_ROLLOVER_LOOKBACK) {
+		while (!prevItem && skippedPeriods < MAX_ROLLOVER_LOOKBACK[budget.periodType]) {
 			skippedPeriods++;
 			cursor = getPreviousPeriodRange(budget.periodType, cursor.periodStart);
 			prevItem = await BudgetItemRepository.findForPeriod(key, budget.id, cursor.periodStart);

@@ -229,7 +229,7 @@ export async function importDataTemplate(
 
 	function recordSkipped(
 		entity: string,
-		reason: 'already-exists' | 'unresolved-relationship',
+		reason: 'already-exists' | 'unresolved-relationship' | 'parent-duplicate',
 		identifier?: string
 	) {
 		initStats(entity);
@@ -240,6 +240,13 @@ export async function importDataTemplate(
 	function recordFlagged(entity: string) {
 		initStats(entity);
 		perEntity[entity].flaggedDuplicate = (perEntity[entity].flaggedDuplicate ?? 0) + 1;
+	}
+
+	/** Merged into an already-existing record, distinct from a fresh `recordCreated` — see
+	 *  EntityImportStats.updated. */
+	function recordUpdated(entity: string) {
+		initStats(entity);
+		perEntity[entity].updated = (perEntity[entity].updated ?? 0) + 1;
 	}
 
 	const accountRemap = new Map<string, string>();
@@ -254,7 +261,11 @@ export async function importDataTemplate(
 	const recurringRuleRemap = new Map<string, string>();
 	const transactionRemap = new Map<string, string>();
 	const personRemap = new Map<string, string>();
+	const personLoanRemap = new Map<string, string>();
 	const transactionIsDuplicateOfExisting = new Set<string>();
+	// Deferred until `transactionRemap` is populated by the Transactions step (21): file
+	// (expectedEventId, matchedTransactionId) pairs to patch onto the already-created rows.
+	const pendingExpectedEventMatches: Array<{ eventId: string; fileMatchedTransactionId: string }> = [];
 
 	const entities = template.entities ?? ({} as Partial<typeof template.entities>);
 
@@ -643,12 +654,20 @@ export async function importDataTemplate(
 		if (match) {
 			recordSkipped('expectedEvents', 'already-exists');
 		} else {
-			await ExpectedEventRepository.create(key, {
+			const created = await ExpectedEventRepository.create(key, {
 				recurringRuleId: resolvedRuleId,
 				expectedDate: ee.expectedDate,
 				status: ee.status,
 				matchedTransactionId: null
 			});
+			// The file's matchedTransactionId refers to a transaction not yet imported (Transactions
+			// is step 21) — resolve and patch it in afterward via transactionRemap.
+			if (ee.matchedTransactionId) {
+				pendingExpectedEventMatches.push({
+					eventId: created.id,
+					fileMatchedTransactionId: ee.matchedTransactionId
+				});
+			}
 			recordCreated('expectedEvents');
 		}
 	}
@@ -700,7 +719,7 @@ export async function importDataTemplate(
 		if (existing) {
 			const merged = [...existing.recentCategoryIds, ...resolvedCategories].slice(-3);
 			await MerchantCategorySignalRepository.set(key, resolvedMerchantId, merged);
-			recordCreated('merchantCategorySignals');
+			recordUpdated('merchantCategorySignals');
 		} else {
 			await MerchantCategorySignalRepository.set(
 				key,
@@ -711,12 +730,23 @@ export async function importDataTemplate(
 		}
 	}
 
-	// 18. Singleton Preferences (skip-if-exists)
+	// 18. Singleton Preferences (skip-if-already-explicitly-saved; both repositories return an
+	// in-memory default rather than undefined, so presence is tracked via a dedicated flag)
 	if (entities.notificationPreference) {
-		recordSkipped('notificationPreference', 'already-exists');
+		if (await NotificationPreferenceRepository.has()) {
+			recordSkipped('notificationPreference', 'already-exists');
+		} else {
+			await NotificationPreferenceRepository.save(key, entities.notificationPreference);
+			recordCreated('notificationPreference');
+		}
 	}
 	if (entities.debtPlannerPreference) {
-		recordSkipped('debtPlannerPreference', 'already-exists');
+		if (await DebtPlannerPreferenceRepository.has()) {
+			recordSkipped('debtPlannerPreference', 'already-exists');
+		} else {
+			await DebtPlannerPreferenceRepository.save(key, entities.debtPlannerPreference);
+			recordCreated('debtPlannerPreference');
+		}
 	}
 
 	// 19. People & Loans
@@ -808,11 +838,17 @@ export async function importDataTemplate(
 
 		// Resolve splits
 		const fileSplits = (entities.transactionSplits ?? []).filter((s) => s.transactionId === tx.id);
-		const resolvedSplits = fileSplits.map((s) => ({
-			categoryId: categoryRemap.get(s.categoryId) ?? UNCATEGORIZED_CATEGORY_ID,
-			amount: s.amount,
-			categorizationSource: s.categorizationSource
-		}));
+		const resolvedSplits = fileSplits.map((s) => {
+			const resolvedCategoryId = categoryRemap.get(s.categoryId);
+			if (!resolvedCategoryId) {
+				recordSkipped('transactionSplits', 'unresolved-relationship');
+			}
+			return {
+				categoryId: resolvedCategoryId ?? UNCATEGORIZED_CATEGORY_ID,
+				amount: s.amount,
+				categorizationSource: s.categorizationSource
+			};
+		});
 
 		if (resolvedSplits.length === 0) {
 			resolvedSplits.push({
@@ -851,6 +887,84 @@ export async function importDataTemplate(
 		touchedAccountIds.add(resolvedAccountId);
 	}
 
+	// 21a. Expected Event matches (deferred from step 15 until transactionRemap is populated)
+	for (const { eventId, fileMatchedTransactionId } of pendingExpectedEventMatches) {
+		const resolvedTransactionId = transactionRemap.get(fileMatchedTransactionId);
+		if (resolvedTransactionId) {
+			await ExpectedEventRepository.update(key, eventId, {
+				matchedTransactionId: resolvedTransactionId
+			});
+		}
+	}
+
+	// 21b. Person Loans (must run after Transactions: reuses the already-imported linked
+	// Transaction rather than posting a duplicate movement via PersonLoanRepository.create)
+	const existingLoans = await PersonLoanRepository.listAllOpen(key);
+	for (const pl of entities.personLoans ?? []) {
+		const resolvedPersonId = personRemap.get(pl.personId);
+		const resolvedAccountId = accountRemap.get(pl.accountId);
+		const resolvedTransactionId = transactionRemap.get(pl.transactionId);
+		if (!resolvedPersonId || !resolvedAccountId || !resolvedTransactionId) {
+			recordSkipped('personLoans', 'unresolved-relationship');
+			continue;
+		}
+		const match = existingLoans.find(
+			(el) =>
+				el.personId === resolvedPersonId &&
+				el.accountId === resolvedAccountId &&
+				el.direction === pl.direction &&
+				el.date === pl.date &&
+				el.principalAmount === pl.principalAmount
+		);
+		if (match) {
+			personLoanRemap.set(pl.id, match.id);
+			recordSkipped('personLoans', 'already-exists');
+		} else {
+			const created = await PersonLoanRepository.createFromImport(key, {
+				personId: resolvedPersonId,
+				direction: pl.direction,
+				principalAmount: pl.principalAmount,
+				date: pl.date,
+				dueDate: pl.dueDate,
+				notes: pl.notes,
+				accountId: resolvedAccountId,
+				transactionId: resolvedTransactionId,
+				writeOffAmount: pl.writeOffAmount,
+				writeOffAt: pl.writeOffAt
+			});
+			personLoanRemap.set(pl.id, created.id);
+			existingLoans.push(created);
+			recordCreated('personLoans');
+		}
+	}
+
+	// 21c. Loan Repayments (same reasoning as Person Loans above)
+	const existingLoanRepayments = await LoanRepaymentRepository.listAll(key);
+	for (const lr of entities.loanRepayments ?? []) {
+		const resolvedLoanId = personLoanRemap.get(lr.loanId);
+		const resolvedAccountId = accountRemap.get(lr.accountId);
+		const resolvedTransactionId = transactionRemap.get(lr.transactionId);
+		if (!resolvedLoanId || !resolvedAccountId || !resolvedTransactionId) {
+			recordSkipped('loanRepayments', 'unresolved-relationship');
+			continue;
+		}
+		const match = existingLoanRepayments.find(
+			(er) => er.loanId === resolvedLoanId && er.date === lr.date && er.amount === lr.amount
+		);
+		if (match) {
+			recordSkipped('loanRepayments', 'already-exists');
+		} else {
+			await LoanRepaymentRepository.createFromImport(key, {
+				loanId: resolvedLoanId,
+				amount: lr.amount,
+				date: lr.date,
+				accountId: resolvedAccountId,
+				transactionId: resolvedTransactionId
+			});
+			recordCreated('loanRepayments');
+		}
+	}
+
 	// 22. Transaction Tags
 	const tagsByTx = new Map<string, string[]>();
 	for (const tt of entities.transactionTags ?? []) {
@@ -875,8 +989,9 @@ export async function importDataTemplate(
 		}
 
 		if (transactionIsDuplicateOfExisting.has(att.transactionId)) {
-			// Do not steal/attach to duplicate transaction
-			recordSkipped('attachments', 'already-exists');
+			// Do not steal/attach to duplicate transaction. Distinct from 'already-exists': the
+			// attachment itself never existed — its *parent transaction* was the duplicate.
+			recordSkipped('attachments', 'parent-duplicate');
 			continue;
 		}
 

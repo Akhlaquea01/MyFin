@@ -134,7 +134,17 @@ export function ReviewPage() {
 
 	async function reject(tx: Transaction) {
 		await TransactionEngine.deleteTransaction(key, tx.id);
-		toast.success('Discarded');
+		// This page exists for fast triage of many transactions, with Confirm/Discard sitting
+		// right next to each other — an undo path matters more here than on a page where
+		// deletion is a slower, more deliberate action.
+		toast.success('Discarded', {
+			action: {
+				label: 'Undo',
+				onClick: () => {
+					void TransactionEngine.restoreTransaction(key, tx.id).then(refresh);
+				}
+			}
+		});
 		await refresh();
 	}
 
@@ -225,16 +235,22 @@ export function ReviewPage() {
 
 								<div className="flex items-center justify-end gap-2">
 									<Button
-										size="icon-sm"
-										variant="ghost"
+										size="sm"
+										variant="secondary"
 										aria-label="Confirm transaction"
 										onClick={() => accept(tx)}
 									>
 										<CheckCircle2 className="text-emerald-600 dark:text-emerald-400" />
+										Confirm
 									</Button>
+									{/* Deliberately separated (not adjacent) from Confirm and visually
+									    de-emphasized (ghost, icon-only): this page triages many transactions
+									    quickly, and a slightly mis-placed tap must not as easily discard as
+									    confirm. */}
 									<Button
 										size="icon-sm"
 										variant="ghost"
+										className="ml-4"
 										aria-label="Discard transaction"
 										onClick={() => reject(tx)}
 									>

@@ -13,6 +13,7 @@ import { migrateFromV1 } from './migrations/v1';
 import { migrateFromV1_1 } from './migrations/v1_1';
 import { migrateFromV1_2 } from './migrations/v1_2';
 import { migrateFromV1_3 } from './migrations/v1_3';
+import { migrateFromV1_4 } from './migrations/v1_4';
 import type {
 	AccountRow,
 	CategoryRow,
@@ -37,7 +38,11 @@ import type {
 	NotifiedItemRow,
 	AttachmentRow,
 	CategorizationRuleRow,
-	MerchantCategorySignalRow
+	MerchantCategorySignalRow,
+	PersonRow,
+	PersonLoanRow,
+	PersonLoanRepaymentRow,
+	SavedFilterViewRow
 } from '../dexie/db';
 import type {
 	Account,
@@ -63,12 +68,16 @@ import type {
 	NotifiedItem,
 	Attachment,
 	CategorizationRule,
-	MerchantCategorySignal
+	MerchantCategorySignal,
+	Person,
+	PersonLoan,
+	LoanRepayment,
+	SavedFilterView
 } from '../../domain/entities';
 
 const CONTAINER = 'personal-finance-manager-backup';
 const CONTAINER_VERSION = 1;
-export const CURRENT_SCHEMA_VERSION = '1.3.0';
+export const CURRENT_SCHEMA_VERSION = '1.4.0';
 const PREFERENCE_ID = 'local-user';
 
 /** A join-table row kept verbatim (unencrypted by design; see db.ts). */
@@ -105,6 +114,10 @@ export interface BackupPayload {
 		attachments: Attachment[];
 		categorizationRules: CategorizationRule[];
 		merchantCategorySignals: MerchantCategorySignal[];
+		people: Person[];
+		personLoans: PersonLoan[];
+		personLoanRepayments: LoanRepayment[];
+		savedFilterViews: SavedFilterView[];
 		userProfile: UserProfile | null;
 	};
 }
@@ -124,7 +137,8 @@ const MIGRATIONS: Record<string, (payload: BackupPayload) => BackupPayload> = {
 	'1.0.0': migrateFromV1,
 	'1.1.0': migrateFromV1_1,
 	'1.2.0': migrateFromV1_2,
-	'1.3.0': migrateFromV1_3
+	'1.3.0': migrateFromV1_3,
+	'1.4.0': migrateFromV1_4
 };
 
 /** Gathers every entity behind the encryption boundary into one plaintext payload. */
@@ -154,6 +168,10 @@ async function collectPayload(key: CryptoKey): Promise<BackupPayload> {
 		attachments,
 		categorizationRules,
 		merchantCategorySignals,
+		people,
+		personLoans,
+		personLoanRepayments,
+		savedFilterViews,
 		userProfile
 	] = await Promise.all([
 		decryptRows<AccountRow, Account>(key, await db.accounts.toArray()),
@@ -200,6 +218,10 @@ async function collectPayload(key: CryptoKey): Promise<BackupPayload> {
 			key,
 			await db.merchantCategorySignals.toArray()
 		),
+		decryptRows<PersonRow, Person>(key, await db.people.toArray()),
+		decryptRows<PersonLoanRow, PersonLoan>(key, await db.personLoans.toArray()),
+		decryptRows<PersonLoanRepaymentRow, LoanRepayment>(key, await db.personLoanRepayments.toArray()),
+		decryptRows<SavedFilterViewRow, SavedFilterView>(key, await db.savedFilterViews.toArray()),
 		db.userProfile.get('local-user')
 	]);
 
@@ -230,6 +252,10 @@ async function collectPayload(key: CryptoKey): Promise<BackupPayload> {
 			attachments,
 			categorizationRules,
 			merchantCategorySignals,
+			people,
+			personLoans,
+			personLoanRepayments,
+			savedFilterViews,
 			userProfile: userProfile ?? null
 		}
 	};
@@ -374,7 +400,11 @@ export async function restoreBackup(key: CryptoKey, payload: BackupPayload): Pro
 		notifiedItemRows,
 		attachmentRows,
 		categorizationRuleRows,
-		merchantCategorySignalRows
+		merchantCategorySignalRows,
+		personRows,
+		personLoanRows,
+		personLoanRepaymentRows,
+		savedFilterViewRows
 	] = await Promise.all([
 		Promise.all(
 			e.accounts.map((a) =>
@@ -529,6 +559,35 @@ export async function restoreBackup(key: CryptoKey, payload: BackupPayload): Pro
 			e.merchantCategorySignals.map((s) =>
 				encryptRow<MerchantCategorySignalRow, MerchantCategorySignal>(key, s, {})
 			)
+		),
+		Promise.all(
+			e.people.map((p) =>
+				encryptRow<PersonRow, Person>(key, p, { deletedAt: deletedAtIndex(p.deletedAt) })
+			)
+		),
+		Promise.all(
+			e.personLoans.map((l) =>
+				encryptRow<PersonLoanRow, PersonLoan>(key, l, {
+					personId: l.personId,
+					accountId: l.accountId,
+					direction: l.direction,
+					deletedAt: deletedAtIndex(l.deletedAt)
+				})
+			)
+		),
+		Promise.all(
+			e.personLoanRepayments.map((r) =>
+				encryptRow<PersonLoanRepaymentRow, LoanRepayment>(key, r, {
+					loanId: r.loanId,
+					accountId: r.accountId,
+					deletedAt: deletedAtIndex(r.deletedAt)
+				})
+			)
+		),
+		Promise.all(
+			e.savedFilterViews.map((v) =>
+				encryptRow<SavedFilterViewRow, SavedFilterView>(key, v, { createdAt: v.createdAt })
+			)
 		)
 	]);
 
@@ -565,6 +624,10 @@ export async function restoreBackup(key: CryptoKey, payload: BackupPayload): Pro
 			db.attachments,
 			db.categorizationRules,
 			db.merchantCategorySignals,
+			db.people,
+			db.personLoans,
+			db.personLoanRepayments,
+			db.savedFilterViews,
 			db.userProfile,
 			// Every row below is about to be re-encrypted under `key`, which is derived from
 			// the *backup's* salt and so is virtually never the key the current session holds.
@@ -600,6 +663,10 @@ export async function restoreBackup(key: CryptoKey, payload: BackupPayload): Pro
 				db.attachments.clear(),
 				db.categorizationRules.clear(),
 				db.merchantCategorySignals.clear(),
+				db.people.clear(),
+				db.personLoans.clear(),
+				db.personLoanRepayments.clear(),
+				db.savedFilterViews.clear(),
 				db.userProfile.clear(),
 				db.sessionKeys.clear()
 			]);
@@ -626,6 +693,10 @@ export async function restoreBackup(key: CryptoKey, payload: BackupPayload): Pro
 				db.attachments.bulkPut(attachmentRows),
 				db.categorizationRules.bulkPut(categorizationRuleRows),
 				db.merchantCategorySignals.bulkPut(merchantCategorySignalRows),
+				db.people.bulkPut(personRows),
+				db.personLoans.bulkPut(personLoanRows),
+				db.personLoanRepayments.bulkPut(personLoanRepaymentRows),
+				db.savedFilterViews.bulkPut(savedFilterViewRows),
 				...(debtPlannerPreferenceRow
 					? [db.debtPlannerPreferences.add(debtPlannerPreferenceRow)]
 					: []),

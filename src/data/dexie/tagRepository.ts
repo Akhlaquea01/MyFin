@@ -1,5 +1,5 @@
 import { db, type TagRow } from './db';
-import { putEncrypted, decryptRows } from './encryptedTable';
+import { encryptRow, decryptRows } from './encryptedTable';
 import { blindIndex } from '../crypto/cryptoService';
 import { getBlindIndexSalt } from './blindIndexSalt';
 import { NOT_DELETED } from './indexable';
@@ -11,14 +11,24 @@ export const TagRepository = {
 		const trimmed = name.trim();
 		// Digest, not the name — the indexed column is unencrypted on disk.
 		const nameHash = await blindIndex(trimmed, await getBlindIndexSalt());
-		const existingRow = await db.tags.where('nameHash').equals(nameHash).first();
-		if (existingRow) {
-			return (await decryptRows<TagRow, Tag>(key, [existingRow]))[0];
-		}
 		const now = Date.now();
 		const tag: Tag = { id: crypto.randomUUID(), name: trimmed, createdAt: now, updatedAt: now };
-		await putEncrypted(db.tags, key, tag, { nameHash });
-		return tag;
+		// Pre-encrypted outside the transaction (Web Crypto breaks Dexie's transaction zone —
+		// see encryptedTable.ts), so the check-then-write below is one atomic Dexie transaction:
+		// two concurrent calls for the same name can no longer both pass the check and create
+		// duplicate tags before either writes. Decryption also happens strictly after the
+		// transaction settles, not inside it — an await inside the callback, even a Web Crypto
+		// call in the read-only branch, can desync Dexie's zone tracking across two genuinely
+		// concurrent transactions and throw a PrematureCommitError on an unrelated caller's put.
+		const newRow = await encryptRow<TagRow, Tag>(key, tag, { nameHash });
+
+		const resultRow = await db.transaction('rw', db.tags, async () => {
+			const existingRow = await db.tags.where('nameHash').equals(nameHash).first();
+			if (existingRow) return existingRow;
+			await db.tags.put(newRow);
+			return newRow;
+		});
+		return (await decryptRows<TagRow, Tag>(key, [resultRow]))[0];
 	},
 
 	async list(key: CryptoKey): Promise<Tag[]> {

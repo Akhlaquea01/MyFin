@@ -140,6 +140,10 @@ export const LiabilityRepository = {
 		await this.update(key, id, { deletedAt: Date.now() });
 	},
 
+	async restore(key: CryptoKey, id: string): Promise<void> {
+		await this.update(key, id, { deletedAt: null });
+	},
+
 	async list(key: CryptoKey): Promise<Liability[]> {
 		const rows = await db.liabilities.filter((row) => row.deletedAt === NOT_DELETED).toArray();
 		return decryptRows<LiabilityRow, Liability>(key, rows);

@@ -125,8 +125,12 @@ export function SavingsGoalsPage() {
 	}
 
 	async function deleteGoal(goal: SavingsGoal) {
-		await SavingsGoalRepository.softDelete(key, goal.id);
-		await refresh();
+		try {
+			await SavingsGoalRepository.softDelete(key, goal.id);
+			await refresh();
+		} catch (err) {
+			toast.error(err instanceof Error ? err.message : 'Could not delete goal.');
+		}
 	}
 
 	return (
@@ -258,8 +262,15 @@ function GoalCard({
 	}
 
 	async function removeContribution(id: string) {
-		await GoalContributionRepository.remove(key, id);
-		await onContributionsChanged();
+		// GoalContributionRepository.remove is a permanent hard delete (no Trash entry, no
+		// undo) — unlike most other deletes in this app, it needs its own confirmation.
+		if (!window.confirm('Permanently remove this contribution? This cannot be undone.')) return;
+		try {
+			await GoalContributionRepository.remove(key, id);
+			await onContributionsChanged();
+		} catch (err) {
+			toast.error(err instanceof Error ? err.message : 'Could not remove contribution.');
+		}
 	}
 
 	return (

@@ -120,4 +120,56 @@ describe('Recurring engine', () => {
 		const events = await ExpectedEventRepository.listForRule(key, rule.id);
 		expect(events.find((e) => e.id === event.id)?.status).toBe('missed');
 	});
+
+	it('does not skip a year when a yearly rule is set to day 366 in a non-leap year', async () => {
+		const rule = await RecurringRepository.create(key, {
+			accountId,
+			categoryId,
+			amount: -20000,
+			frequency: 'yearly',
+			dayOfPeriod: 366
+		});
+
+		// 2026 has no Feb 29 (not a leap year); asking from early 2026 through early 2028 must
+		// still surface a 2026 occurrence (clamped to Dec 31) and a 2027 one, not skip 2026
+		// entirely by rolling straight into 2027.
+		const created = await generateExpectedEvents(
+			key,
+			rule,
+			new Date('2028-01-15T00:00:00Z'),
+			new Date('2026-01-01T00:00:00Z')
+		);
+		const dates = created.map((e) => e.expectedDate).sort();
+		expect(dates).toContain('2026-12-31');
+		expect(dates).toContain('2027-12-31');
+	});
+
+	it('does not match an income transaction against a same-magnitude expense recurring rule', async () => {
+		const rule = await RecurringRepository.create(key, {
+			accountId,
+			categoryId,
+			amount: -20000,
+			frequency: 'monthly',
+			dayOfPeriod: 15
+		});
+		const through = new Date('2026-04-01T00:00:00Z');
+		const [event] = await generateExpectedEvents(
+			key,
+			rule,
+			through,
+			new Date('2026-03-01T00:00:00Z')
+		);
+
+		// Same magnitude, opposite direction (e.g. a refund) must not satisfy the expense rule.
+		await TransactionEngine.recordTransaction(
+			key,
+			{ accountId, date: event.expectedDate, amount: 20000, type: 'income' },
+			[{ categoryId, amount: 20000 }]
+		);
+
+		const events = await ExpectedEventRepository.listForRule(key, rule.id);
+		const stillPending = events.find((e) => e.id === event.id);
+		expect(stillPending?.status).toBe('pending');
+		expect(stillPending?.matchedTransactionId).toBeNull();
+	});
 });

@@ -1,9 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { render, screen, act } from '@testing-library/react';
+import { render, screen, act, waitFor } from '@testing-library/react';
 import { useEffect } from 'react';
 import { SessionProvider, useSession } from '../../src/context/SessionContext';
 import { db } from '../../src/data/dexie/db';
 import { deriveEncryptionKey, randomSaltBase64 } from '../../src/data/crypto/cryptoService';
+import { SessionKeyRepository } from '../../src/data/dexie/sessionKeyRepository';
 
 const TIMEOUT_MS = 5 * 60 * 1000;
 
@@ -121,5 +122,58 @@ describe('auto-lock activity tracking', () => {
 			await Promise.resolve();
 		});
 		expect(await db.sessionKeys.get('local-session')).toBeUndefined();
+	});
+});
+
+/**
+ * Regression: `restoreSession` (the path a page reload takes) used to call the generic
+ * `scheduleAutoLock()`, which always starts a brand-new full-length timeout from "now" —
+ * ignoring how much of the originally-persisted window had already elapsed. A reload moments
+ * before the real deadline therefore granted a fresh full timeout every time, letting an
+ * unlocked session be extended indefinitely just by reloading the tab.
+ */
+function RestoreHarness({ onLocked }: { onLocked?: () => void }) {
+	const session = useSession();
+	useEffect(() => {
+		void session.restoreSession(TIMEOUT_MS);
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, []);
+	useEffect(() => {
+		if (session.isLocked) onLocked?.();
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [session.isLocked]);
+	return <div data-testid="state">{session.isLocked ? 'locked' : 'unlocked'}</div>;
+}
+
+describe('restoreSession auto-lock scheduling', () => {
+	let key: CryptoKey;
+
+	beforeEach(async () => {
+		vi.useFakeTimers({ shouldAdvanceTime: true });
+		await db.delete();
+		await db.open();
+		key = await deriveEncryptionKey('482915', randomSaltBase64());
+	});
+
+	afterEach(() => {
+		vi.useRealTimers();
+	});
+
+	it('locks at the originally-persisted deadline, not a fresh full timeout after restore', async () => {
+		// Simulate a session that was unlocked a while ago and is now only 1s from its real
+		// deadline — as if the tab is being reloaded moments before auto-lock would fire.
+		await SessionKeyRepository.save(key, Date.now() + 1_000);
+
+		render(<RestoreHarness />, {
+			wrapper: ({ children }) => <SessionProvider>{children}</SessionProvider>
+		});
+		await waitFor(() => expect(screen.getByTestId('state')).toHaveTextContent('unlocked'));
+
+		// Advance past the real 1s deadline but nowhere near a fresh TIMEOUT_MS window. Only
+		// correct if the timer was scheduled off the remaining time, not a brand-new one.
+		await act(async () => {
+			vi.advanceTimersByTime(1_500);
+		});
+		expect(screen.getByTestId('state')).toHaveTextContent('locked');
 	});
 });

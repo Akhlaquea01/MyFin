@@ -14,5 +14,23 @@ export default defineConfig({
 	timeout: 60_000,
 	webServer: { command: 'npm run build && npm run preview', port: 4173 },
 	testDir: 'tests/e2e',
-	testMatch: '**/*.spec.ts'
+	testMatch: '**/*.spec.ts',
+	// Every spec here onboards into a fresh, empty install — exactly the condition
+	// QuickTourProvider auto-starts the real product tour under. Every dialog it opens now
+	// carries `role="dialog"` (a deliberate accessibility fix), so left unsuppressed it
+	// collides with the many specs that assert `getByRole('dialog')` for a feature dialog they
+	// just opened themselves, expecting exactly one match. quick-tour.spec.ts explicitly
+	// resets this back to a fresh/unseen state for the one test that needs the tour to
+	// actually auto-start.
+	use: {
+		storageState: {
+			cookies: [],
+			origins: [
+				{
+					origin: 'http://localhost:4173',
+					localStorage: [{ name: 'APP_QUICK_TOUR_SEEN', value: 'true' }]
+				}
+			]
+		}
+	}
 });

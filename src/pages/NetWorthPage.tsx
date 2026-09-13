@@ -44,10 +44,21 @@ export function NetWorthPage() {
 
 	const [breakdown, setBreakdown] = useState<NetWorthBreakdown | null>(null);
 	const [history, setHistory] = useState<NetWorthSnapshot[]>([]);
+	const [loadError, setLoadError] = useState(false);
 
 	async function refresh() {
-		setBreakdown(await computeNetWorth(key));
-		setHistory(await netWorthHistory(key));
+		try {
+			setLoadError(false);
+			const [nextBreakdown, nextHistory] = await Promise.all([
+				computeNetWorth(key),
+				netWorthHistory(key)
+			]);
+			setBreakdown(nextBreakdown);
+			setHistory(nextHistory);
+		} catch (err) {
+			setLoadError(true);
+			toast.error(err instanceof Error ? err.message : 'Could not load net worth.');
+		}
 	}
 
 	useEffect(() => {
@@ -56,11 +67,25 @@ export function NetWorthPage() {
 	}, []);
 
 	async function handleSnapshot() {
-		await recordNetWorthSnapshot(key);
-		toast.success('Snapshot recorded');
-		await refresh();
+		try {
+			await recordNetWorthSnapshot(key);
+			toast.success('Snapshot recorded');
+			await refresh();
+		} catch (err) {
+			toast.error(err instanceof Error ? err.message : 'Could not record snapshot.');
+		}
 	}
 
+	if (loadError && !breakdown) {
+		return (
+			<div className="mx-auto max-w-2xl px-4 py-8 sm:px-6">
+				<p className="mb-3 text-sm text-destructive">Could not load net worth.</p>
+				<Button variant="outline" onClick={() => void refresh()}>
+					Retry
+				</Button>
+			</div>
+		);
+	}
 	if (!breakdown) return <div className="mx-auto max-w-2xl px-4 py-8 sm:px-6">Loading…</div>;
 
 	return (

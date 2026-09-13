@@ -55,29 +55,36 @@ export function acquireSingleInstanceLock(onRoleChange: (role: InstanceRole) => 
 	}
 
 	function tryBecomePrimary() {
-		void navigator.locks.request(LOCK_NAME, { ifAvailable: true }, async (lock) => {
-			if (stopped) return;
-			if (lock) {
-				if (pollHandle) {
-					clearInterval(pollHandle);
-					pollHandle = undefined;
+		navigator.locks
+			.request(LOCK_NAME, { ifAvailable: true }, async (lock) => {
+				if (stopped) return;
+				if (lock) {
+					if (pollHandle) {
+						clearInterval(pollHandle);
+						pollHandle = undefined;
+					}
+					secondaryConfirmed = true; // any later loss of the lock is a real one
+					onRoleChange('primary');
+					await holdUntilGone();
+					releaseLock = undefined;
+				} else if (!secondaryConfirmed) {
+					// First miss on this mount: probably our own lock still being released. Retry once
+					// shortly before telling the user another tab has it.
+					secondaryConfirmed = true;
+					retryHandle = setTimeout(tryBecomePrimary, CONFIRM_SECONDARY_DELAY_MS);
+				} else {
+					onRoleChange('secondary');
+					if (!pollHandle) {
+						pollHandle = setInterval(tryBecomePrimary, POLL_INTERVAL_MS);
+					}
 				}
-				secondaryConfirmed = true; // any later loss of the lock is a real one
-				onRoleChange('primary');
-				await holdUntilGone();
-				releaseLock = undefined;
-			} else if (!secondaryConfirmed) {
-				// First miss on this mount: probably our own lock still being released. Retry once
-				// shortly before telling the user another tab has it.
-				secondaryConfirmed = true;
-				retryHandle = setTimeout(tryBecomePrimary, CONFIRM_SECONDARY_DELAY_MS);
-			} else {
-				onRoleChange('secondary');
-				if (!pollHandle) {
-					pollHandle = setInterval(tryBecomePrimary, POLL_INTERVAL_MS);
-				}
-			}
-		});
+			})
+			.catch(() => {
+				// A rejection here (e.g. a SecurityError in a restricted context) must fail open
+				// the same way an unsupported browser does — otherwise the caller never hears back
+				// at all and is stuck with whatever role (or lack of one) it had before.
+				if (!stopped) onRoleChange('unsupported');
+			});
 	}
 
 	tryBecomePrimary();

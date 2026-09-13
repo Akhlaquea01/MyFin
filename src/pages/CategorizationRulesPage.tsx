@@ -134,59 +134,75 @@ export function CategorizationRulesPage() {
 	}
 
 	async function onSubmit(values: RuleFormValues) {
-		const tagNameList = values.tagsInput
-			.split(',')
-			.map((t) => t.trim())
-			.filter(Boolean);
-		const tagIds =
-			tagNameList.length > 0
-				? (await Promise.all(tagNameList.map((name) => TagRepository.getOrCreate(key, name)))).map(
-						(t) => t.id
-					)
-				: [];
-		const merchantAliasId = values.merchantAliasId || null;
+		try {
+			const tagNameList = values.tagsInput
+				.split(',')
+				.map((t) => t.trim())
+				.filter(Boolean);
+			const tagIds =
+				tagNameList.length > 0
+					? (
+							await Promise.all(tagNameList.map((name) => TagRepository.getOrCreate(key, name)))
+						).map((t) => t.id)
+					: [];
+			const merchantAliasId = values.merchantAliasId || null;
 
-		if (editingRule) {
-			await CategorizationRuleRepository.update(key, editingRule.id, {
-				merchantId: values.merchantId,
-				merchantAliasId,
-				categoryId: values.categoryId,
-				tagIds
-			});
-		} else {
-			await CategorizationRuleRepository.create(key, {
-				merchantId: values.merchantId,
-				merchantAliasId,
-				categoryId: values.categoryId,
-				tagIds
-			});
+			if (editingRule) {
+				await CategorizationRuleRepository.update(key, editingRule.id, {
+					merchantId: values.merchantId,
+					merchantAliasId,
+					categoryId: values.categoryId,
+					tagIds
+				});
+			} else {
+				await CategorizationRuleRepository.create(key, {
+					merchantId: values.merchantId,
+					merchantAliasId,
+					categoryId: values.categoryId,
+					tagIds
+				});
+			}
+			setDialogOpen(false);
+			toast.success(editingRule ? 'Rule updated' : 'Rule created');
+			await refresh();
+		} catch (err) {
+			toast.error(err instanceof Error ? err.message : 'Could not save rule.');
 		}
-		setDialogOpen(false);
-		toast.success(editingRule ? 'Rule updated' : 'Rule created');
-		await refresh();
 	}
 
 	async function deleteRule(rule: CategorizationRuleWithStatus) {
-		await CategorizationRuleRepository.softDelete(key, rule.id);
-		toast.success('Rule deleted');
-		await refresh();
+		try {
+			await CategorizationRuleRepository.softDelete(key, rule.id);
+			toast.success('Rule deleted');
+			await refresh();
+		} catch (err) {
+			toast.error(err instanceof Error ? err.message : 'Could not delete rule.');
+		}
 	}
 
 	async function promoteSuggestion(suggestion: { merchantId: string; categoryId: string }) {
-		await CategorizationRuleRepository.create(key, {
-			merchantId: suggestion.merchantId,
-			merchantAliasId: null,
-			categoryId: suggestion.categoryId,
-			tagIds: []
-		});
-		toast.success('Suggestion promoted to a rule');
-		await refresh();
+		try {
+			await CategorizationRuleRepository.create(key, {
+				merchantId: suggestion.merchantId,
+				merchantAliasId: null,
+				categoryId: suggestion.categoryId,
+				tagIds: []
+			});
+			toast.success('Suggestion promoted to a rule');
+			await refresh();
+		} catch (err) {
+			toast.error(err instanceof Error ? err.message : 'Could not promote suggestion.');
+		}
 	}
 
 	async function resetSuggestion(merchantId: string) {
-		await MerchantCategorySignalRepository.reset(key, merchantId);
-		toast.success('Suggestion reset');
-		await refresh();
+		try {
+			await MerchantCategorySignalRepository.reset(key, merchantId);
+			toast.success('Suggestion reset');
+			await refresh();
+		} catch (err) {
+			toast.error(err instanceof Error ? err.message : 'Could not reset suggestion.');
+		}
 	}
 
 	return (

@@ -43,6 +43,20 @@ describe('computeGoalProgress', () => {
 		expect(progress.projectedCompletionDate).toBeNull();
 	});
 
+	it('floors progressPercent at 0 rather than going negative when corrections overshoot the total', () => {
+		const progress = computeGoalProgress({
+			goal: goal({ targetAmount: 10000 }),
+			contributions: [
+				{ amount: 3000, date: '2026-05-01' },
+				{ amount: -5000, date: '2026-06-01' }
+			],
+			asOfDate
+		});
+		expect(progress.savedAmount).toBe(-2000);
+		expect(progress.progressPercent).toBe(0);
+		expect(progress.achieved).toBe(false);
+	});
+
 	it('reports insufficient-data with fewer than two contributions', () => {
 		const progress = computeGoalProgress({
 			goal: goal({ targetAmount: 10000 }),

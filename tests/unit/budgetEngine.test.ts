@@ -48,6 +48,24 @@ describe('Budget engine', () => {
 		expect(item.periodEnd).toBe('2026-03-31');
 	});
 
+	it('reflects a mid-period edit to the budget amount in the already-created current-period item', async () => {
+		const budget = await BudgetRepository.create(key, {
+			categoryId,
+			periodType: 'monthly',
+			amount: 10000,
+			rolloverEnabled: false,
+			isSinkingFund: false
+		});
+		const referenceDate = new Date('2026-03-15T00:00:00Z');
+		const firstItem = await ensureCurrentBudgetItem(key, budget, referenceDate);
+		expect(firstItem.plannedAmount).toBe(10000);
+
+		const updatedBudget = await BudgetRepository.update(key, budget.id, { amount: 25000 });
+		const secondItem = await ensureCurrentBudgetItem(key, updatedBudget, referenceDate);
+		expect(secondItem.id).toBe(firstItem.id);
+		expect(secondItem.plannedAmount).toBe(25000);
+	});
+
 	it("tracks actual spend against the category's transactions for the period", async () => {
 		const budget = await BudgetRepository.create(key, {
 			categoryId,

@@ -1,4 +1,10 @@
-import { db, type TransactionRow, type TransactionSplitRow } from './db';
+import {
+	db,
+	type TransactionRow,
+	type TransactionSplitRow,
+	type PersonLoanRow,
+	type PersonLoanRepaymentRow
+} from './db';
 import { encryptRow, getDecrypted, decryptRows } from './encryptedTable';
 import { deletedAtIndex, nullableIdIndex, NOT_DELETED } from './indexable';
 import { AttachmentRepository } from './attachmentRepository';
@@ -8,7 +14,9 @@ import type {
 	Transaction,
 	TransactionSplit,
 	TransactionType,
-	TransactionSource
+	TransactionSource,
+	PersonLoan,
+	LoanRepayment
 } from '../../domain/entities';
 
 export interface NewTransactionInput {
@@ -239,6 +247,25 @@ export const TransactionRepository = {
 		if (!existing) throw new Error(`Transaction ${id} not found`);
 		if (existing.deletedAt === null) {
 			throw new Error('Only a soft-deleted transaction can be permanently purged.');
+		}
+
+		// A transaction can be the sole anchor for a PersonLoan's principal movement or a
+		// LoanRepayment's movement (spec 010) — `transactionId` is never null on either, and
+		// neither has its own purge flow to cascade to. Not a structurally indexed field on
+		// either table, so this is a full decrypt-scan — acceptable here since purge is a rare,
+		// explicit, user-initiated action from Trash, not a hot path.
+		const [loanRows, repaymentRows] = await Promise.all([
+			db.personLoans.toArray(),
+			db.personLoanRepayments.toArray()
+		]);
+		const [loans, repayments] = await Promise.all([
+			decryptRows<PersonLoanRow, PersonLoan>(key, loanRows),
+			decryptRows<PersonLoanRepaymentRow, LoanRepayment>(key, repaymentRows)
+		]);
+		if (loans.some((l) => l.transactionId === id) || repayments.some((r) => r.transactionId === id)) {
+			throw new Error(
+				'This transaction is linked to a person loan or repayment and cannot be permanently deleted.'
+			);
 		}
 
 		await db.transaction(

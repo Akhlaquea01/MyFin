@@ -62,8 +62,19 @@ export type BiometricUnavailableReason =
 	| 'prf-eval-failed' // PRF was reported enabled but the eval assertion still didn't yield output
 	| 'error'; // anything else (unexpected exception from the platform)
 
+/** Carries just enough state to retry the PRF assertion step alone (via `retryPrfEval`)
+ *  after a `prf-eval-failed` outcome, without minting another platform credential — WebAuthn
+ *  gives pages no way to delete a credential it already created, so re-running
+ *  `navigator.credentials.create()` on every retry left one more unusable entry in the OS/
+ *  browser credential store per attempt. */
+export interface PendingBiometricEnrollment {
+	credentialRawId: ArrayBuffer;
+	prfSalt: string;
+}
+
 export type BiometricEnrollResult =
-	{ ok: true; enrollment: WebAuthnEnrollment } | { ok: false; reason: BiometricUnavailableReason };
+	| { ok: true; enrollment: WebAuthnEnrollment }
+	| { ok: false; reason: BiometricUnavailableReason; pending?: PendingBiometricEnrollment };
 
 /**
  * Enrolls a platform authenticator and wraps `pin` with a PRF-derived key. Real biometric-bound
@@ -106,7 +117,13 @@ export async function enrollBiometric(pin: string): Promise<BiometricEnrollResul
 	if (!prfEnabled) return { ok: false, reason: 'no-prf' };
 
 	const prfOutput = await evalPrf(credential.rawId, prfSalt);
-	if (!prfOutput) return { ok: false, reason: 'prf-eval-failed' };
+	if (!prfOutput) {
+		return {
+			ok: false,
+			reason: 'prf-eval-failed',
+			pending: { credentialRawId: credential.rawId, prfSalt }
+		};
+	}
 
 	const key = await derivePrfKey(prfOutput);
 	const wrappedPin = await encrypt(key, pin);
@@ -114,6 +131,31 @@ export async function enrollBiometric(pin: string): Promise<BiometricEnrollResul
 	return {
 		ok: true,
 		enrollment: { credentialId: toBase64Url(credential.rawId), prfSalt, wrappedPin }
+	};
+}
+
+/**
+ * Retries only the PRF assertion against an already-created credential (from a prior
+ * `prf-eval-failed` result), instead of calling `enrollBiometric` again — which would mint a
+ * brand-new platform credential even though creation already succeeded the first time.
+ */
+export async function retryPrfEval(
+	pending: PendingBiometricEnrollment,
+	pin: string
+): Promise<BiometricEnrollResult> {
+	const prfOutput = await evalPrf(pending.credentialRawId, pending.prfSalt);
+	if (!prfOutput) return { ok: false, reason: 'prf-eval-failed', pending };
+
+	const key = await derivePrfKey(prfOutput);
+	const wrappedPin = await encrypt(key, pin);
+
+	return {
+		ok: true,
+		enrollment: {
+			credentialId: toBase64Url(pending.credentialRawId),
+			prfSalt: pending.prfSalt,
+			wrappedPin
+		}
 	};
 }
 

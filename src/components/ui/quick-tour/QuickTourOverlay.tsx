@@ -7,6 +7,10 @@ import { X, ChevronLeft, ChevronRight } from 'lucide-react';
 import { createPortal } from 'react-dom';
 
 const DEFAULT_CARD_HEIGHT = 200;
+const TITLE_ID = 'quick-tour-title';
+const DESCRIPTION_ID = 'quick-tour-description';
+const FOCUSABLE_SELECTOR =
+	'a[href], button:not([disabled]), textarea, input, select, [tabindex]:not([tabindex="-1"])';
 
 /**
  * True only for an element that's actually rendered and occupies space. A `display:none`
@@ -22,11 +26,29 @@ export function isElementVisible(el: Element): boolean {
 	return rect.width > 0 || rect.height > 0;
 }
 
+/**
+ * A `data-tour` selector can match more than one element at once: the desktop sidebar and the
+ * mobile nav sheet both render the same `NavLinks`, so both copies carry the same attribute.
+ * `querySelector` alone always returns the FIRST match in DOM order — the desktop copy, since
+ * it comes first in AppShell's markup — regardless of which one is actually on screen. On a
+ * narrow viewport that copy is `display:none`, so every nav-targeted step fell back to the
+ * centered "target not found" card even when the mobile sheet was open and its own copy was
+ * visible. This checks every match and returns whichever one actually is.
+ */
+export function findVisibleTarget(selector: string): Element | null {
+	const candidates = document.querySelectorAll(selector);
+	for (const el of candidates) {
+		if (isElementVisible(el)) return el;
+	}
+	return null;
+}
+
 export function QuickTourOverlay() {
 	const { isTourActive, currentStep, nextStep, prevStep, skipTour, totalSteps } = useQuickTour();
 	const [targetRect, setTargetRect] = useState<DOMRect | null>(null);
 	const [cardHeight, setCardHeight] = useState(DEFAULT_CARD_HEIGHT);
 	const cardRef = useRef<HTMLDivElement>(null);
+	const portalRootRef = useRef<HTMLDivElement>(null);
 	const rafRef = useRef<number | null>(null);
 	const step = QUICK_TOUR_STEPS[currentStep];
 
@@ -34,8 +56,8 @@ export function QuickTourOverlay() {
 	// re-triggering the very scroll it's reacting to (see the effect below).
 	const measurePosition = useCallback(() => {
 		if (!isTourActive || !step) return;
-		const el = document.querySelector(step.selector);
-		setTargetRect(el && isElementVisible(el) ? el.getBoundingClientRect() : null);
+		const el = findVisibleTarget(step.selector);
+		setTargetRect(el ? el.getBoundingClientRect() : null);
 	}, [isTourActive, step]);
 
 	const scheduleMeasure = useCallback(() => {
@@ -55,8 +77,8 @@ export function QuickTourOverlay() {
 	// looked fine while later ones looked "stuck".
 	useEffect(() => {
 		if (!isTourActive || !step) return;
-		const el = document.querySelector(step.selector);
-		if (el && isElementVisible(el)) {
+		const el = findVisibleTarget(step.selector);
+		if (el) {
 			el.scrollIntoView({ behavior: 'smooth', block: 'center' });
 		}
 		measurePosition();
@@ -65,12 +87,37 @@ export function QuickTourOverlay() {
 	useEffect(() => {
 		window.addEventListener('resize', scheduleMeasure);
 		window.addEventListener('scroll', scheduleMeasure, true);
+		// Catches the mobile nav sheet opening (AppShell opens it automatically on a narrow
+		// viewport while a nav-targeted step is active — see AppShell.tsx): that's a DOM/
+		// attribute change, not a resize or scroll, so without this the overlay kept measuring
+		// the still-hidden desktop copy until some unrelated resize/scroll happened to fire.
+		// Mutations inside the overlay's own portal are ignored — every re-render changes this
+		// card's own position/style attributes, which would otherwise re-trigger itself forever.
+		const observer = new MutationObserver((mutations) => {
+			const isExternal = mutations.some(
+				(m) => !portalRootRef.current || !portalRootRef.current.contains(m.target as Node)
+			);
+			if (isExternal) scheduleMeasure();
+		});
+		observer.observe(document.body, { childList: true, subtree: true, attributes: true });
 		return () => {
 			window.removeEventListener('resize', scheduleMeasure);
 			window.removeEventListener('scroll', scheduleMeasure, true);
+			observer.disconnect();
 			if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
 		};
 	}, [scheduleMeasure]);
+
+	// Fallback safety net while no target has been found yet: resize/scroll/DOM-mutation
+	// signals are all indirect (something else has to actually fire them), and under enough
+	// load a frame can be missed — a nav-targeted step whose sheet AppShell is still in the
+	// middle of opening would otherwise stay stuck on the centered fallback indefinitely.
+	// Stops itself the moment a target is found.
+	useEffect(() => {
+		if (!isTourActive || !step || targetRect) return;
+		const handle = setInterval(measurePosition, 200);
+		return () => clearInterval(handle);
+	}, [isTourActive, step, targetRect, measurePosition]);
 
 	// Real card height instead of a hardcoded guess: description length varies per step, so a
 	// fixed constant made the "flip above if near the bottom" heuristic misfire on longer steps.
@@ -80,13 +127,42 @@ export function QuickTourOverlay() {
 
 	useEffect(() => {
 		const handleKeyDown = (e: KeyboardEvent) => {
-			if (e.key === 'Escape' && isTourActive) {
+			if (!isTourActive) return;
+			if (e.key === 'Escape') {
 				skipTour();
+				return;
+			}
+			// Traps Tab within the card: without this, a keyboard user tabbing past its last
+			// control continued into the underlying page instead of cycling back, since the
+			// overlay was never a real modal.
+			if (e.key === 'Tab' && cardRef.current) {
+				const focusable = Array.from(
+					cardRef.current.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)
+				);
+				if (focusable.length === 0) return;
+				const first = focusable[0];
+				const last = focusable[focusable.length - 1];
+				if (e.shiftKey && document.activeElement === first) {
+					e.preventDefault();
+					last.focus();
+				} else if (!e.shiftKey && document.activeElement === last) {
+					e.preventDefault();
+					first.focus();
+				}
 			}
 		};
 		window.addEventListener('keydown', handleKeyDown);
 		return () => window.removeEventListener('keydown', handleKeyDown);
 	}, [isTourActive, skipTour]);
+
+	// Moves focus into the dialog on mount and on every step change — otherwise a keyboard/
+	// screen-reader user's focus stayed wherever it was on the underlying page, with no
+	// indication a dialog had opened on top of it.
+	useEffect(() => {
+		if (isTourActive && cardRef.current) {
+			cardRef.current.focus();
+		}
+	}, [isTourActive, currentStep]);
 
 	if (!isTourActive || !step) {
 		return null;
@@ -124,7 +200,14 @@ export function QuickTourOverlay() {
 
 	const overlay = (
 		<div
-			className="pointer-events-none fixed inset-0 z-50"
+			ref={portalRootRef}
+			data-testid="quick-tour-backdrop"
+			// Higher than any Sheet/Dialog primitive (both use z-50): on a narrow viewport the
+			// tour can auto-open the mobile nav sheet on top of itself (see AppShell.tsx), and
+			// since both portal to document.body, equal z-index left DOM insertion order to
+			// decide stacking — the sheet, mounted after, could paint over the tour and block
+			// its own Skip/Next controls.
+			className="pointer-events-none fixed inset-0 z-[100]"
 			style={{
 				boxShadow: targetRect ? `0 0 0 9999px rgba(0, 0, 0, 0.5)` : 'none',
 				clipPath: targetRect
@@ -140,7 +223,12 @@ export function QuickTourOverlay() {
 		>
 			<div
 				ref={cardRef}
-				className="pointer-events-auto absolute shadow-xl"
+				role="dialog"
+				aria-modal="true"
+				aria-labelledby={TITLE_ID}
+				aria-describedby={DESCRIPTION_ID}
+				tabIndex={-1}
+				className="pointer-events-auto absolute shadow-xl outline-none"
 				style={{
 					top: `${top}px`,
 					left: `${left}px`,
@@ -159,13 +247,17 @@ export function QuickTourOverlay() {
 						>
 							<X className="h-4 w-4" />
 						</Button>
-						<CardTitle className="text-lg">{step.title}</CardTitle>
+						<CardTitle id={TITLE_ID} className="text-lg">
+							{step.title}
+						</CardTitle>
 						<CardDescription className="text-sm">
 							Step {currentStep + 1} of {totalSteps}
 						</CardDescription>
 					</CardHeader>
 					<CardContent className="p-4 pt-2">
-						<p className="text-sm text-foreground/90">{step.description}</p>
+						<p id={DESCRIPTION_ID} className="text-sm text-foreground/90">
+							{step.description}
+						</p>
 					</CardContent>
 					<CardFooter className="flex items-center justify-between p-4 pt-0">
 						<Button

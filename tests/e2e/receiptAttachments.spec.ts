@@ -104,6 +104,8 @@ function base64ByteLength(base64: string): number {
 test('attach, view, and remove a receipt; rejects unsupported/oversized files; compresses large photos (Scenarios 1, 2, 3)', async ({
 	page
 }) => {
+	// Removing an attachment is a permanent hard delete and now asks for confirmation.
+	page.on('dialog', (dialog) => dialog.accept());
 	await onboard(page, '500184');
 
 	await goTo(page, 'Accounts', 'Accounts');
@@ -176,6 +178,8 @@ test('attach, view, and remove a receipt; rejects unsupported/oversized files; c
 test('soft-delete/restore keeps attachments, and up to 5 independent attachments are supported (Scenarios 4, 5)', async ({
 	page
 }) => {
+	// Removing an attachment is a permanent hard delete and now asks for confirmation.
+	page.on('dialog', (dialog) => dialog.accept());
 	await onboard(page, '500284');
 
 	await goTo(page, 'Accounts', 'Accounts');

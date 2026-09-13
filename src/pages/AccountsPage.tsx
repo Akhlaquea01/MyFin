@@ -99,14 +99,35 @@ export function AccountsPage() {
 	}
 
 	async function archiveAccount(account: Account) {
-		await AccountRepository.update(key, account.id, { isArchived: !account.isArchived });
-		await refresh();
+		// Archived accounts are excluded from Net Worth/Dashboard totals — archiving one still
+		// holding money would silently drop that amount from every reported total with no
+		// warning or reconciling entry, so only a zeroed-out account may be archived.
+		if (!account.isArchived && account.currentBalance !== 0) {
+			toast.error(
+				`${account.name} still has a balance of ${formatMoney(account.currentBalance)}. ` +
+					'Move or clear the balance before archiving it.'
+			);
+			return;
+		}
+		try {
+			await AccountRepository.update(key, account.id, { isArchived: !account.isArchived });
+			await refresh();
+		} catch (err) {
+			toast.error(err instanceof Error ? err.message : 'Could not update account.');
+		}
 	}
 
 	async function deleteAccount(account: Account) {
 		try {
 			await AccountRepository.softDelete(key, account.id);
-			toast.success(`${account.name} moved to trash`);
+			toast.success(`${account.name} moved to trash`, {
+				action: {
+					label: 'Undo',
+					onClick: () => {
+						void AccountRepository.restore(key, account.id).then(refresh);
+					}
+				}
+			});
 			await refresh();
 		} catch (err) {
 			toast.error(err instanceof Error ? err.message : 'Could not delete account.');

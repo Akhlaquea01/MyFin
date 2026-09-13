@@ -288,6 +288,8 @@ test('an overdue loan reminds once, stays silent on repeat, and stops once settl
 test('writing off a loan does not change the account balance and excludes it from totals (Scenario 5)', async ({
 	page
 }) => {
+	// Write-off is a one-way action and now asks for confirmation before proceeding.
+	page.on('dialog', (dialog) => dialog.accept());
 	await page.goto('/');
 	await page.getByLabel('Create PIN').fill('740361');
 	await page.getByLabel('Confirm PIN').fill('740361');

@@ -36,7 +36,10 @@ export function computeGoalProgress(input: ComputeGoalProgressInput): GoalProgre
 		};
 	}
 
-	const progressPercent = Math.round((savedAmount / goal.targetAmount) * 100);
+	// Floored at 0: a negative correction contribution (see GoalContribution's doc comment)
+	// can push savedAmount below zero, which would otherwise render as a confusing "-5%" for
+	// what is, from the user's perspective, simply "no progress yet."
+	const progressPercent = Math.max(0, Math.round((savedAmount / goal.targetAmount) * 100));
 	const achieved = savedAmount >= goal.targetAmount;
 
 	if (achieved) {

@@ -8,6 +8,14 @@ function toDateOnly(d: Date): string {
 	return d.toISOString().slice(0, 10);
 }
 
+function isLeapYear(year: number): boolean {
+	return (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
+}
+
+function daysInYear(year: number): number {
+	return isLeapYear(year) ? 366 : 365;
+}
+
 /** Next occurrence on/after `from` for the rule's frequency/dayOfPeriod (FR-028). */
 function nextOccurrenceOnOrAfter(rule: RecurringRule, from: Date): Date {
 	const d = new Date(Date.UTC(from.getUTCFullYear(), from.getUTCMonth(), from.getUTCDate()));
@@ -38,12 +46,18 @@ function nextOccurrenceOnOrAfter(rule: RecurringRule, from: Date): Date {
 		);
 	}
 
-	// yearly: dayOfPeriod is a 1-366 day-of-year.
-	const startOfYear = Date.UTC(d.getUTCFullYear(), 0, 1);
-	const candidate = new Date(startOfYear + (rule.dayOfPeriod - 1) * DAY_MS);
+	// yearly: dayOfPeriod is a 1-366 day-of-year, clamped to the target year's actual length
+	// (366 only exists in a leap year — without this clamp, a rule set to day 366 rolls into
+	// Jan 1 of the following year in a non-leap year and skips that year's occurrence entirely).
+	const year = d.getUTCFullYear();
+	const startOfYear = Date.UTC(year, 0, 1);
+	const dayThisYear = Math.min(rule.dayOfPeriod, daysInYear(year));
+	const candidate = new Date(startOfYear + (dayThisYear - 1) * DAY_MS);
 	if (candidate >= d) return candidate;
-	const startOfNextYear = Date.UTC(d.getUTCFullYear() + 1, 0, 1);
-	return new Date(startOfNextYear + (rule.dayOfPeriod - 1) * DAY_MS);
+	const nextYear = year + 1;
+	const startOfNextYear = Date.UTC(nextYear, 0, 1);
+	const dayNextYear = Math.min(rule.dayOfPeriod, daysInYear(nextYear));
+	return new Date(startOfNextYear + (dayNextYear - 1) * DAY_MS);
 }
 
 function addOnePeriod(rule: RecurringRule, date: Date): Date {
@@ -113,7 +127,11 @@ export async function matchTransaction(
 	const txDate = new Date(transaction.date).getTime();
 
 	for (const rule of candidateRules) {
+		// Compare magnitude and direction separately: rule.amount follows the same sign
+		// convention as Transaction.amount (negative = expense), so an income transaction must
+		// never satisfy an expense rule of the same magnitude, or vice versa.
 		if (Math.abs(rule.amount) !== Math.abs(transaction.amount)) continue;
+		if (rule.amount < 0 !== transaction.amount < 0) continue;
 		const pending = (await ExpectedEventRepository.listForRule(key, rule.id)).filter(
 			(e) => e.status === 'pending'
 		);

@@ -12,7 +12,12 @@ export function migrateFromV1_2(payload: BackupPayload): BackupPayload {
 		exportedEntities: {
 			...payload.exportedEntities,
 			categorizationRules: payload.exportedEntities.categorizationRules ?? [],
-			merchantCategorySignals: payload.exportedEntities.merchantCategorySignals ?? []
+			merchantCategorySignals: payload.exportedEntities.merchantCategorySignals ?? [],
+			// spec 010/013: nor did people/loans/repayments or saved filter views.
+			people: payload.exportedEntities.people ?? [],
+			personLoans: payload.exportedEntities.personLoans ?? [],
+			personLoanRepayments: payload.exportedEntities.personLoanRepayments ?? [],
+			savedFilterViews: payload.exportedEntities.savedFilterViews ?? []
 		}
 	};
 }

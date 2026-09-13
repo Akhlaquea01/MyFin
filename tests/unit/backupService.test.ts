@@ -19,6 +19,12 @@ import { CategorizationRuleRepository } from '../../src/data/dexie/categorizatio
 import { MerchantCategorySignalRepository } from '../../src/data/dexie/merchantCategorySignalRepository';
 import { recordConfirmation } from '../../src/domain/categorization/resolveCategorization';
 import {
+	PersonRepository,
+	PersonLoanRepository,
+	LoanRepaymentRepository
+} from '../../src/data/dexie/personLoanRepository';
+import { SavedFilterViewRepository } from '../../src/data/dexie/savedFilterViewRepository';
+import {
 	createBackup,
 	validateAndDecryptBackup,
 	deriveDataKeyForPayload,
@@ -294,5 +300,80 @@ describe('Backup service', () => {
 			restoredRules[0].merchantId
 		);
 		expect(restoredSignal?.recentCategoryIds).toEqual([restoredRules[0].categoryId]);
+	});
+
+	it('round-trips people, person loans, loan repayments, and saved filter views without dangling references', async () => {
+		const account = await AccountRepository.create(key, {
+			name: 'Wallet',
+			type: 'wallet',
+			openingBalance: 0,
+			creditLimit: null,
+			billingCycleDay: null
+		});
+		const person = await PersonRepository.create(key, { name: 'Alex' });
+		const loan = await PersonLoanRepository.create(key, {
+			personId: person.id,
+			direction: 'lent',
+			principalAmount: 20000,
+			date: '2026-09-01',
+			dueDate: null,
+			notes: null,
+			accountId: account.id
+		});
+		const repayment = await LoanRepaymentRepository.create(key, {
+			loanId: loan.id,
+			amount: 5000,
+			date: '2026-09-15',
+			accountId: account.id
+		});
+		await SavedFilterViewRepository.create(key, {
+			name: 'This month',
+			accountId: account.id,
+			dateFrom: null,
+			dateTo: null,
+			freeText: null,
+			tagIds: []
+		});
+
+		const backup = await createBackup(key, encryptionSalt, pin);
+		const { payload } = await validateAndDecryptBackup(backup, pin);
+		expect(payload.exportedEntities.people).toHaveLength(1);
+		expect(payload.exportedEntities.personLoans).toHaveLength(1);
+		expect(payload.exportedEntities.personLoanRepayments).toHaveLength(1);
+		expect(payload.exportedEntities.savedFilterViews).toHaveLength(1);
+
+		const restoreKey = await deriveDataKeyForPayload(payload, pin, encryptionSalt);
+		await db.delete();
+		await db.open();
+		await restoreBackup(restoreKey, payload);
+
+		const restoredPeople = await PersonRepository.list(restoreKey);
+		expect(restoredPeople).toHaveLength(1);
+		expect(restoredPeople[0].id).toBe(person.id);
+
+		const restoredLoans = await PersonLoanRepository.listAllOpen(restoreKey);
+		expect(restoredLoans).toHaveLength(1);
+		expect(restoredLoans[0].id).toBe(loan.id);
+		// The restored loan must still resolve to real, restored Person/Account/Transaction rows
+		// rather than IDs left dangling by a partial restore.
+		expect(restoredLoans[0].personId).toBe(restoredPeople[0].id);
+		const restoredAccounts = await AccountRepository.list(restoreKey);
+		const restoredWallet = restoredAccounts.find((a) => a.id === account.id)!;
+		expect(restoredWallet).toBeDefined();
+		expect(restoredLoans[0].accountId).toBe(restoredWallet.id);
+		const restoredTxs = await TransactionRepository.search(restoreKey, { accountId: account.id });
+		expect(restoredTxs.map((t) => t.id)).toContain(restoredLoans[0].transactionId);
+
+		const restoredRepayments = await LoanRepaymentRepository.listForLoan(
+			restoreKey,
+			restoredLoans[0].id
+		);
+		expect(restoredRepayments).toHaveLength(1);
+		expect(restoredRepayments[0].id).toBe(repayment.id);
+		expect(restoredTxs.map((t) => t.id)).toContain(restoredRepayments[0].transactionId);
+
+		const restoredViews = await SavedFilterViewRepository.list(restoreKey);
+		expect(restoredViews).toHaveLength(1);
+		expect(restoredViews[0].accountId).toBe(restoredWallet.id);
 	});
 });

@@ -4,7 +4,9 @@ import { Button } from './ui/button';
 import {
 	isWebAuthnSupported,
 	enrollBiometric,
-	type BiometricUnavailableReason
+	retryPrfEval,
+	type BiometricUnavailableReason,
+	type PendingBiometricEnrollment
 } from '../lib/webauthn';
 import { UserProfileRepository } from '../data/dexie/userProfileRepository';
 
@@ -43,6 +45,9 @@ export function BiometricEnrollmentPrompt({
 	const [unavailableReason, setUnavailableReason] = useState<BiometricUnavailableReason | null>(
 		null
 	);
+	// Set only after a `prf-eval-failed` result, whose credential already exists — retrying
+	// through this instead of a fresh `enrollBiometric` avoids minting another one.
+	const [pendingRetry, setPendingRetry] = useState<PendingBiometricEnrollment | null>(null);
 
 	const visible = !dismissed && isWebAuthnSupported();
 	if (!visible) return null;
@@ -59,11 +64,13 @@ export function BiometricEnrollmentPrompt({
 		setEnrolling(true);
 		setUnavailableReason(null);
 		try {
-			const result = await enrollBiometric(pin);
+			const result = pendingRetry ? await retryPrfEval(pendingRetry, pin) : await enrollBiometric(pin);
 			if (!result.ok) {
 				setUnavailableReason(result.reason);
+				setPendingRetry(result.pending ?? null);
 				return;
 			}
+			setPendingRetry(null);
 			await UserProfileRepository.update({ biometricEnabled: true, webauthn: result.enrollment });
 			setDismissed(true);
 			onDone();

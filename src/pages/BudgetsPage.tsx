@@ -93,17 +93,21 @@ export function BudgetsPage() {
 	}
 
 	async function onSubmit(values: BudgetFormValues) {
-		await BudgetRepository.create(key, {
-			categoryId: values.categoryId,
-			periodType: values.periodType,
-			amount: parseMoneyOrZero(values.amount),
-			rolloverEnabled: values.rolloverEnabled,
-			isSinkingFund: values.isSinkingFund
-		});
-		form.reset();
-		setDialogOpen(false);
-		toast.success('Budget created');
-		await refresh();
+		try {
+			await BudgetRepository.create(key, {
+				categoryId: values.categoryId,
+				periodType: values.periodType,
+				amount: parseMoneyOrZero(values.amount),
+				rolloverEnabled: values.rolloverEnabled,
+				isSinkingFund: values.isSinkingFund
+			});
+			form.reset();
+			setDialogOpen(false);
+			toast.success('Budget created');
+			await refresh();
+		} catch (err) {
+			toast.error(err instanceof Error ? err.message : 'Could not create budget.');
+		}
 	}
 
 	return (

@@ -61,19 +61,37 @@ export function CategoriesPage() {
 	const childrenOf = (id: string) => categories.filter((c) => c.parentId === id);
 
 	async function onSubmit(values: CategoryFormValues) {
-		await CategoryRepository.create(key, {
-			name: values.name,
-			parentId: values.parentId || null
-		});
-		form.reset({ name: '', parentId: '' });
-		setDialogOpen(false);
-		toast.success(`${values.name} added`);
-		await refresh();
+		try {
+			await CategoryRepository.create(key, {
+				name: values.name,
+				parentId: values.parentId || null
+			});
+			form.reset({ name: '', parentId: '' });
+			setDialogOpen(false);
+			toast.success(`${values.name} added`);
+			await refresh();
+		} catch (err) {
+			toast.error(err instanceof Error ? err.message : 'Could not create category.');
+		}
 	}
 
 	async function remove(category: Category) {
-		await CategoryRepository.softDelete(key, category.id);
-		await refresh();
+		try {
+			await CategoryRepository.softDelete(key, category.id);
+			// Categories have no Trash entry of their own to recover this from — an in-toast
+			// undo is the only way back.
+			toast.success(`${category.name} deleted`, {
+				action: {
+					label: 'Undo',
+					onClick: () => {
+						void CategoryRepository.restore(key, category.id).then(refresh);
+					}
+				}
+			});
+			await refresh();
+		} catch (err) {
+			toast.error(err instanceof Error ? err.message : 'Could not delete category.');
+		}
 	}
 
 	return (

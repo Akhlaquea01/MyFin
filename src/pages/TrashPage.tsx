@@ -124,9 +124,13 @@ export function TrashPage() {
 			'Permanently delete this transaction and any attached receipts? This cannot be undone.'
 		);
 		if (!confirmed) return;
-		await TransactionRepository.purge(key, tx.id);
-		toast.success('Transaction permanently deleted');
-		await refresh();
+		try {
+			await TransactionRepository.purge(key, tx.id);
+			toast.success('Transaction permanently deleted');
+			await refresh();
+		} catch (err) {
+			toast.error(err instanceof Error ? err.message : 'Could not permanently delete transaction.');
+		}
 	}
 
 	async function restoreGoal(goal: SavingsGoal) {

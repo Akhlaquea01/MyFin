@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { NavLink, Outlet } from 'react-router-dom';
+import { useEffect, useRef, useState } from 'react';
+import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import {
 	ArrowLeftRight,
 	BarChart3,
@@ -29,6 +29,11 @@ import {
 import { cn } from '../lib/utils';
 import { Button } from './ui/button';
 import { Sheet, SheetContent, SheetTrigger } from './ui/sheet';
+import { PageErrorBoundary } from './PageErrorBoundary';
+import { useQuickTour } from '../hooks/useQuickTour';
+
+/** Tailwind's `md` breakpoint (768px) — the point at which the sidebar replaces this sheet. */
+const MOBILE_BREAKPOINT_QUERY = '(max-width: 767px)';
 
 const NAV_ITEMS = [
 	{ to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true },
@@ -90,6 +95,27 @@ function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
 
 export function AppShell() {
 	const [mobileOpen, setMobileOpen] = useState(false);
+	const location = useLocation();
+	const { isTourActive } = useQuickTour();
+	// True only when this component itself opened the sheet for the tour, so ending the tour
+	// doesn't blow away a sheet the user had already opened manually.
+	const tourOpenedSheetRef = useRef(false);
+
+	// Every current tour step targets a nav item, which on a narrow viewport lives only inside
+	// this sheet (the sidebar's copy is `display:none` there) — without opening it, the tour
+	// could never find a visible target and fell back to an unanchored centered card.
+	useEffect(() => {
+		if (isTourActive) {
+			if (!mobileOpen && window.matchMedia(MOBILE_BREAKPOINT_QUERY).matches) {
+				tourOpenedSheetRef.current = true;
+				setMobileOpen(true);
+			}
+		} else if (tourOpenedSheetRef.current) {
+			tourOpenedSheetRef.current = false;
+			setMobileOpen(false);
+		}
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [isTourActive]);
 
 	return (
 		<div className="flex min-h-dvh">
@@ -121,7 +147,11 @@ export function AppShell() {
 				</header>
 
 				<main className="min-w-0 flex-1">
-					<Outlet />
+					{/* Keyed by pathname so navigating away from a crashed page fully remounts the
+					    boundary — a stale failure never lingers after the user moves on. */}
+					<PageErrorBoundary key={location.pathname}>
+						<Outlet />
+					</PageErrorBoundary>
 				</main>
 			</div>
 		</div>

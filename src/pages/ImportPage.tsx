@@ -31,6 +31,7 @@ import {
 	resolveAccountForRow,
 	findAccountNameCollisions,
 	MAX_IMPORT_ROWS,
+	MAX_IMPORT_FILE_BYTES,
 	type ColumnMapping,
 	type ParsedFile,
 	type ImportResult
@@ -85,6 +86,16 @@ export function ImportPage() {
 		if (!file) return;
 		setResult(null);
 		setProgress(null);
+		// Checked before any parsing runs: parseCsv/parseXlsx read the whole file synchronously
+		// or into memory, so the row-count check below is too late to stop an oversized file
+		// from hanging the tab.
+		if (file.size > MAX_IMPORT_FILE_BYTES) {
+			toast.error(
+				`That file is ${(file.size / (1024 * 1024)).toFixed(1)} MB. Files larger than ` +
+					`${MAX_IMPORT_FILE_BYTES / (1024 * 1024)} MB are not supported — split it into smaller files.`
+			);
+			return;
+		}
 		try {
 			const isXlsx = file.name.toLowerCase().endsWith('.xlsx');
 			const parsedFile = isXlsx

@@ -352,7 +352,14 @@ function PersonCard({
 			toast.error(err instanceof Error ? err.message : 'Could not delete this person.');
 			return;
 		}
-		toast.success('Person deleted');
+		toast.success('Person deleted', {
+			action: {
+				label: 'Undo',
+				onClick: () => {
+					void PersonRepository.restore(key, person.id).then(onChanged);
+				}
+			}
+		});
 		await onChanged();
 	}
 
@@ -452,6 +459,15 @@ function LoanRow({
 	}
 
 	async function onWriteOff() {
+		// Writing off is a one-way decision (no "undo write-off" exists) — once written off,
+		// the loan is settled and this action disappears entirely.
+		if (
+			!window.confirm(
+				`Write off the remaining ${formatMoney(pendingBalance)} on this loan? This forgives the debt and cannot be undone.`
+			)
+		) {
+			return;
+		}
 		try {
 			await PersonLoanRepository.writeOff(key, loan.id);
 		} catch (err) {

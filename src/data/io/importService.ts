@@ -41,6 +41,12 @@ export interface ParsedFile {
  *  thread, so an unbounded file is a self-inflicted denial of service. */
 export const MAX_IMPORT_ROWS = 20_000;
 
+/** Rejected before `parseCsv`/`parseXlsx` ever runs — both parse the whole file synchronously
+ *  (Papa.parse) or load it entirely into memory (ExcelJS), so the row-count cap above is too
+ *  late to prevent the tab from hanging on an oversized file; this catches it first. Sized
+ *  generously above what a MAX_IMPORT_ROWS-row bank statement could plausibly weigh. */
+export const MAX_IMPORT_FILE_BYTES = 25 * 1024 * 1024;
+
 /** How often to yield to the event loop and report progress during a long import. */
 const PROGRESS_INTERVAL = 100;
 
@@ -101,6 +107,9 @@ export async function parseXlsx(buffer: ArrayBuffer): Promise<ParsedFile> {
 			const cell = row.getCell(i + 1);
 			record[header] = cell.value == null ? '' : String(cell.value);
 		});
+		// A styled-but-empty spacer/border row (common in real bank exports) has cells with no
+		// values, so `cellCount` alone doesn't catch it — mirrors parseCsv's `skipEmptyLines`.
+		if (Object.values(record).every((v) => v === '')) continue;
 		rows.push(record);
 	}
 	return { headers, rows, errors: [] };
@@ -129,7 +138,10 @@ export function parseDateWithFormat(value: string, format: string): string | nul
 	let day = '';
 	for (let i = 0; i < formatParts.length; i++) {
 		const token = formatParts[i];
-		const part = valueParts[i];
+		// Trimmed so a loosely-formatted value (e.g. "06 / 09 / 2026", from a hand-edited or
+		// copy-pasted statement) isn't rejected just for whitespace around the separator —
+		// padStart alone doesn't remove it.
+		const part = valueParts[i]?.trim();
 		if (!part) return null;
 		if (token.startsWith('Y')) year = part;
 		else if (token.startsWith('M')) month = part.padStart(2, '0');
@@ -240,6 +252,16 @@ export async function importRows(
 		);
 	}
 
+	// Fail fast on a misconfigured mapping rather than letting every single row resolve to a
+	// zero amount and get reported as N identical "Zero-amount transactions are not imported"
+	// skips, which reads as a corrupt file rather than the one-time setup mistake it actually is.
+	if (
+		mapping.amountSignConvention === 'separate-debit-credit-columns' &&
+		(!mapping.debitColumn || !mapping.creditColumn)
+	) {
+		throw new Error('Choose both a debit column and a credit column for this amount format.');
+	}
+
 	// Whole-file pre-pass (FR-006): block the ENTIRE import — before any transaction is
 	// created — if an account name referenced anywhere in the file is ambiguous. The app does
 	// not enforce unique account names today, so this can't be assumed away (research.md §3).
@@ -311,8 +333,18 @@ export async function importRows(
 			continue;
 		}
 		const amount = parseAmount(row, mapping);
-		if (!amount || amount.amountPaise === 0) {
-			result.skippedMalformedRows.push({ rowNumber, reason: 'Unparseable or zero amount.' });
+		if (!amount) {
+			result.skippedMalformedRows.push({ rowNumber, reason: 'Unparseable amount.' });
+			continue;
+		}
+		if (amount.amountPaise === 0) {
+			// Distinct from the malformed case above: this amount parsed correctly as zero (e.g. a
+			// reversed/void entry), which is intentionally excluded rather than a sign the column
+			// mapping is wrong.
+			result.skippedMalformedRows.push({
+				rowNumber,
+				reason: 'Zero-amount transactions are not imported.'
+			});
 			continue;
 		}
 

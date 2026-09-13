@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Fingerprint, Lock } from 'lucide-react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -21,15 +21,36 @@ export function LockScreen({ onunlock }: { onunlock: (pin: string) => void }) {
 	const [error, setError] = useState<string | null>(null);
 	const [submitting, setSubmitting] = useState(false);
 	const [biometricAvailable, setBiometricAvailable] = useState(false);
+	// True only until the initial profile fetch settles (success or failure) — distinct from
+	// `profile === null`, which also describes the (should-be-unreachable) case of no profile
+	// existing at all.
+	const [loading, setLoading] = useState(true);
+	const [loadError, setLoadError] = useState(false);
+	// Bumped to re-run the profile fetch from the "Retry" button after a failure.
+	const [retryToken, setRetryToken] = useState(0);
 	// Drives the countdown on the disabled button while a lockout is in effect.
 	const [now, setNow] = useState(() => Date.now());
 
 	useEffect(() => {
-		void UserProfileRepository.get().then((p) => {
-			setProfile(p ?? null);
-			setBiometricAvailable(isWebAuthnSupported() && !!p?.webauthn);
-		});
-	}, []);
+		let cancelled = false;
+		setLoading(true);
+		setLoadError(false);
+		UserProfileRepository.get()
+			.then((p) => {
+				if (cancelled) return;
+				setProfile(p ?? null);
+				setBiometricAvailable(isWebAuthnSupported() && !!p?.webauthn);
+			})
+			.catch(() => {
+				if (!cancelled) setLoadError(true);
+			})
+			.finally(() => {
+				if (!cancelled) setLoading(false);
+			});
+		return () => {
+			cancelled = true;
+		};
+	}, [retryToken]);
 
 	const lockedOutUntil = profile?.lockedOutUntil ?? null;
 	const gate = unlockGate(lockedOutUntil, now);
@@ -39,6 +60,21 @@ export function LockScreen({ onunlock }: { onunlock: (pin: string) => void }) {
 		if (gate.allowed) return;
 		const handle = setInterval(() => setNow(Date.now()), 500);
 		return () => clearInterval(handle);
+	}, [gate.allowed]);
+
+	// Announced once per lockout transition, not once per tick: the countdown text changes
+	// every 500ms, and putting that directly inside a `role="alert"` region (as the ticking
+	// paragraph below used to) re-announced it to screen readers roughly once a second for up
+	// to five minutes. This region's content only changes at the start/end of a lockout.
+	const [lockoutAnnouncement, setLockoutAnnouncement] = useState<string | null>(null);
+	const wasAllowedRef = useRef(gate.allowed);
+	useEffect(() => {
+		if (wasAllowedRef.current !== gate.allowed) {
+			setLockoutAnnouncement(
+				gate.allowed ? 'You can try again now.' : 'Too many attempts. Please wait before trying again.'
+			);
+			wasAllowedRef.current = gate.allowed;
+		}
 	}, [gate.allowed]);
 
 	/**
@@ -128,7 +164,7 @@ export function LockScreen({ onunlock }: { onunlock: (pin: string) => void }) {
 	const lockoutNotice = gate.allowed
 		? null
 		: `Too many attempts. Try again in ${formatRemaining(gate.remainingMs)}.`;
-	const inputsDisabled = submitting || !gate.allowed;
+	const inputsDisabled = loading || loadError || submitting || !gate.allowed;
 
 	return (
 		<div className="flex min-h-dvh flex-col items-center justify-center bg-background px-6">
@@ -157,14 +193,44 @@ export function LockScreen({ onunlock }: { onunlock: (pin: string) => void }) {
 								autoFocus
 							/>
 						</div>
-						{(error || lockoutNotice) && (
+						{loadError && (
 							<p role="alert" className="text-sm text-destructive">
-								{error ?? lockoutNotice}
+								Could not load your profile. Check your connection and try again.
 							</p>
 						)}
-						<Button type="submit" disabled={inputsDisabled || !pin} className="w-full">
-							{gate.allowed ? 'Unlock' : `Locked (${formatRemaining(gate.remainingMs)})`}
-						</Button>
+						{!loadError && error && (
+							<p role="alert" className="text-sm text-destructive">
+								{error}
+							</p>
+						)}
+						{!loadError && !error && lockoutNotice && (
+							<>
+								{/* Announced once at the start of a lockout; its text is stable while
+								    ticking, so it is never re-announced mid-countdown. */}
+								<p role="alert" className="sr-only">
+									{lockoutAnnouncement}
+								</p>
+								{/* Visible, ticking countdown for sighted users — not a live region. */}
+								<p className="text-sm text-destructive">{lockoutNotice}</p>
+							</>
+						)}
+						{loadError ? (
+							<Button
+								type="button"
+								className="w-full"
+								onClick={() => setRetryToken((t) => t + 1)}
+							>
+								Retry
+							</Button>
+						) : (
+							<Button type="submit" disabled={inputsDisabled || !pin} className="w-full">
+								{loading
+									? 'Loading…'
+									: gate.allowed
+										? 'Unlock'
+										: `Locked (${formatRemaining(gate.remainingMs)})`}
+							</Button>
+						)}
 					</form>
 					{biometricAvailable && (
 						<Button

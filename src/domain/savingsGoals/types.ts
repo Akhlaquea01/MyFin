@@ -9,7 +9,8 @@ export interface GoalProgress {
 	goalId: string;
 	/** Sum of the goal's contribution amounts (smallest currency unit); may include negative corrections. */
 	savedAmount: number;
-	/** round(savedAmount / targetAmount * 100); uncapped above 100 on overshoot. */
+	/** round(savedAmount / targetAmount * 100); uncapped above 100 on overshoot, floored at 0
+	 *  (a negative correction can otherwise push `savedAmount` below zero). */
 	progressPercent: number;
 	achieved: boolean;
 	/** ISO date; null when insufficient data, a non-positive rate, or already achieved. */

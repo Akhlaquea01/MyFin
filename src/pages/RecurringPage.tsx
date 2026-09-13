@@ -30,7 +30,7 @@ import { AccountRepository } from '../data/dexie/accountRepository';
 import { CategoryRepository } from '../data/dexie/categoryRepository';
 import { RecurringRepository } from '../data/dexie/recurringRepository';
 import type { Account, Category, RecurringFrequency, RecurringRule } from '../domain/entities';
-import { isPositiveMoney, parseMoneyOrZero } from '../domain/shared/money';
+import { isPositiveMoney, parseMoneyOrZero, formatMinorUnits } from '../domain/shared/money';
 
 /**
  * Valid `dayOfPeriod` range per frequency, matching what recurringEngine actually does with
@@ -50,7 +50,8 @@ const ruleSchema = z
 		categoryId: z.string().min(1, 'Choose a category.'),
 		frequency: z.enum(['weekly', 'monthly', 'yearly']),
 		dayOfPeriod: z.string(),
-		amount: z.string().refine((v) => isPositiveMoney(v), 'Enter a positive amount.')
+		amount: z.string().refine((v) => isPositiveMoney(v), 'Enter a positive amount.'),
+		direction: z.enum(['expense', 'income'])
 	})
 	.superRefine((values, ctx) => {
 		const { min, max, hint } = DAY_RANGE[values.frequency];
@@ -86,7 +87,8 @@ export function RecurringPage() {
 			categoryId: '',
 			frequency: 'monthly',
 			dayOfPeriod: '1',
-			amount: '0'
+			amount: '0',
+			direction: 'expense'
 		}
 	});
 
@@ -121,22 +123,35 @@ export function RecurringPage() {
 	}
 
 	async function onSubmit(values: RuleFormValues) {
-		await RecurringRepository.create(key, {
-			accountId: values.accountId,
-			categoryId: values.categoryId,
-			amount: parseMoneyOrZero(values.amount),
-			frequency: values.frequency,
-			dayOfPeriod: parseInt(values.dayOfPeriod, 10)
-		});
-		form.reset();
-		setDialogOpen(false);
-		toast.success('Recurring rule added');
-		await refresh();
+		// Recurring rules follow the same sign convention as Transaction.amount (negative =
+		// expense, positive = income) so matching against real transactions works by exact
+		// value, not just magnitude — see recurringEngine.matchTransaction.
+		const magnitude = parseMoneyOrZero(values.amount);
+		const signedAmount = values.direction === 'expense' ? -Math.abs(magnitude) : Math.abs(magnitude);
+		try {
+			await RecurringRepository.create(key, {
+				accountId: values.accountId,
+				categoryId: values.categoryId,
+				amount: signedAmount,
+				frequency: values.frequency,
+				dayOfPeriod: parseInt(values.dayOfPeriod, 10)
+			});
+			form.reset();
+			setDialogOpen(false);
+			toast.success('Recurring rule added');
+			await refresh();
+		} catch (err) {
+			toast.error(err instanceof Error ? err.message : 'Could not create recurring rule.');
+		}
 	}
 
 	async function toggleActive(rule: RecurringRule) {
-		await RecurringRepository.update(key, rule.id, { isActive: !rule.isActive });
-		await refresh();
+		try {
+			await RecurringRepository.update(key, rule.id, { isActive: !rule.isActive });
+			await refresh();
+		} catch (err) {
+			toast.error(err instanceof Error ? err.message : 'Could not update recurring rule.');
+		}
 	}
 
 	return (
@@ -203,6 +218,27 @@ export function RecurringPage() {
 											)}
 										/>
 									</div>
+								</div>
+								<div className="flex flex-col gap-1.5">
+									<Label htmlFor="rule-direction">Type</Label>
+									<Controller
+										control={form.control}
+										name="direction"
+										render={({ field }) => (
+											<Select
+												value={field.value}
+												onValueChange={(v) => field.onChange(v as 'expense' | 'income')}
+											>
+												<SelectTrigger id="rule-direction" className="w-full">
+													<SelectValue />
+												</SelectTrigger>
+												<SelectContent>
+													<SelectItem value="expense">Expense</SelectItem>
+													<SelectItem value="income">Income</SelectItem>
+												</SelectContent>
+											</Select>
+										)}
+									/>
 								</div>
 								<div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
 									<div className="flex flex-col gap-1.5">
@@ -280,6 +316,16 @@ export function RecurringPage() {
 									</p>
 								</div>
 								<div className="flex items-center gap-3">
+									<span
+										className={
+											rule.amount < 0
+												? 'text-sm font-medium text-destructive'
+												: 'text-sm font-medium text-emerald-600'
+										}
+									>
+										{rule.amount < 0 ? '-' : '+'}
+										{formatMinorUnits(Math.abs(rule.amount))}
+									</span>
 									<Badge variant={rule.isActive ? 'secondary' : 'outline'}>
 										{rule.isActive ? 'Active' : 'Paused'}
 									</Badge>

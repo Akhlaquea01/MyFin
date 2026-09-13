@@ -116,6 +116,8 @@ export function ExportPage() {
 			const date = new Date().toISOString().slice(0, 10);
 			saveAs(blob, `myfin-transactions-${date}.${format}`);
 			toast.success(`Exported ${rows.length} transaction(s)`);
+		} catch (err) {
+			toast.error(err instanceof Error ? err.message : 'Could not export transactions.');
 		} finally {
 			setExporting(null);
 		}
@@ -128,6 +130,8 @@ export function ExportPage() {
 				periodType === 'monthly' ? { type: 'monthly', year, month } : { type: 'yearly', year };
 			const result = await generateReportSummary(key, period);
 			setSummary(result);
+		} catch (err) {
+			toast.error(err instanceof Error ? err.message : 'Could not generate report.');
 		} finally {
 			setGenerating(false);
 		}
@@ -144,6 +148,8 @@ export function ExportPage() {
 			const blob = buildReportPdfBlob(summary);
 			saveAs(blob, reportPdfFilename(summary));
 			toast.success(`Downloaded report for ${summary.periodLabel}`);
+		} catch (err) {
+			toast.error(err instanceof Error ? err.message : 'Could not download report PDF.');
 		} finally {
 			setDownloadingPdf(false);
 		}
@@ -407,6 +413,14 @@ export function ExportPage() {
 												+{stats.created} created
 											</Badge>
 										)}
+										{Boolean(stats.updated && stats.updated > 0) && (
+											<Badge
+												variant="secondary"
+												className="bg-sky-500/10 text-sky-600 dark:text-sky-400"
+											>
+												{stats.updated} updated
+											</Badge>
+										)}
 										{stats.skipped > 0 && (
 											<Badge variant="outline" className="text-muted-foreground">
 												{stats.skipped} skipped
@@ -422,6 +436,7 @@ export function ExportPage() {
 										)}
 										{stats.created === 0 &&
 											stats.skipped === 0 &&
+											!stats.updated &&
 											!stats.flaggedDuplicate && (
 												<span className="text-xs text-muted-foreground">0 processed</span>
 											)}
@@ -441,7 +456,9 @@ export function ExportPage() {
 											{r.identifier ? ` "${r.identifier}"` : ''}:{' '}
 											{r.reason === 'already-exists'
 												? 'already exists in app'
-												: 'unresolved relationship reference'}
+												: r.reason === 'parent-duplicate'
+													? 'parent transaction was a duplicate'
+													: 'unresolved relationship reference'}
 										</li>
 									))}
 									{importResult.skippedReasons.length > 5 && (

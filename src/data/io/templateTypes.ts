@@ -69,11 +69,15 @@ export interface EntityImportStats {
 	created: number;
 	skipped: number;
 	flaggedDuplicate?: number;
+	/** Merged into an already-existing record rather than freshly created (currently only
+	 *  merchantCategorySignals, whose rolling window is combined with what's already stored) —
+	 *  kept distinct from `created` so an import summary doesn't overstate how much is new. */
+	updated?: number;
 }
 
 export interface SkippedReason {
 	entity: string;
-	reason: 'already-exists' | 'unresolved-relationship';
+	reason: 'already-exists' | 'unresolved-relationship' | 'parent-duplicate';
 	identifier?: string;
 }
 

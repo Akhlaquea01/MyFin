@@ -76,22 +76,40 @@ export function LiabilitiesPage() {
 	}, []);
 
 	async function onSubmit(values: LiabilityFormValues) {
-		await LiabilityRepository.create(key, {
-			name: values.name,
-			type: values.type,
-			outstandingBalance: parseMoneyOrZero(values.outstandingBalance),
-			emiAmount: null,
-			emiDueDay: null
-		});
-		form.reset();
-		setDialogOpen(false);
-		toast.success('Liability added');
-		await refresh();
+		try {
+			await LiabilityRepository.create(key, {
+				name: values.name,
+				type: values.type,
+				outstandingBalance: parseMoneyOrZero(values.outstandingBalance),
+				emiAmount: null,
+				emiDueDay: null
+			});
+			form.reset();
+			setDialogOpen(false);
+			toast.success('Liability added');
+			await refresh();
+		} catch (err) {
+			toast.error(err instanceof Error ? err.message : 'Could not add liability.');
+		}
 	}
 
 	async function remove(liability: Liability) {
-		await LiabilityRepository.softDelete(key, liability.id);
-		await refresh();
+		try {
+			await LiabilityRepository.softDelete(key, liability.id);
+			// Liabilities have no Trash entry of their own to recover this from — an in-toast
+			// undo is the only way back.
+			toast.success(`${liability.name} deleted`, {
+				action: {
+					label: 'Undo',
+					onClick: () => {
+						void LiabilityRepository.restore(key, liability.id).then(refresh);
+					}
+				}
+			});
+			await refresh();
+		} catch (err) {
+			toast.error(err instanceof Error ? err.message : 'Could not delete liability.');
+		}
 	}
 
 	return (

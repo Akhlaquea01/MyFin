@@ -31,6 +31,17 @@ interface SessionContextValue {
 	getEncryptionKey: () => CryptoKey;
 }
 
+/** Thrown by `getEncryptionKey()` when no session key is available. Named so a page-scoped
+ *  error boundary (see PageErrorBoundary) can distinguish "the whole session is unusable" from
+ *  an ordinary page-render bug and let this one keep propagating to the app-level ErrorBoundary,
+ *  which is the only thing that can actually fix it (by returning to LockScreen). */
+export class SessionLockedError extends Error {
+	constructor() {
+		super('App is locked: no encryption key available');
+		this.name = 'SessionLockedError';
+	}
+}
+
 const SessionContext = createContext<SessionContextValue | null>(null);
 
 export function SessionProvider({ children }: { children: ReactNode }) {
@@ -88,16 +99,20 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 		async (autoLockTimeoutMs: number): Promise<boolean> => {
 			const restored = await SessionKeyRepository.restore();
 			if (!restored) return false;
-			encryptionKeyRef.current = restored;
+			encryptionKeyRef.current = restored.key;
 			autoLockTimeoutMsRef.current = autoLockTimeoutMs;
 			isLockedRef.current = false;
 			setIsOnboarded(true);
 			setIsLocked(false);
 			lastPersistedAtRef.current = Date.now();
-			scheduleAutoLock();
+			// Schedule off the deadline that was already persisted, not a fresh full-length
+			// window — otherwise reloading just before the real deadline grants a brand-new
+			// timeout every time, letting auto-lock be postponed indefinitely.
+			if (inactivityTimerRef.current) clearTimeout(inactivityTimerRef.current);
+			inactivityTimerRef.current = setTimeout(lock, Math.max(0, restored.expiresAt - Date.now()));
 			return true;
 		},
-		[scheduleAutoLock]
+		[lock]
 	);
 
 	const recordActivity = useCallback(() => {
@@ -117,7 +132,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 	}, [scheduleAutoLock]);
 
 	const getEncryptionKey = useCallback((): CryptoKey => {
-		if (!encryptionKeyRef.current) throw new Error('App is locked: no encryption key available');
+		if (!encryptionKeyRef.current) throw new SessionLockedError();
 		return encryptionKeyRef.current;
 	}, []);
 

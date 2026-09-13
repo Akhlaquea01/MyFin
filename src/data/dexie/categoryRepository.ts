@@ -39,6 +39,10 @@ export const CategoryRepository = {
 		await this.update(key, id, { deletedAt: Date.now() });
 	},
 
+	async restore(key: CryptoKey, id: string): Promise<void> {
+		await this.update(key, id, { deletedAt: null });
+	},
+
 	async getById(key: CryptoKey, id: string): Promise<Category | null> {
 		return (await getDecrypted<CategoryRow, Category>(db.categories, key, id)) ?? null;
 	},

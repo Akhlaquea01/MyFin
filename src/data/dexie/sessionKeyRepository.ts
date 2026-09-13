@@ -13,15 +13,20 @@ export const SessionKeyRepository = {
 		await db.sessionKeys.put({ id: SESSION_ID, key, expiresAt });
 	},
 
-	/** Returns the persisted key if present and not yet expired; clears and returns null otherwise. */
-	async restore(): Promise<CryptoKey | null> {
+	/**
+	 * Returns the persisted key and its original auto-lock deadline if present and not yet
+	 * expired; clears and returns null otherwise. Callers MUST schedule the next auto-lock off
+	 * `expiresAt` (the remaining time), not a fresh full-length timeout — the deadline was set
+	 * by the activity that preceded this reload, not by the reload itself.
+	 */
+	async restore(): Promise<{ key: CryptoKey; expiresAt: number } | null> {
 		const row = await db.sessionKeys.get(SESSION_ID);
 		if (!row) return null;
 		if (row.expiresAt <= Date.now()) {
 			await db.sessionKeys.delete(SESSION_ID);
 			return null;
 		}
-		return row.key;
+		return { key: row.key, expiresAt: row.expiresAt };
 	},
 
 	async clear(): Promise<void> {

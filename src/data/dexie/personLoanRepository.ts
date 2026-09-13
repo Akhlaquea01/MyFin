@@ -157,6 +157,51 @@ export const PersonLoanRepository = {
 		return updated;
 	},
 
+	/** Persists a PersonLoan whose linked Transaction has already been created elsewhere (e.g.
+	 *  data-template import, where the Transaction row is recreated once as part of the
+	 *  transactions import step) — unlike `create`, this does NOT post a new Transaction, to
+	 *  avoid double-posting the loan's principal movement. */
+	async createFromImport(
+		key: CryptoKey,
+		input: {
+			personId: string;
+			direction: LoanDirection;
+			principalAmount: number;
+			date: string;
+			dueDate: string | null;
+			notes: string | null;
+			accountId: string;
+			transactionId: string;
+			writeOffAmount: number;
+			writeOffAt: number | null;
+		}
+	): Promise<PersonLoan> {
+		const now = Date.now();
+		const loan: PersonLoan = {
+			id: crypto.randomUUID(),
+			personId: input.personId,
+			direction: input.direction,
+			principalAmount: input.principalAmount,
+			date: input.date,
+			dueDate: input.dueDate,
+			notes: input.notes,
+			accountId: input.accountId,
+			transactionId: input.transactionId,
+			writeOffAmount: input.writeOffAmount,
+			writeOffAt: input.writeOffAt,
+			createdAt: now,
+			updatedAt: now,
+			deletedAt: null
+		};
+		await putEncrypted(db.personLoans, key, loan, {
+			personId: loan.personId,
+			accountId: loan.accountId,
+			direction: loan.direction,
+			deletedAt: NOT_DELETED
+		});
+		return loan;
+	},
+
 	async writeOff(key: CryptoKey, id: string): Promise<PersonLoan> {
 		const loan = await getDecrypted<PersonLoanRow, PersonLoan>(db.personLoans, key, id);
 		if (!loan) throw new Error(`PersonLoan ${id} not found`);
@@ -272,6 +317,33 @@ export const LoanRepaymentRepository = {
 			date: input.date,
 			accountId: input.accountId,
 			transactionId: tx.id,
+			createdAt: now,
+			updatedAt: now,
+			deletedAt: null
+		};
+		await putEncrypted(db.personLoanRepayments, key, repayment, {
+			loanId: repayment.loanId,
+			accountId: repayment.accountId,
+			deletedAt: NOT_DELETED
+		});
+		return repayment;
+	},
+
+	/** Persists a LoanRepayment whose linked Transaction has already been created elsewhere
+	 *  (e.g. data-template import) — does NOT post a new Transaction, to avoid double-posting
+	 *  the repayment's movement. */
+	async createFromImport(
+		key: CryptoKey,
+		input: { loanId: string; amount: number; date: string; accountId: string; transactionId: string }
+	): Promise<LoanRepayment> {
+		const now = Date.now();
+		const repayment: LoanRepayment = {
+			id: crypto.randomUUID(),
+			loanId: input.loanId,
+			amount: input.amount,
+			date: input.date,
+			accountId: input.accountId,
+			transactionId: input.transactionId,
 			createdAt: now,
 			updatedAt: now,
 			deletedAt: null

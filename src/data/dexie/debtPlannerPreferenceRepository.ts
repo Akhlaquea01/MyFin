@@ -11,6 +11,11 @@ const DEFAULT_PREFERENCE: Omit<DebtPlannerPreference, 'createdAt' | 'updatedAt'>
 };
 
 export const DebtPlannerPreferenceRepository = {
+	/** Whether a preference has actually been persisted (as opposed to `get`'s in-memory default). */
+	async has(): Promise<boolean> {
+		return (await db.debtPlannerPreferences.get(PREFERENCE_ID)) !== undefined;
+	},
+
 	/**
 	 * Returns the singleton preference, or an in-memory default when none has been saved
 	 * yet — this does NOT write the default to storage; only `save` persists a value.

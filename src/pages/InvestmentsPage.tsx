@@ -85,28 +85,36 @@ export function InvestmentsPage() {
 	}, []);
 
 	async function onAddHolding(values: HoldingFormValues) {
-		await InvestmentHoldingRepository.create(key, {
-			name: values.name,
-			type: values.type,
-			costBasis: parseMoneyOrZero(values.costBasis)
-		});
-		holdingForm.reset();
-		setDialogOpen(false);
-		toast.success('Holding added');
-		await refresh();
+		try {
+			await InvestmentHoldingRepository.create(key, {
+				name: values.name,
+				type: values.type,
+				costBasis: parseMoneyOrZero(values.costBasis)
+			});
+			holdingForm.reset();
+			setDialogOpen(false);
+			toast.success('Holding added');
+			await refresh();
+		} catch (err) {
+			toast.error(err instanceof Error ? err.message : 'Could not add holding.');
+		}
 	}
 
 	async function onAddValuation(values: ValuationFormValues) {
 		if (!valuationTarget) return;
-		await InvestmentValuationRepository.create(key, {
-			holdingId: valuationTarget.id,
-			date: new Date().toISOString().slice(0, 10),
-			value: parseMoneyOrZero(values.value)
-		});
-		valuationForm.reset();
-		setValuationTarget(null);
-		toast.success('Valuation recorded');
-		await refresh();
+		try {
+			await InvestmentValuationRepository.create(key, {
+				holdingId: valuationTarget.id,
+				date: new Date().toISOString().slice(0, 10),
+				value: parseMoneyOrZero(values.value)
+			});
+			valuationForm.reset();
+			setValuationTarget(null);
+			toast.success('Valuation recorded');
+			await refresh();
+		} catch (err) {
+			toast.error(err instanceof Error ? err.message : 'Could not record valuation.');
+		}
 	}
 
 	return (
