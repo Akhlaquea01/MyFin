@@ -135,7 +135,7 @@ export function AppShell() {
 								<Menu />
 							</Button>
 						</SheetTrigger>
-						<SheetContent side="left" className="w-56 p-4">
+						<SheetContent side="left" className="w-56 overflow-y-auto p-4">
 							<div className="mb-6 flex items-center gap-2 px-2">
 								<Wallet className="size-5 text-primary" />
 								<span className="font-semibold">MyFin</span>
