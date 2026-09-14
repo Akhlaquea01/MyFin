@@ -11,7 +11,7 @@ Welcome to the documentation for **MyFin**, an offline-first, zero-knowledge per
   - Data flows for cold-start unlocks and encrypted transaction persistence.
 
 - **[Feature Specifications & Catalog (`features.md`)](./features.md)**
-  - Detailed catalog of all 15 implemented features:
+  - Detailed catalog of all 17 implemented features:
     1. Core Personal Finance Manager & Encrypted Ledger
     2. Debt Payoff Planner (Snowball & Avalanche)
     3. Savings Goals Tracker
@@ -27,6 +27,8 @@ Welcome to the documentation for **MyFin**, an offline-first, zero-knowledge per
     13. Saved Transaction Filter Presets
     14. Interactive Quick Tour & Guided Onboarding
     15. Starter Setup Template Export & Import
+    16. Core Workflow Improvements
+    17. Financial Visibility & Control Enhancements (Credit Cards, Net Worth, Budgets, Investments, Import Matching)
 
 ---
 

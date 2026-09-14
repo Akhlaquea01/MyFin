@@ -1,6 +1,6 @@
 # MyFin — Feature Documentation
 
-This document provides a comprehensive reference of all 15 core features built into the MyFin application, detailing user workflows, business logic, domain engines, data models, and UI surfaces.
+This document provides a comprehensive reference of all 17 core features built into the MyFin application, detailing user workflows, business logic, domain engines, data models, and UI surfaces.
 
 ---
 
@@ -21,6 +21,8 @@ This document provides a comprehensive reference of all 15 core features built i
 13. [Feature 013: Saved Transaction Filter Presets](#feature-013-saved-transaction-filter-presets)
 14. [Feature 014: Interactive Quick Tour & Onboarding](#feature-014-interactive-quick-tour--onboarding)
 15. [Feature 015: Starter Setup Template Export & Import](#feature-015-starter-setup-template-export--import)
+16. [Feature 016: Core Workflow Improvements](#feature-016-core-workflow-improvements)
+17. [Feature 017: Financial Visibility & Control Enhancements](#feature-017-financial-visibility--control-enhancements)
 
 ---
 
@@ -33,14 +35,17 @@ The foundational layer of MyFin providing zero-knowledge, local-first personal f
 - **Accounts Management**: Support for multiple account types (`bank`, `credit`, `cash`, `investment`, `loan`, `wallet`).
 - **Encrypted Double-Sided Ledger**: Immutable transaction history supporting income, expense, and account transfers.
 - **Split Transactions**: Allocate a single transaction across multiple categories.
+- **Hierarchical Categories**: Parent/child category tree with full CRUD, used across the ledger, budgets, and reports.
+- **Account Transfers**: Dedicated transfer flow moving money between two of the user's own accounts as a single linked pair of transactions.
+- **Liabilities & Net Worth**: Manual liability tracking (loans, credit card debt) alongside a computed net worth figure spanning accounts, liabilities, investments, and person loans, with historical snapshots.
 - **PIN & Biometric Authentication**: Onboarding PIN entry with PBKDF2 key derivation and WebAuthn biometrics unlock.
 - **Encrypted Backup & Restore**: AES-GCM encrypted single-file backup export with SHA-256 HMAC integrity verification.
-- **Soft-Delete & Trash Recovery**: 30-day soft-delete lifecycle for transactions and accounts with full restore capability.
+- **Soft-Delete & Trash Recovery**: 30-day soft-delete lifecycle for transactions, accounts, savings goals, categorization rules, people, and person loans, with a unified Trash page for restore or permanent purge.
 
 ### Domain Engine & Architecture
-- **Engine**: [`src/domain/transactions/transactionEngine.ts`](file:///e:/MyFin/src/domain/transactions/transactionEngine.ts)
-- **Repositories**: [`accountRepository.ts`](file:///e:/MyFin/src/data/dexie/accountRepository.ts), [`transactionRepository.ts`](file:///e:/MyFin/src/data/dexie/transactionRepository.ts), [`categoryRepository.ts`](file:///e:/MyFin/src/data/dexie/categoryRepository.ts)
-- **Primary Pages**: [`DashboardPage.tsx`](file:///e:/MyFin/src/pages/DashboardPage.tsx), [`AccountsPage.tsx`](file:///e:/MyFin/src/pages/AccountsPage.tsx), [`TransactionsPage.tsx`](file:///e:/MyFin/src/pages/TransactionsPage.tsx), [`NewTransactionPage.tsx`](file:///e:/MyFin/src/pages/NewTransactionPage.tsx)
+- **Engine**: [`src/domain/transactions/transactionEngine.ts`](file:///e:/MyFin/src/domain/transactions/transactionEngine.ts), [`src/domain/wealth/wealthEngine.ts`](file:///e:/MyFin/src/domain/wealth/wealthEngine.ts) (net worth/liabilities)
+- **Repositories**: [`accountRepository.ts`](file:///e:/MyFin/src/data/dexie/accountRepository.ts), [`transactionRepository.ts`](file:///e:/MyFin/src/data/dexie/transactionRepository.ts), [`categoryRepository.ts`](file:///e:/MyFin/src/data/dexie/categoryRepository.ts), [`wealthRepository.ts`](file:///e:/MyFin/src/data/dexie/wealthRepository.ts)
+- **Primary Pages**: [`DashboardPage.tsx`](file:///e:/MyFin/src/pages/DashboardPage.tsx), [`AccountsPage.tsx`](file:///e:/MyFin/src/pages/AccountsPage.tsx), [`TransactionsPage.tsx`](file:///e:/MyFin/src/pages/TransactionsPage.tsx), [`NewTransactionPage.tsx`](file:///e:/MyFin/src/pages/NewTransactionPage.tsx), [`CategoriesPage.tsx`](file:///e:/MyFin/src/pages/CategoriesPage.tsx), [`TransferPage.tsx`](file:///e:/MyFin/src/pages/TransferPage.tsx), [`LiabilitiesPage.tsx`](file:///e:/MyFin/src/pages/LiabilitiesPage.tsx), [`NetWorthPage.tsx`](file:///e:/MyFin/src/pages/NetWorthPage.tsx), [`TrashPage.tsx`](file:///e:/MyFin/src/pages/TrashPage.tsx)
 
 ---
 
@@ -96,11 +101,12 @@ Predictive bill calendar, recurring payment automation, and proactive budget thr
 - **Budget Threshold Alerts**: Configurable alerts when category spend exceeds 80%, 90%, or 100% of budgeted envelope.
 - **In-App Notification Center**: Notification inbox with persistence, read/unread states, and action navigation.
 - **Service Worker Push/Notification Integration**: Local browser notification scheduling without external server dependence.
+- **Notification Settings**: User-configurable master enable/disable, reminder lead days, and budget threshold percentage.
 
 ### Domain Engine & Architecture
 - **Engines**: [`src/domain/recurring/recurringEngine.ts`](file:///e:/MyFin/src/domain/recurring/recurringEngine.ts), [`src/domain/notifications/notificationEngine.ts`](file:///e:/MyFin/src/domain/notifications/notificationEngine.ts)
 - **Repositories**: [`recurringRepository.ts`](file:///e:/MyFin/src/data/dexie/recurringRepository.ts), [`notificationRepository.ts`](file:///e:/MyFin/src/data/dexie/notificationRepository.ts)
-- **Primary Pages**: [`RecurringPage.tsx`](file:///e:/MyFin/src/pages/RecurringPage.tsx), [`RecurringUpcomingPage.tsx`](file:///e:/MyFin/src/pages/RecurringUpcomingPage.tsx), [`BudgetsPage.tsx`](file:///e:/MyFin/src/pages/BudgetsPage.tsx)
+- **Primary Pages**: [`RecurringPage.tsx`](file:///e:/MyFin/src/pages/RecurringPage.tsx), [`RecurringUpcomingPage.tsx`](file:///e:/MyFin/src/pages/RecurringUpcomingPage.tsx), [`BudgetsPage.tsx`](file:///e:/MyFin/src/pages/BudgetsPage.tsx), [`NotificationSettingsPage.tsx`](file:///e:/MyFin/src/pages/NotificationSettingsPage.tsx)
 
 ---
 
@@ -331,3 +337,27 @@ A bundle of seven targeted fixes and additions to the daily-use workflow: transa
 - **Data Layer**: [`clearAllTables.ts`](file:///e:/MyFin/src/data/dexie/clearAllTables.ts), [`resetService.ts`](file:///e:/MyFin/src/data/io/resetService.ts), import-time budget recompute and investment type mapping in [`templateService.ts`](file:///e:/MyFin/src/data/io/templateService.ts)
 - **Primary Pages**: [`DashboardPage.tsx`](file:///e:/MyFin/src/pages/DashboardPage.tsx), [`TransactionsPage.tsx`](file:///e:/MyFin/src/pages/TransactionsPage.tsx), [`ReviewPage.tsx`](file:///e:/MyFin/src/pages/ReviewPage.tsx), [`AccountsPage.tsx`](file:///e:/MyFin/src/pages/AccountsPage.tsx), [`BudgetsPage.tsx`](file:///e:/MyFin/src/pages/BudgetsPage.tsx), [`BackupSettingsPage.tsx`](file:///e:/MyFin/src/pages/BackupSettingsPage.tsx), [`InvestmentsPage.tsx`](file:///e:/MyFin/src/pages/InvestmentsPage.tsx)
 - **Spec**: [`specs/016-core-workflow-improvements/`](file:///e:/MyFin/specs/016-core-workflow-improvements/)
+
+---
+
+## Feature 017: Financial Visibility & Control Enhancements
+
+### Overview
+A bundle of five visibility and control gaps closed across credit cards, net worth, budgets, investments, and imports: credit limit/utilization tracking, a categorized net worth breakdown with duplicate-debt detection, budget editing with historical-period protection, portfolio-level investment aggregates, and identifier-based auto-matching of imported/pasted credit card transactions to the right account.
+
+### Key Capabilities
+- **Credit Card Limit & Utilization**: Credit card accounts gain an optional credit limit and billing cycle day. Wherever a card's balance is shown, the app displays amount used, amount available, and a utilization percentage; cards at ≥90% utilization or over their limit are visually flagged. A temporarily positive balance (overpayment/refund) clamps to ₹0 used / 100% available rather than showing negative usage. Cards with no limit set still show amount used, with a prompt to add a limit.
+- **Categorized Net Worth Breakdown**: Net worth is broken into labeled, drillable subtotals — cash/bank balances, credit card debt, investment value, loans lent, loans borrowed, and other liabilities — that sum exactly to the displayed total, instead of one opaque figure. A transaction-linked credit card account is the single source of truth for its debt.
+- **Duplicate Credit Card Debt Detection**: When a manually-entered liability looks like it represents the same real card as an existing transaction-linked account (by name, nickname, or last-4 match), the user is warned and can either link the liability to the account (so only the account counts toward net worth) or dismiss the warning to keep both counted independently.
+- **Budget Edit & Soft-Delete with Undo**: Existing budgets can be edited (amount, category, period type, rollover) and removed with a confirmation step and short undo window. Edits apply to the current and future periods only — already-closed historical periods keep the figures that were actually budgeted at the time (fixes a latent bug where browsing budget history after an edit could silently rewrite a closed period's planned amount). Two active budgets for the same category/period are prevented.
+- **Investment Portfolio Aggregates**: The Investments view shows total current value, total invested (cost basis), and total gain/loss (currency and percentage) across all holdings, broken down further by investment type. Holdings without a recorded valuation fall back to cost basis and are visually marked as an estimate.
+- **Credit Card Identifier Matching for Imports**: Credit card accounts can be tagged with a last-4-digit identifier and/or a nickname. Both the CSV/XLSX importer and the paste-based bulk text importer scan incoming content for a tagged identifier and pre-select the matching card as the destination, showing which identifier matched and why; an ambiguous match (multiple cards) prompts the user to disambiguate, and an unmatched import falls back to manual account selection without being blocked. A single file can route different rows to different matched cards.
+
+### Domain Engine & Architecture
+- **Engine**: [`src/domain/wealth/wealthEngine.ts`](file:///e:/MyFin/src/domain/wealth/wealthEngine.ts) (`computeCardUtilization`, `computeNetWorth`, `findLikelyDuplicateAccounts`, `linkLiabilityToAccount`, `dismissDuplicateWarning`, `computePortfolioSummary`)
+- **Matcher**: [`src/domain/parser/cardIdentifierMatcher.ts`](file:///e:/MyFin/src/domain/parser/cardIdentifierMatcher.ts) (`findCardMatches`)
+- **Budget Engine**: [`src/domain/budgets/budgetEngine.ts`](file:///e:/MyFin/src/domain/budgets/budgetEngine.ts)
+- **Repositories**: [`wealthRepository.ts`](file:///e:/MyFin/src/data/dexie/wealthRepository.ts), [`budgetRepository.ts`](file:///e:/MyFin/src/data/dexie/budgetRepository.ts) (`softDelete`/`restore`), [`accountRepository.ts`](file:///e:/MyFin/src/data/dexie/accountRepository.ts) (`creditLimit`, `billingCycleDay`, `cardLast4`, `cardNickname`)
+- **Import Integration**: [`importService.ts`](file:///e:/MyFin/src/data/io/importService.ts), [`bulkTextImportService.ts`](file:///e:/MyFin/src/data/io/bulkTextImportService.ts)
+- **Primary Pages**: [`AccountsPage.tsx`](file:///e:/MyFin/src/pages/AccountsPage.tsx), [`LiabilitiesPage.tsx`](file:///e:/MyFin/src/pages/LiabilitiesPage.tsx), [`NetWorthPage.tsx`](file:///e:/MyFin/src/pages/NetWorthPage.tsx), [`BudgetsPage.tsx`](file:///e:/MyFin/src/pages/BudgetsPage.tsx), [`InvestmentsPage.tsx`](file:///e:/MyFin/src/pages/InvestmentsPage.tsx), [`ImportPage.tsx`](file:///e:/MyFin/src/pages/ImportPage.tsx), [`BulkTextImportPage.tsx`](file:///e:/MyFin/src/pages/BulkTextImportPage.tsx)
+- **Spec**: [`specs/017-financial-visibility-enhancements/`](file:///e:/MyFin/specs/017-financial-visibility-enhancements/)
