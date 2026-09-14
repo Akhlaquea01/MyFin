@@ -9,6 +9,7 @@ import { putEncrypted, getDecrypted, decryptRows } from './encryptedTable';
 import { deletedAtIndex, NOT_DELETED } from './indexable';
 import type {
 	InvestmentHolding,
+	InvestmentType,
 	InvestmentValuation,
 	Liability,
 	LiabilityType,
@@ -18,7 +19,7 @@ import type {
 export const InvestmentHoldingRepository = {
 	async create(
 		key: CryptoKey,
-		input: { name: string; type: string; costBasis: number }
+		input: { name: string; type: InvestmentType; costBasis: number; units?: number; avgPrice?: number }
 	): Promise<InvestmentHolding> {
 		const now = Date.now();
 		const holding: InvestmentHolding = {
@@ -26,12 +27,36 @@ export const InvestmentHoldingRepository = {
 			name: input.name,
 			type: input.type,
 			costBasis: input.costBasis,
+			units: input.units,
+			avgPrice: input.avgPrice,
 			createdAt: now,
 			updatedAt: now,
 			deletedAt: null
 		};
 		await putEncrypted(db.investmentHoldings, key, holding, { deletedAt: NOT_DELETED });
 		return holding;
+	},
+
+	async getById(key: CryptoKey, id: string): Promise<InvestmentHolding | undefined> {
+		return getDecrypted<InvestmentHoldingRow, InvestmentHolding>(db.investmentHoldings, key, id);
+	},
+
+	async update(
+		key: CryptoKey,
+		id: string,
+		changes: Partial<InvestmentHolding>
+	): Promise<InvestmentHolding> {
+		const existing = await getDecrypted<InvestmentHoldingRow, InvestmentHolding>(
+			db.investmentHoldings,
+			key,
+			id
+		);
+		if (!existing) throw new Error(`InvestmentHolding ${id} not found`);
+		const updated: InvestmentHolding = { ...existing, ...changes, id, updatedAt: Date.now() };
+		await putEncrypted(db.investmentHoldings, key, updated, {
+			deletedAt: deletedAtIndex(updated.deletedAt)
+		});
+		return updated;
 	},
 
 	async softDelete(key: CryptoKey, id: string): Promise<void> {

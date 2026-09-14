@@ -566,13 +566,15 @@ export function TransactionsPage() {
 										style={isVirtualized ? { height: ROW_HEIGHT_PX } : undefined}
 									>
 										<TableCell className="text-muted-foreground">{tx.date}</TableCell>
-										<TableCell>
-											{tx.notes || (tx.type === 'transfer' ? 'Transfer' : tx.type)}
-											{tx.reviewStatus === 'unreviewed' && (
-												<Badge variant="outline" className="ml-2">
-													Unreviewed
-												</Badge>
-											)}
+										<TableCell className="max-w-0 w-full">
+											<div className="flex items-center gap-2 min-w-0">
+												<span className="truncate" title={tx.notes || undefined}>{tx.notes || (tx.type === 'transfer' ? 'Transfer' : tx.type)}</span>
+												{tx.reviewStatus === 'unreviewed' && (
+													<Badge variant="outline" className="ml-0 shrink-0">
+														Unreviewed
+													</Badge>
+												)}
+											</div>
 										</TableCell>
 										<TableCell className="text-muted-foreground">
 											{accountName(tx.accountId)}

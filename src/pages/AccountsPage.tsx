@@ -64,8 +64,14 @@ export function AccountsPage() {
 	const [accounts, setAccounts] = useState<Account[]>([]);
 	const [loading, setLoading] = useState(true);
 	const [dialogOpen, setDialogOpen] = useState(false);
+	const [editTarget, setEditTarget] = useState<Account | null>(null);
 
 	const form = useForm<AccountFormValues>({
+		resolver: zodResolver(accountSchema),
+		defaultValues: { name: '', type: 'bank', openingBalance: '0' }
+	});
+
+	const editForm = useForm<AccountFormValues>({
 		resolver: zodResolver(accountSchema),
 		defaultValues: { name: '', type: 'bank', openingBalance: '0' }
 	});
@@ -95,6 +101,31 @@ export function AccountsPage() {
 			await refresh();
 		} catch (err) {
 			toast.error(err instanceof Error ? err.message : 'Could not create account.');
+		}
+	}
+
+	function openEditDialog(account: Account) {
+		setEditTarget(account);
+		editForm.reset({
+			name: account.name,
+			type: account.type,
+			openingBalance: String(account.openingBalance / 100)
+		});
+	}
+
+	async function onEditSubmit(values: AccountFormValues) {
+		if (!editTarget) return;
+		try {
+			await AccountRepository.update(key, editTarget.id, {
+				name: values.name,
+				type: values.type,
+				openingBalance: parseMoneyOrZero(values.openingBalance || '0')
+			});
+			setEditTarget(null);
+			toast.success(`${values.name} updated`);
+			await refresh();
+		} catch (err) {
+			toast.error(err instanceof Error ? err.message : 'Could not update account.');
 		}
 	}
 
@@ -223,6 +254,9 @@ export function AccountsPage() {
 										</Button>
 									</DropdownMenuTrigger>
 									<DropdownMenuContent align="end">
+										<DropdownMenuItem onSelect={() => openEditDialog(account)}>
+											Edit
+										</DropdownMenuItem>
 										<DropdownMenuItem onSelect={() => archiveAccount(account)}>
 											{account.isArchived ? 'Unarchive' : 'Archive'}
 										</DropdownMenuItem>
@@ -241,6 +275,58 @@ export function AccountsPage() {
 					))}
 				</div>
 			)}
+
+			<Dialog open={!!editTarget} onOpenChange={(open) => !open && setEditTarget(null)}>
+				<DialogContent>
+					<DialogHeader>
+						<DialogTitle>Edit account</DialogTitle>
+					</DialogHeader>
+					<form className="flex flex-col gap-4" onSubmit={editForm.handleSubmit(onEditSubmit)}>
+						<div className="flex flex-col gap-1.5">
+							<Label htmlFor="edit-account-name">Name</Label>
+							<Input id="edit-account-name" {...editForm.register('name')} />
+							{editForm.formState.errors.name && (
+								<p className="text-sm text-destructive">{editForm.formState.errors.name.message}</p>
+							)}
+						</div>
+						<div className="flex flex-col gap-1.5">
+							<Label htmlFor="edit-account-type">Type</Label>
+							<Controller
+								control={editForm.control}
+								name="type"
+								render={({ field }) => (
+									<Select value={field.value} onValueChange={field.onChange}>
+										<SelectTrigger id="edit-account-type" className="w-full">
+											<SelectValue />
+										</SelectTrigger>
+										<SelectContent>
+											{Object.entries(TYPE_LABELS).map(([value, label]) => (
+												<SelectItem key={value} value={value}>
+													{label}
+												</SelectItem>
+											))}
+										</SelectContent>
+									</Select>
+								)}
+							/>
+						</div>
+						<div className="flex flex-col gap-1.5">
+							<Label htmlFor="edit-opening-balance">Opening balance</Label>
+							<Input
+								id="edit-opening-balance"
+								type="number"
+								step="0.01"
+								{...editForm.register('openingBalance')}
+							/>
+						</div>
+						<DialogFooter>
+							<Button type="submit" disabled={editForm.formState.isSubmitting}>
+								Save changes
+							</Button>
+						</DialogFooter>
+					</form>
+				</DialogContent>
+			</Dialog>
 		</div>
 	);
 }

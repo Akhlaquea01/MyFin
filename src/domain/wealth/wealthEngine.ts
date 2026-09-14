@@ -10,7 +10,7 @@ import {
 	LoanRepaymentRepository
 } from '../../data/dexie/personLoanRepository';
 import { computePendingBalance, computeOpenLoanTotals } from '../personLoans/loanProgress';
-import type { NetWorthSnapshot } from '../../domain/entities';
+import type { InvestmentHolding, NetWorthSnapshot } from '../../domain/entities';
 
 export interface NetWorthBreakdown {
 	cashBalance: number;
@@ -87,4 +87,65 @@ export async function recordNetWorthSnapshot(
 
 export async function netWorthHistory(key: CryptoKey): Promise<NetWorthSnapshot[]> {
 	return NetWorthSnapshotRepository.list(key);
+}
+
+/**
+ * Records a purchase of additional units for an existing holding, recalculating the
+ * weighted-average price and cost basis (spec 016, FR-017, contracts/wealth-engine.md).
+ */
+export async function recordPurchase(
+	key: CryptoKey,
+	holdingId: string,
+	purchase: { units: number; price: number }
+): Promise<InvestmentHolding> {
+	if (purchase.units <= 0) throw new Error('Units must be positive.');
+	if (purchase.price <= 0) throw new Error('Price must be positive.');
+
+	const holding = await InvestmentHoldingRepository.getById(key, holdingId);
+	if (!holding) throw new Error('Holding not found.');
+
+	const existingUnits = holding.units ?? 0;
+	const existingAvgPrice = holding.avgPrice ?? 0;
+
+	const newUnits = existingUnits + purchase.units;
+	const newAvgPrice = Math.round(
+		(existingUnits * existingAvgPrice + purchase.units * purchase.price) / newUnits
+	);
+	const newCostBasis = newUnits * newAvgPrice;
+
+	return InvestmentHoldingRepository.update(key, holdingId, {
+		units: newUnits,
+		avgPrice: newAvgPrice,
+		costBasis: newCostBasis
+	});
+}
+
+/**
+ * Records a sale (decrease) of units for an existing holding. Average price is unchanged;
+ * costBasis is recalculated as remaining units × avgPrice (spec 016, FR-019/020,
+ * contracts/wealth-engine.md).
+ */
+export async function recordSale(
+	key: CryptoKey,
+	holdingId: string,
+	sale: { units: number }
+): Promise<InvestmentHolding> {
+	if (sale.units <= 0) throw new Error('Units must be positive.');
+
+	const holding = await InvestmentHoldingRepository.getById(key, holdingId);
+	if (!holding) throw new Error('Holding not found.');
+
+	const existingUnits = holding.units ?? 0;
+	if (sale.units > existingUnits) {
+		throw new Error('Cannot sell more units than currently held.');
+	}
+
+	const newUnits = existingUnits - sale.units;
+	const avgPrice = holding.avgPrice ?? 0;
+	const newCostBasis = newUnits * avgPrice;
+
+	return InvestmentHoldingRepository.update(key, holdingId, {
+		units: newUnits,
+		costBasis: newCostBasis
+	});
 }

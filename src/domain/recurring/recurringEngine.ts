@@ -1,5 +1,6 @@
 import { RecurringRepository, ExpectedEventRepository } from '../../data/dexie/recurringRepository';
-import type { RecurringRule, ExpectedEvent, Transaction } from '../../domain/entities';
+import { TransactionRepository } from '../../data/dexie/transactionRepository';
+import type { RecurringRule, RecurringFrequency, ExpectedEvent, Transaction } from '../../domain/entities';
 
 const MATCH_WINDOW_DAYS = 3;
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -160,4 +161,41 @@ export async function markMissedPastDue(key: CryptoKey, asOf: Date = new Date())
 		}
 	}
 	return count;
+}
+
+/**
+ * Creates a RecurringRule pre-filled from an existing transaction's data and
+ * links the source transaction via `recurringRuleId` (FR-005, spec 016).
+ * Called from ReviewPage's "Mark as Recurring" confirm action.
+ */
+export async function createRuleFromTransaction(
+	key: CryptoKey,
+	transaction: Transaction,
+	details: { frequency: RecurringFrequency; dayOfPeriod: number; categoryId?: string }
+): Promise<RecurringRule> {
+	// Build a RecurringRule using the same shape RecurringPage.tsx already builds via its form,
+	// plus the new optional `label` field. Prefer the caller's explicit categoryId (e.g. Review's
+	// currently-selected category, which may not be committed yet) over the transaction's
+	// already-persisted split.
+	let categoryId = details.categoryId;
+	if (!categoryId) {
+		const splits = await TransactionRepository.getSplits(key, transaction.id);
+		categoryId = splits[0]?.categoryId ?? '';
+	}
+
+	const rule = await RecurringRepository.create(key, {
+		accountId: transaction.accountId,
+		categoryId,
+		amount: transaction.amount,
+		frequency: details.frequency,
+		dayOfPeriod: details.dayOfPeriod,
+		label: transaction.notes || undefined
+	});
+
+	// Link the source transaction to the new rule
+	await TransactionRepository.update(key, transaction.id, {
+		recurringRuleId: rule.id
+	});
+
+	return rule;
 }

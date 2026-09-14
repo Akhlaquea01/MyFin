@@ -1,4 +1,5 @@
 import { db } from '../dexie/db';
+import { clearAllTables } from '../dexie/clearAllTables';
 import { encryptRow, decryptRows, getDecrypted } from '../dexie/encryptedTable';
 import { deletedAtIndex, nullableIdIndex } from '../dexie/indexable';
 import {
@@ -638,38 +639,7 @@ export async function restoreBackup(key: CryptoKey, payload: BackupPayload): Pro
 			db.sessionKeys
 		],
 		async () => {
-			await Promise.all([
-				db.accounts.clear(),
-				db.categories.clear(),
-				db.merchants.clear(),
-				db.merchantAliases.clear(),
-				db.tags.clear(),
-				db.transactions.clear(),
-				db.transactionSplits.clear(),
-				db.transactionTags.clear(),
-				db.budgets.clear(),
-				db.budgetItems.clear(),
-				db.recurringRules.clear(),
-				db.expectedEvents.clear(),
-				db.investmentHoldings.clear(),
-				db.investmentValuations.clear(),
-				db.liabilities.clear(),
-				db.netWorthSnapshots.clear(),
-				db.debtPlannerPreferences.clear(),
-				db.savingsGoals.clear(),
-				db.goalContributions.clear(),
-				db.notificationPreferences.clear(),
-				db.notifiedItems.clear(),
-				db.attachments.clear(),
-				db.categorizationRules.clear(),
-				db.merchantCategorySignals.clear(),
-				db.people.clear(),
-				db.personLoans.clear(),
-				db.personLoanRepayments.clear(),
-				db.savedFilterViews.clear(),
-				db.userProfile.clear(),
-				db.sessionKeys.clear()
-			]);
+			await clearAllTables();
 			await Promise.all([
 				db.accounts.bulkPut(accountRows),
 				db.categories.bulkPut(categoryRows),

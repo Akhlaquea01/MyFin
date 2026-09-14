@@ -67,6 +67,10 @@ export interface Transaction extends Timestamped, SoftDeletable {
 	source: TransactionSource;
 	reviewStatus: ReviewStatus;
 	duplicateOfId: ID | null;
+	/** Set when this transaction was the source of a recurring rule created via Review's
+	 *  "Mark as Recurring" (FR-005, spec 016). null/undefined for every transaction not
+	 *  linked this way. Not indexed — read directly off the already-decrypted object. */
+	recurringRuleId?: ID | null;
 }
 
 export interface TransactionSplit {
@@ -116,6 +120,10 @@ export interface RecurringRule extends Timestamped {
 	frequency: RecurringFrequency;
 	dayOfPeriod: number;
 	isActive: boolean;
+	/** Human-readable description, copied from the source transaction's notes when created
+	 *  via createRuleFromTransaction (FR-005, spec 016). Display falls back to category-name
+	 *  rendering when absent. Not indexed. */
+	label?: string;
 }
 
 export type ExpectedEventStatus = 'pending' | 'matched' | 'missed';
@@ -128,11 +136,19 @@ export interface ExpectedEvent extends Timestamped {
 	matchedTransactionId: ID | null;
 }
 
+export type InvestmentType = 'stock' | 'mutual_fund' | 'etf' | 'bond' | 'fixed_deposit' | 'crypto' | 'other';
+
 export interface InvestmentHolding extends Timestamped, SoftDeletable {
 	id: ID;
 	name: string;
-	type: string;
+	type: InvestmentType;
 	costBasis: number;
+	/** Count of units held. Present once a holding has gone through the purchase/sale flow;
+	 *  undefined for a legacy holding that only ever had a costBasis (FR-018). */
+	units?: number;
+	/** Average price per unit, integer in the smallest currency unit (paise). Present under
+	 *  the same condition as units. */
+	avgPrice?: number;
 }
 
 export interface InvestmentValuation extends Timestamped {

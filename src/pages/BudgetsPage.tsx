@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { PiggyBank, Plus } from 'lucide-react';
+import { ChevronLeft, ChevronRight, PiggyBank, Plus } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -28,7 +28,7 @@ import { BudgetProgressCard } from '../components/BudgetProgressCard';
 import { useSession } from '../context/SessionContext';
 import { CategoryRepository } from '../data/dexie/categoryRepository';
 import { BudgetRepository } from '../data/dexie/budgetRepository';
-import { ensureCurrentBudgetItem } from '../domain/budgets/budgetEngine';
+import { ensureBudgetItemForPeriod } from '../domain/budgets/budgetEngine';
 import type { Budget, BudgetItem, BudgetPeriodType, Category } from '../domain/entities';
 import { isPositiveMoney, parseMoneyOrZero } from '../domain/shared/money';
 
@@ -41,7 +41,13 @@ const budgetSchema = z.object({
 });
 type BudgetFormValues = z.infer<typeof budgetSchema>;
 
+const MONTH_NAMES = [
+	'January', 'February', 'March', 'April', 'May', 'June',
+	'July', 'August', 'September', 'October', 'November', 'December'
+];
+
 // User Story 5 (P5): budgeting per category with optional rollover/sinking funds.
+// Spec 016 adds month-wise history navigation (FR-011).
 export function BudgetsPage() {
 	const { getEncryptionKey } = useSession();
 	const key = getEncryptionKey();
@@ -51,6 +57,7 @@ export function BudgetsPage() {
 	const [items, setItems] = useState<Record<string, BudgetItem>>({});
 	const [loading, setLoading] = useState(true);
 	const [dialogOpen, setDialogOpen] = useState(false);
+	const [selectedMonth, setSelectedMonth] = useState(() => new Date());
 
 	const form = useForm<BudgetFormValues>({
 		resolver: zodResolver(budgetSchema),
@@ -63,6 +70,22 @@ export function BudgetsPage() {
 		}
 	});
 
+	const isCurrentMonth =
+		selectedMonth.getFullYear() === new Date().getFullYear() &&
+		selectedMonth.getMonth() === new Date().getMonth();
+
+	function prevMonth() {
+		setSelectedMonth((d) => new Date(d.getFullYear(), d.getMonth() - 1, 1));
+	}
+
+	function nextMonth() {
+		setSelectedMonth((d) => new Date(d.getFullYear(), d.getMonth() + 1, 1));
+	}
+
+	function goToCurrentMonth() {
+		setSelectedMonth(new Date());
+	}
+
 	async function refresh() {
 		setLoading(true);
 		try {
@@ -73,7 +96,7 @@ export function BudgetsPage() {
 			setCategories(cats);
 			setBudgets(budgetList);
 			const currentItems = await Promise.all(
-				budgetList.map((b) => ensureCurrentBudgetItem(key, b))
+				budgetList.map((b) => ensureBudgetItemForPeriod(key, b, selectedMonth))
 			);
 			setItems(Object.fromEntries(budgetList.map((b, i) => [b.id, currentItems[i]])));
 		} catch (err) {
@@ -86,7 +109,7 @@ export function BudgetsPage() {
 	useEffect(() => {
 		void refresh();
 		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, []);
+	}, [selectedMonth]);
 
 	function categoryName(id: string): string {
 		return categories.find((c) => c.id === id)?.name ?? id;
@@ -206,6 +229,29 @@ export function BudgetsPage() {
 				</Dialog>
 			</div>
 
+			{/* Month selector (spec 016, FR-011) */}
+			<div className="mb-4 flex items-center justify-center gap-2">
+				<Button variant="ghost" size="icon-sm" onClick={prevMonth} aria-label="Previous month">
+					<ChevronLeft className="size-4" />
+				</Button>
+				<button
+					type="button"
+					className="min-w-[160px] text-center text-sm font-medium"
+					onClick={goToCurrentMonth}
+					title="Click to go to current month"
+				>
+					{MONTH_NAMES[selectedMonth.getMonth()]} {selectedMonth.getFullYear()}
+				</button>
+				<Button variant="ghost" size="icon-sm" onClick={nextMonth} aria-label="Next month">
+					<ChevronRight className="size-4" />
+				</Button>
+				{!isCurrentMonth && (
+					<Button variant="outline" size="sm" onClick={goToCurrentMonth} className="ml-2">
+						Today
+					</Button>
+				)}
+			</div>
+
 			{loading ? (
 				<p className="text-sm text-muted-foreground">Loading…</p>
 			) : budgets.length === 0 ? (
@@ -219,7 +265,18 @@ export function BudgetsPage() {
 				<div className="grid gap-4 sm:grid-cols-2">
 					{budgets.map((budget) => {
 						const item = items[budget.id];
-						if (!item) return null;
+						if (!item) {
+							// No BudgetItem for this category/month — distinguished from a budget
+							// set to zero per FR-012 / spec 016 edge case.
+							return (
+								<Card key={budget.id} className="opacity-50">
+									<CardContent className="flex flex-col gap-1 pt-6">
+										<p className="text-sm font-medium">{categoryName(budget.categoryId)}</p>
+										<p className="text-xs text-muted-foreground italic">No budget set for this month</p>
+									</CardContent>
+								</Card>
+							);
+						}
 						return (
 							<BudgetProgressCard
 								key={budget.id}

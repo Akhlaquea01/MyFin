@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { saveAs } from 'file-saver';
-import { DatabaseBackup, ShieldAlert, Upload, HelpCircle } from 'lucide-react';
+import { DatabaseBackup, ShieldAlert, Trash2, Upload, HelpCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -28,13 +28,15 @@ import {
 	type BackupFile,
 	type BackupPayload
 } from '../data/io/backupService';
+import { resetAllData } from '../data/io/resetService';
 import { useQuickTour } from '../hooks/useQuickTour';
 
 const AUTO_BACKUP_KEY = 'myfin.autoBackup';
 const REMINDER_INTERVAL_DAYS = 7;
-/** Typed by the user to arm the restore. Deliberately not a plain "Yes" — this wipes
- *  everything and cannot be undone (Constitution Principle VI). */
+/** Typed by the user to arm the restore / clear-all. Deliberately not a plain "Yes" — this
+ *  wipes everything and cannot be undone (Constitution Principle VI). */
 const RESTORE_CONFIRM_WORD = 'REPLACE';
+const CLEAR_ALL_CONFIRM_WORD = 'DELETE EVERYTHING';
 
 interface AutoBackupSettings {
 	enabled: boolean;
@@ -87,6 +89,9 @@ export function BackupSettingsPage() {
 	const [restoring, setRestoring] = useState(false);
 	const [pendingRestore, setPendingRestore] = useState<PendingRestore | null>(null);
 	const [confirmWord, setConfirmWord] = useState('');
+	const [clearAllOpen, setClearAllOpen] = useState(false);
+	const [clearAllConfirm, setClearAllConfirm] = useState('');
+	const [clearing, setClearing] = useState(false);
 	const fileInputRef = useRef<HTMLInputElement>(null);
 
 	useEffect(() => {
@@ -271,7 +276,7 @@ export function BackupSettingsPage() {
 				</CardContent>
 			</Card>
 
-			<Card>
+			<Card className="mb-6">
 				<CardHeader>
 					<CardTitle className="text-base">Restore from backup</CardTitle>
 				</CardHeader>
@@ -306,6 +311,29 @@ export function BackupSettingsPage() {
 						className="hidden"
 						onChange={(e) => void handleRestoreFile(e)}
 					/>
+				</CardContent>
+			</Card>
+
+			{/* Clear All Data (spec 016, FR-013/014) */}
+			<Card className="border-destructive/50">
+				<CardHeader>
+					<CardTitle className="text-base text-destructive">Clear all data</CardTitle>
+				</CardHeader>
+				<CardContent className="flex flex-col gap-4">
+					<p className="text-sm text-muted-foreground">
+						Permanently delete all your financial data (accounts, transactions, budgets,
+						investments, categories, tags, recurring rules) <strong>and</strong> your PIN/security
+						setup and app preferences. The app will restart in first-run/onboarding mode.
+						This cannot be undone.
+					</p>
+					<Button
+						type="button"
+						variant="destructive"
+						onClick={() => { setClearAllConfirm(''); setClearAllOpen(true); }}
+						className="w-fit"
+					>
+						<Trash2 /> Clear all data
+					</Button>
 				</CardContent>
 			</Card>
 
@@ -349,6 +377,54 @@ export function BackupSettingsPage() {
 							onClick={() => void commitRestore()}
 						>
 							{restoring ? 'Restoring…' : 'Replace everything'}
+						</Button>
+					</div>
+				</DialogContent>
+			</Dialog>
+
+			{/* Clear All Data confirmation dialog (spec 016, FR-014) */}
+			<Dialog open={clearAllOpen} onOpenChange={setClearAllOpen}>
+				<DialogContent>
+					<DialogHeader>
+						<DialogTitle>Clear all data?</DialogTitle>
+						<DialogDescription>
+							This will permanently delete <strong>all</strong> your financial data (accounts,
+							transactions, budgets, investments, categories, tags, recurring rules) <strong>and
+							your PIN/security setup and preferences</strong>. The app will restart from scratch
+							requiring a new PIN. This cannot be undone.
+						</DialogDescription>
+					</DialogHeader>
+					<div className="flex flex-col gap-1.5">
+						<Label htmlFor="clear-all-confirm">
+							Type <span className="font-mono font-bold">{CLEAR_ALL_CONFIRM_WORD}</span> to confirm
+						</Label>
+						<Input
+							id="clear-all-confirm"
+							value={clearAllConfirm}
+							onChange={(e) => setClearAllConfirm(e.target.value)}
+							autoComplete="off"
+						/>
+					</div>
+					<div className="flex flex-wrap justify-end gap-2">
+						<Button variant="outline" onClick={() => setClearAllOpen(false)} disabled={clearing}>
+							Cancel
+						</Button>
+						<Button
+							variant="destructive"
+							disabled={clearing || clearAllConfirm !== CLEAR_ALL_CONFIRM_WORD}
+							onClick={async () => {
+								setClearing(true);
+								try {
+									await resetAllData();
+									toast.success('All data cleared. Reloading…');
+									window.location.reload();
+								} catch (err) {
+									toast.error(err instanceof Error ? err.message : 'Could not clear data.');
+									setClearing(false);
+								}
+							}}
+						>
+							{clearing ? 'Clearing…' : 'Clear everything'}
 						</Button>
 					</div>
 				</DialogContent>

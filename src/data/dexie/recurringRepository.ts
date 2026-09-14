@@ -8,6 +8,7 @@ export interface NewRecurringRule {
 	amount: number;
 	frequency: RecurringFrequency;
 	dayOfPeriod: number;
+	label?: string;
 }
 
 export const RecurringRepository = {
@@ -21,6 +22,7 @@ export const RecurringRepository = {
 			frequency: input.frequency,
 			dayOfPeriod: input.dayOfPeriod,
 			isActive: true,
+			label: input.label,
 			createdAt: now,
 			updatedAt: now
 		};

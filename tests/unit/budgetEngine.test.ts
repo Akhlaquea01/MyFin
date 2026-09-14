@@ -5,6 +5,7 @@ import { CategoryRepository } from '../../src/data/dexie/categoryRepository';
 import { BudgetRepository, BudgetItemRepository } from '../../src/data/dexie/budgetRepository';
 import { TransactionRepository } from '../../src/data/dexie/transactionRepository';
 import {
+	ensureBudgetItemForPeriod,
 	ensureCurrentBudgetItem,
 	getCurrentPeriodRange,
 	recalcActualAmount
@@ -166,5 +167,81 @@ describe('Budget engine', () => {
 		await ensureCurrentBudgetItem(key, budget, referenceDate);
 		const items = await BudgetItemRepository.listForBudget(key, budget.id);
 		expect(items).toHaveLength(1);
+	});
+
+	// spec 016, FR-010/FR-011: ensureBudgetItemForPeriod generalizes ensureCurrentBudgetItem to
+	// any reference date, powering both month-wise history navigation and the post-import
+	// recompute that fixes stale/imported budget totals.
+	describe('ensureBudgetItemForPeriod (spec 016)', () => {
+		it('creates a BudgetItem for an arbitrary past period with no existing row', async () => {
+			const budget = await BudgetRepository.create(key, {
+				categoryId,
+				periodType: 'monthly',
+				amount: 10000,
+				rolloverEnabled: false,
+				isSinkingFund: false
+			});
+			await TransactionRepository.create(
+				key,
+				{ accountId, date: '2025-06-10', amount: -2500, type: 'expense' },
+				[{ categoryId, amount: -2500 }]
+			);
+
+			const item = await ensureBudgetItemForPeriod(key, budget, new Date('2025-06-15T00:00:00Z'));
+			expect(item.periodStart).toBe('2025-06-01');
+			expect(item.plannedAmount).toBe(10000);
+			expect(item.actualAmount).toBe(2500);
+		});
+
+		it("corrects a stale actualAmount on an already-existing BudgetItem (the imported-json bug)", async () => {
+			const budget = await BudgetRepository.create(key, {
+				categoryId,
+				periodType: 'monthly',
+				amount: 10000,
+				rolloverEnabled: false,
+				isSinkingFund: false
+			});
+			// Simulate an imported BudgetItem whose actualAmount was trusted verbatim from a file,
+			// with no transactions yet on record to justify it.
+			const stale = await BudgetItemRepository.create(key, {
+				budgetId: budget.id,
+				periodStart: '2025-06-01',
+				periodEnd: '2025-06-30',
+				plannedAmount: 10000,
+				actualAmount: 999999,
+				rolloverInAmount: 0
+			});
+
+			// The real transactions land afterwards, as they would when import processes
+			// budgetItems (step 13) before transactions (step 21).
+			await TransactionRepository.create(
+				key,
+				{ accountId, date: '2025-06-10', amount: -4000, type: 'expense' },
+				[{ categoryId, amount: -4000 }]
+			);
+
+			const corrected = await ensureBudgetItemForPeriod(
+				key,
+				budget,
+				new Date('2025-06-15T00:00:00Z')
+			);
+			expect(corrected.id).toBe(stale.id);
+			expect(corrected.actualAmount).toBe(4000);
+		});
+
+		it('ensureCurrentBudgetItem remains a thin wrapper for referenceDate = now', async () => {
+			const budget = await BudgetRepository.create(key, {
+				categoryId,
+				periodType: 'monthly',
+				amount: 5000,
+				rolloverEnabled: false,
+				isSinkingFund: false
+			});
+			const now = new Date();
+			const viaWrapper = await ensureCurrentBudgetItem(key, budget, now);
+			const viaGeneral = await ensureBudgetItemForPeriod(key, budget, now);
+			expect(viaGeneral.id).toBe(viaWrapper.id);
+			expect(viaGeneral.periodStart).toBe(viaWrapper.periodStart);
+		});
 	});
 });

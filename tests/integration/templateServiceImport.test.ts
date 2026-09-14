@@ -5,7 +5,7 @@ import { CategoryRepository } from '../../src/data/dexie/categoryRepository';
 import { MerchantRepository } from '../../src/data/dexie/merchantRepository';
 import { TagRepository, TransactionTagRepository } from '../../src/data/dexie/tagRepository';
 import { TransactionRepository, TransactionSplitRepository } from '../../src/data/dexie/transactionRepository';
-import { BudgetRepository } from '../../src/data/dexie/budgetRepository';
+import { BudgetRepository, BudgetItemRepository } from '../../src/data/dexie/budgetRepository';
 import { InvestmentHoldingRepository } from '../../src/data/dexie/wealthRepository';
 import { AttachmentRepository } from '../../src/data/dexie/attachmentRepository';
 import { UserProfileRepository } from '../../src/data/dexie/userProfileRepository';
@@ -310,6 +310,131 @@ describe('templateService - Fresh install import (User Story 2)', () => {
 
 		const budgetsInDb = await BudgetRepository.list(key);
 		expect(budgetsInDb.length).toBe(0);
+	});
+
+	// spec 016, FR-010/FR-018: reproduces the reported "budget not updating with json" bug —
+	// an imported BudgetItem's actualAmount must never be trusted verbatim from the file, and a
+	// legacy free-text investment type must be mapped onto the fixed InvestmentType dropdown.
+	it('recomputes an imported budget item from the actual imported transactions instead of trusting the file', async () => {
+		const template: DataTemplate = {
+			container: 'myfin-data-template',
+			templateVersion: 1,
+			exportedAt: new Date().toISOString(),
+			entities: {
+				accounts: [
+					{
+						id: 'old-acc-1',
+						name: 'Checking',
+						type: 'bank',
+						openingBalance: 0,
+						currentBalance: 0,
+						creditLimit: null,
+						billingCycleDay: null,
+						isArchived: false,
+						createdAt: 1000,
+						updatedAt: 1000,
+						deletedAt: null
+					}
+				],
+				categories: [
+					{
+						id: 'old-cat-1',
+						name: 'Groceries',
+						parentId: null,
+						icon: null,
+						createdAt: 1000,
+						updatedAt: 1000,
+						deletedAt: null
+					}
+				],
+				merchants: [],
+				merchantAliases: [],
+				tags: [],
+				investmentHoldings: [
+					{
+						id: 'old-inv-1',
+						name: 'Coal India',
+						type: 'Stock',
+						costBasis: 100000,
+						createdAt: 1000,
+						updatedAt: 1000,
+						deletedAt: null
+					}
+				],
+				investmentValuations: [],
+				liabilities: [],
+				netWorthSnapshots: [],
+				savingsGoals: [],
+				goalContributions: [],
+				budgets: [
+					{
+						id: 'old-budget-1',
+						categoryId: 'old-cat-1',
+						periodType: 'monthly',
+						amount: 10000,
+						rolloverEnabled: false,
+						isSinkingFund: false,
+						createdAt: 1000,
+						updatedAt: 1000
+					}
+				],
+				budgetItems: [
+					{
+						id: 'old-bi-1',
+						budgetId: 'old-budget-1',
+						periodStart: '2026-06-01',
+						periodEnd: '2026-06-30',
+						plannedAmount: 10000,
+						// A stale/wrong snapshot value from the exporting device — must never survive
+						// import verbatim.
+						actualAmount: 999999,
+						rolloverInAmount: 0,
+						createdAt: 1000,
+						updatedAt: 1000
+					}
+				],
+				recurringRules: [],
+				expectedEvents: [],
+				categorizationRules: [],
+				merchantCategorySignals: [],
+				notificationPreference: null,
+				debtPlannerPreference: null,
+				transactions: [
+					{
+						id: 'old-tx-1',
+						accountId: 'old-acc-1',
+						date: '2026-06-10',
+						amount: -3000,
+						type: 'expense',
+						transferPairId: null,
+						merchantId: null,
+						notes: 'Groceries',
+						source: 'manual',
+						reviewStatus: 'confirmed',
+						duplicateOfId: null,
+						createdAt: 1000,
+						updatedAt: 1000,
+						deletedAt: null
+					}
+				],
+				transactionSplits: [
+					{ id: 'old-split-1', transactionId: 'old-tx-1', categoryId: 'old-cat-1', amount: -3000 }
+				],
+				transactionTags: [],
+				attachments: []
+			}
+		};
+
+		const result = await importDataTemplate(key, template);
+		expect(result.perEntity.budgetItems?.created).toBe(1);
+
+		const budgets = await BudgetRepository.list(key);
+		const budgetItems = await BudgetItemRepository.listForBudget(key, budgets[0].id);
+		expect(budgetItems).toHaveLength(1);
+		expect(budgetItems[0].actualAmount).toBe(3000);
+
+		const holdings = await InvestmentHoldingRepository.list(key);
+		expect(holdings[0].type).toBe('stock');
 	});
 
 	it('imports people, person loans, loan repayments, and singleton preferences on a fresh install', async () => {

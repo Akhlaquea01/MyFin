@@ -155,18 +155,18 @@ export function DashboardPage() {
 						<ul className="flex flex-col gap-3">
 							{summary.recentTransactions.map((tx) => (
 								<li key={tx.id} className="flex items-center justify-between text-sm">
-									<div className="flex items-center gap-2">
+									<div className="flex min-w-0 flex-1 items-center gap-2">
 										{tx.amount < 0 ? (
-											<ArrowUpRight className="size-4 text-destructive" />
+											<ArrowUpRight className="size-4 shrink-0 text-destructive" />
 										) : (
-											<ArrowDownLeft className="size-4 text-emerald-600 dark:text-emerald-400" />
+											<ArrowDownLeft className="size-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
 										)}
-										<span>{tx.notes || (tx.type === 'transfer' ? 'Transfer' : tx.type)}</span>
+										<span className="truncate" title={tx.notes || undefined}>{tx.notes || (tx.type === 'transfer' ? 'Transfer' : tx.type)}</span>
 										{tx.reviewStatus === 'unreviewed' && (
-											<Badge variant="outline">Unreviewed</Badge>
+											<Badge variant="outline" className="shrink-0">Unreviewed</Badge>
 										)}
 									</div>
-									<div className="flex items-center gap-3 text-muted-foreground">
+									<div className="flex shrink-0 items-center gap-3 text-muted-foreground">
 										<span>{tx.date}</span>
 										<span
 											className={`font-mono ${tx.amount < 0 ? 'text-destructive' : 'text-emerald-600 dark:text-emerald-400'}`}

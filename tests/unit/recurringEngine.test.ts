@@ -7,7 +7,9 @@ import {
 	ExpectedEventRepository
 } from '../../src/data/dexie/recurringRepository';
 import { TransactionEngine } from '../../src/domain/transactions/transactionEngine';
+import { TransactionRepository } from '../../src/data/dexie/transactionRepository';
 import {
+	createRuleFromTransaction,
 	generateExpectedEvents,
 	markMissedPastDue
 } from '../../src/domain/recurring/recurringEngine';
@@ -171,5 +173,49 @@ describe('Recurring engine', () => {
 		const stillPending = events.find((e) => e.id === event.id);
 		expect(stillPending?.status).toBe('pending');
 		expect(stillPending?.matchedTransactionId).toBeNull();
+	});
+
+	// spec 016, FR-005/FR-006: creating a recurring rule directly from a Review transaction.
+	describe('createRuleFromTransaction (spec 016)', () => {
+		it('creates a rule pre-filled from the transaction, with a label from its notes, and links it back', async () => {
+			const tx = await TransactionEngine.recordTransaction(
+				key,
+				{ accountId, date: '2026-03-10', amount: -1500, notes: 'Netflix subscription', type: 'expense' },
+				[{ categoryId, amount: -1500 }]
+			);
+
+			const rule = await createRuleFromTransaction(key, tx, {
+				frequency: 'monthly',
+				dayOfPeriod: 10
+			});
+
+			expect(rule.accountId).toBe(accountId);
+			expect(rule.categoryId).toBe(categoryId);
+			expect(rule.amount).toBe(-1500);
+			expect(rule.frequency).toBe('monthly');
+			expect(rule.dayOfPeriod).toBe(10);
+			expect(rule.label).toBe('Netflix subscription');
+			expect(rule.isActive).toBe(true);
+
+			const updated = await TransactionRepository.getById(key, tx.id);
+			expect(updated?.recurringRuleId).toBe(rule.id);
+		});
+
+		it('prefers an explicit categoryId override over the transaction’s persisted split', async () => {
+			const otherCategory = await CategoryRepository.create(key, { name: 'Entertainment' });
+			const tx = await TransactionEngine.recordTransaction(
+				key,
+				{ accountId, date: '2026-03-10', amount: -999, type: 'expense' },
+				[{ categoryId, amount: -999 }]
+			);
+
+			const rule = await createRuleFromTransaction(key, tx, {
+				frequency: 'weekly',
+				dayOfPeriod: 2,
+				categoryId: otherCategory.id
+			});
+
+			expect(rule.categoryId).toBe(otherCategory.id);
+		});
 	});
 });

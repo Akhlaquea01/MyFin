@@ -309,3 +309,25 @@ Export and import sanitized, reusable configuration templates (categories, accou
 - **Types**: [`src/data/io/templateTypes.ts`](file:///e:/MyFin/src/data/io/templateTypes.ts)
 - **Starter Sample**: [`src/data/io/sampleTemplate.ts`](file:///e:/MyFin/src/data/io/sampleTemplate.ts)
 - **Primary Pages**: [`ExportPage.tsx`](file:///e:/MyFin/src/pages/ExportPage.tsx), [`BackupSettingsPage.tsx`](file:///e:/MyFin/src/pages/BackupSettingsPage.tsx)
+
+---
+
+## Feature 016: Core Workflow Improvements
+
+### Overview
+A bundle of seven targeted fixes and additions to the daily-use workflow: transaction list readability, Review-queue performance, recurring-from-review, account editing, budget correctness/history, a full data reset, and richer investment tracking.
+
+### Key Capabilities
+- **Readable Transaction Rows**: Recent Transactions (Dashboard) and the Transactions table truncate long descriptions and keep the "Unreviewed" badge, date, and amount from ever overlapping, at any screen width.
+- **Responsive Review Queue**: Confirming or discarding a transaction in Review now patches local state instead of re-fetching and re-decrypting the entire unreviewed queue on every click — fixes multi-second hangs at hundreds of unreviewed transactions.
+- **Mark as Recurring from Review**: A transaction can be turned into a recurring rule directly from Review via a short frequency/day confirm step; an already-linked transaction shows "Already recurring" instead of offering a duplicate.
+- **Account Editing**: The Accounts section gained an Edit dialog alongside its existing view/add/archive/delete actions.
+- **Correct, Browsable Budgets**: Importing data no longer trusts a file's stale `actualAmount` — it's always recomputed from the destination's own transactions. A month selector lets budgets be browsed for any prior period, computed on demand.
+- **Clear All Data**: A single, doubly-confirmed action wipes every table — financial data and the PIN/security vault — returning the app to true first-run onboarding.
+- **Investment Type Dropdown + Units/Avg Price**: `type` is now a fixed dropdown instead of free text; holdings track units and a weighted-average price, recalculated on each additional purchase, plus a validated sell path that can never take units negative. Legacy free-text types are mapped onto the fixed list on import.
+
+### Domain Engine & Architecture
+- **Engines**: [`budgetEngine.ts`](file:///e:/MyFin/src/domain/budgets/budgetEngine.ts) (`ensureBudgetItemForPeriod`), [`recurringEngine.ts`](file:///e:/MyFin/src/domain/recurring/recurringEngine.ts) (`createRuleFromTransaction`), [`wealthEngine.ts`](file:///e:/MyFin/src/domain/wealth/wealthEngine.ts) (`recordPurchase`/`recordSale`)
+- **Data Layer**: [`clearAllTables.ts`](file:///e:/MyFin/src/data/dexie/clearAllTables.ts), [`resetService.ts`](file:///e:/MyFin/src/data/io/resetService.ts), import-time budget recompute and investment type mapping in [`templateService.ts`](file:///e:/MyFin/src/data/io/templateService.ts)
+- **Primary Pages**: [`DashboardPage.tsx`](file:///e:/MyFin/src/pages/DashboardPage.tsx), [`TransactionsPage.tsx`](file:///e:/MyFin/src/pages/TransactionsPage.tsx), [`ReviewPage.tsx`](file:///e:/MyFin/src/pages/ReviewPage.tsx), [`AccountsPage.tsx`](file:///e:/MyFin/src/pages/AccountsPage.tsx), [`BudgetsPage.tsx`](file:///e:/MyFin/src/pages/BudgetsPage.tsx), [`BackupSettingsPage.tsx`](file:///e:/MyFin/src/pages/BackupSettingsPage.tsx), [`InvestmentsPage.tsx`](file:///e:/MyFin/src/pages/InvestmentsPage.tsx)
+- **Spec**: [`specs/016-core-workflow-improvements/`](file:///e:/MyFin/specs/016-core-workflow-improvements/)

@@ -92,7 +92,7 @@ export const SAMPLE_DATA_TEMPLATE: DataTemplate = {
 			{
 				id: '92622f54-ab10-433d-a04e-3d433bce775b',
 				name: 'Coal India',
-				type: 'Stock',
+				type: 'stock',
 				costBasis: 1000,
 				createdAt: 1788682788686,
 				updatedAt: 1788682788686,

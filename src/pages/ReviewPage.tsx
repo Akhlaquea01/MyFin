@@ -1,12 +1,19 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { CheckCircle2, Inbox, Trash2, Upload } from 'lucide-react';
+import { CheckCircle2, Inbox, Repeat, Trash2, Upload } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
 import { Card, CardContent } from '../components/ui/card';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
+import {
+	Dialog,
+	DialogContent,
+	DialogFooter,
+	DialogHeader,
+	DialogTitle
+} from '../components/ui/dialog';
 import {
 	Select,
 	SelectContent,
@@ -25,10 +32,12 @@ import {
 	type SplitInput
 } from '../data/dexie/transactionRepository';
 import { TransactionEngine } from '../domain/transactions/transactionEngine';
+import { createRuleFromTransaction } from '../domain/recurring/recurringEngine';
 import type {
 	Account,
 	Category,
 	Merchant,
+	RecurringFrequency,
 	Transaction,
 	TransactionSplit
 } from '../domain/entities';
@@ -56,6 +65,9 @@ export function ReviewPage() {
 	const [categoryChoice, setCategoryChoice] = useState<Record<string, string>>({});
 	const [tagsInput, setTagsInput] = useState<Record<string, string>>({});
 	const [loading, setLoading] = useState(true);
+	const [recurringTarget, setRecurringTarget] = useState<Transaction | null>(null);
+	const [recurringFrequency, setRecurringFrequency] = useState<RecurringFrequency>('monthly');
+	const [recurringDay, setRecurringDay] = useState('1');
 
 	async function refresh() {
 		setLoading(true);
@@ -129,7 +141,40 @@ export function ReviewPage() {
 				: [];
 		await TransactionEngine.confirmTransaction(key, tx.id, splits, tagIds);
 		toast.success('Confirmed');
-		await refresh();
+		// Local patch: remove the now-confirmed transaction from the queue
+		setItems((prev) => prev.filter((t) => t.id !== tx.id));
+	}
+
+	function openRecurringDialog(tx: Transaction) {
+		// tx.date is a plain "YYYY-MM-DD" string; parsing it with `new Date(...)` reads it as
+		// UTC midnight and `.getDate()` then returns the *local* day, which can be off by one
+		// depending on the viewer's timezone. Read the day-of-month directly from the string.
+		const dayOfMonth = Number(tx.date.slice(8, 10)) || 1;
+		setRecurringDay(String(dayOfMonth));
+		setRecurringFrequency('monthly');
+		setRecurringTarget(tx);
+	}
+
+	async function confirmRecurring() {
+		if (!recurringTarget) return;
+		try {
+			const day = Math.max(1, Math.min(31, parseInt(recurringDay) || 1));
+			const rule = await createRuleFromTransaction(key, recurringTarget, {
+				frequency: recurringFrequency,
+				dayOfPeriod: day,
+				categoryId: categoryChoice[recurringTarget.id]
+			});
+			// Update the local transaction to reflect the new link
+			setItems((prev) =>
+				prev.map((t) =>
+					t.id === recurringTarget.id ? { ...t, recurringRuleId: rule.id } : t
+				)
+			);
+			setRecurringTarget(null);
+			toast.success('Recurring rule created');
+		} catch (err) {
+			toast.error(err instanceof Error ? err.message : 'Could not create recurring rule.');
+		}
 	}
 
 	async function reject(tx: Transaction) {
@@ -145,7 +190,8 @@ export function ReviewPage() {
 				}
 			}
 		});
-		await refresh();
+		// Local patch: remove the discarded transaction from the queue
+		setItems((prev) => prev.filter((t) => t.id !== tx.id));
 	}
 
 	return (
@@ -234,6 +280,20 @@ export function ReviewPage() {
 								</div>
 
 								<div className="flex items-center justify-end gap-2">
+									{tx.recurringRuleId ? (
+										<Badge variant="secondary" className="gap-1">
+											<Repeat className="size-3" /> Already recurring
+										</Badge>
+									) : (
+										<Button
+											size="sm"
+											variant="outline"
+											aria-label="Mark as recurring"
+											onClick={() => openRecurringDialog(tx)}
+										>
+											<Repeat className="size-4" /> Recurring
+										</Button>
+									)}
 									<Button
 										size="sm"
 										variant="secondary"
@@ -262,6 +322,56 @@ export function ReviewPage() {
 					))}
 				</div>
 			)}
+			<Dialog open={!!recurringTarget} onOpenChange={(open) => !open && setRecurringTarget(null)}>
+				<DialogContent>
+					<DialogHeader>
+						<DialogTitle>Mark as recurring</DialogTitle>
+					</DialogHeader>
+					<div className="flex flex-col gap-4">
+						<p className="text-sm text-muted-foreground">
+							Create a recurring rule from this transaction. You can adjust the frequency
+							and day before confirming.
+						</p>
+						<div className="grid grid-cols-2 gap-3">
+							<div className="flex flex-col gap-1.5">
+								<Label htmlFor="recurring-frequency">Frequency</Label>
+								<Select
+									value={recurringFrequency}
+									onValueChange={(v) => setRecurringFrequency(v as RecurringFrequency)}
+								>
+									<SelectTrigger id="recurring-frequency" className="w-full">
+										<SelectValue />
+									</SelectTrigger>
+									<SelectContent>
+										<SelectItem value="weekly">Weekly</SelectItem>
+										<SelectItem value="monthly">Monthly</SelectItem>
+										<SelectItem value="yearly">Yearly</SelectItem>
+									</SelectContent>
+								</Select>
+							</div>
+							<div className="flex flex-col gap-1.5">
+								<Label htmlFor="recurring-day">Day of period</Label>
+								<Input
+									id="recurring-day"
+									type="number"
+									min={1}
+									max={31}
+									value={recurringDay}
+									onChange={(e) => setRecurringDay(e.target.value)}
+								/>
+							</div>
+						</div>
+					</div>
+					<DialogFooter>
+						<Button variant="outline" onClick={() => setRecurringTarget(null)}>
+							Cancel
+						</Button>
+						<Button onClick={() => void confirmRecurring()}>
+							Create recurring rule
+						</Button>
+					</DialogFooter>
+				</DialogContent>
+			</Dialog>
 		</div>
 	);
 }

@@ -20,6 +20,8 @@ import {
 	GoalContributionRepository
 } from '../dexie/savingsGoalRepository';
 import { BudgetRepository, BudgetItemRepository } from '../dexie/budgetRepository';
+import { ensureBudgetItemForPeriod } from '../../domain/budgets/budgetEngine';
+import type { InvestmentType } from '../../domain/entities';
 import { RecurringRepository, ExpectedEventRepository } from '../dexie/recurringRepository';
 import { CategorizationRuleRepository } from '../dexie/categorizationRuleRepository';
 import { MerchantCategorySignalRepository } from '../dexie/merchantCategorySignalRepository';
@@ -41,6 +43,40 @@ import { TransactionEngine } from '../../domain/transactions/transactionEngine';
 import { duplicateKey, findDuplicateId } from './importService';
 
 export const CURRENT_TEMPLATE_VERSION = 1;
+
+/** Case/spacing-insensitive synonyms for legacy free-text investment `type` values, mapped to
+ *  the fixed `InvestmentType` dropdown (spec 016, FR-018, contracts/wealth-engine.md). */
+const INVESTMENT_TYPE_SYNONYMS: Record<string, InvestmentType> = {
+	stock: 'stock',
+	stocks: 'stock',
+	equity: 'stock',
+	equities: 'stock',
+	share: 'stock',
+	shares: 'stock',
+	mf: 'mutual_fund',
+	mutualfund: 'mutual_fund',
+	mutualfunds: 'mutual_fund',
+	etf: 'etf',
+	bond: 'bond',
+	bonds: 'bond',
+	fd: 'fixed_deposit',
+	fixeddeposit: 'fixed_deposit',
+	fixeddeposits: 'fixed_deposit',
+	crypto: 'crypto',
+	cryptocurrency: 'crypto',
+	bitcoin: 'crypto'
+};
+
+/** Maps a legacy/imported free-text investment type to the closest fixed `InvestmentType`
+ *  member, defaulting to `'other'` for anything unmatched (FR-018). Pure. */
+export function mapLegacyInvestmentType(raw: string): InvestmentType {
+	const normalized = raw.trim().toLowerCase().replace(/[\s_-]/g, '');
+	if (normalized in INVESTMENT_TYPE_SYNONYMS) return INVESTMENT_TYPE_SYNONYMS[normalized];
+	for (const [needle, type] of Object.entries(INVESTMENT_TYPE_SYNONYMS)) {
+		if (normalized.includes(needle)) return type;
+	}
+	return 'other';
+}
 
 /**
  * Parses raw JSON string into a validated DataTemplate object.
@@ -263,6 +299,10 @@ export async function importDataTemplate(
 	const personRemap = new Map<string, string>();
 	const personLoanRemap = new Map<string, string>();
 	const transactionIsDuplicateOfExisting = new Set<string>();
+	// (spec 016, FR-010): every `${resolvedBudgetId}|${periodStart}` pair touched while importing
+	// budgetItems, recomputed from the destination's own transactions once import finishes —
+	// the file's own actualAmount/plannedAmount is never trusted (see step 25 below).
+	const touchedBudgetPeriods = new Set<string>();
 	// Deferred until `transactionRemap` is populated by the Transactions step (21): file
 	// (expectedEventId, matchedTransactionId) pairs to patch onto the already-created rows.
 	const pendingExpectedEventMatches: Array<{ eventId: string; fileMatchedTransactionId: string }> = [];
@@ -434,7 +474,7 @@ export async function importDataTemplate(
 		} else {
 			const created = await InvestmentHoldingRepository.create(key, {
 				name: h.name,
-				type: h.type,
+				type: mapLegacyInvestmentType(h.type),
 				costBasis: h.costBasis
 			});
 			holdingRemap.set(h.id, created.id);
@@ -588,6 +628,10 @@ export async function importDataTemplate(
 			recordSkipped('budgetItems', 'unresolved-relationship');
 			continue;
 		}
+		// Tracked regardless of match/create below — the file's actualAmount is only ever a
+		// placeholder; step 25 recomputes it from the destination's own transactions once every
+		// entity (including this import's own transactions) has been written.
+		touchedBudgetPeriods.add(`${resolvedBudgetId}|${bi.periodStart}`);
 		const match = existingBudgetItems.find(
 			(ebi) => ebi.budgetId === resolvedBudgetId && ebi.periodStart === bi.periodStart
 		);
@@ -1007,6 +1051,23 @@ export async function importDataTemplate(
 	// 24. Batch Balance Recalculation (One call per touched account, FR-014)
 	for (const accountId of touchedAccountIds) {
 		await TransactionEngine.recalculateAccountBalance(key, accountId);
+	}
+
+	// 25. Budget Item Recomputation (spec 016, FR-010) — now that every imported transaction is
+	// committed, recompute each touched budget/period's actualAmount from the destination's own
+	// data instead of trusting whatever the file's own budgetItems.actualAmount happened to say.
+	for (const composite of touchedBudgetPeriods) {
+		const [resolvedBudgetId, periodStart] = composite.split('|');
+		const budget = existingBudgets.find((b) => b.id === resolvedBudgetId);
+		if (!budget) continue;
+		// Build a reference date safely from the period's own year/month rather than
+		// `new Date(periodStart)`, which parses a "YYYY-MM-DD" string as UTC midnight and can
+		// read back the wrong local month near a timezone boundary (the same pitfall
+		// budgetEngine.ts's getCurrentPeriodRange already documents). Day 15 stays safely inside
+		// the month regardless of month length or timezone.
+		const [y, m] = periodStart.split('-').map(Number);
+		const referenceDate = new Date(y, (m || 1) - 1, 15);
+		await ensureBudgetItemForPeriod(key, budget, referenceDate);
 	}
 
 	return {

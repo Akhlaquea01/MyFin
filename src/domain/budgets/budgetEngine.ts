@@ -94,8 +94,11 @@ export async function recalcActualAmount(
  * Gets (or creates) the BudgetItem for the period containing `referenceDate`, applying
  * rollover from the previous period when enabled (FR-025) — sinking funds (FR-026) always
  * roll over their unused amount, since accumulating toward a goal is the point.
+ *
+ * Generalized from the original `ensureCurrentBudgetItem` (spec 016, FR-010/011) to accept
+ * any reference date, enabling month-wise history navigation and correct import recomputation.
  */
-export async function ensureCurrentBudgetItem(
+export async function ensureBudgetItemForPeriod(
 	key: CryptoKey,
 	budget: Budget,
 	referenceDate: Date = new Date()
@@ -147,4 +150,13 @@ export async function ensureCurrentBudgetItem(
 		actualAmount,
 		rolloverInAmount
 	});
+}
+
+/** Thin wrapper — calls ensureBudgetItemForPeriod with today's date. */
+export async function ensureCurrentBudgetItem(
+	key: CryptoKey,
+	budget: Budget,
+	referenceDate: Date = new Date()
+): Promise<BudgetItem> {
+	return ensureBudgetItemForPeriod(key, budget, referenceDate);
 }

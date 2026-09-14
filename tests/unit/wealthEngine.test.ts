@@ -9,7 +9,9 @@ import {
 import {
 	computeNetWorth,
 	recordNetWorthSnapshot,
-	netWorthHistory
+	netWorthHistory,
+	recordPurchase,
+	recordSale
 } from '../../src/domain/wealth/wealthEngine';
 import { deriveEncryptionKey, randomSaltBase64 } from '../../src/data/crypto/cryptoService';
 import { PersonRepository, PersonLoanRepository } from '../../src/data/dexie/personLoanRepository';
@@ -162,5 +164,85 @@ describe('Wealth engine', () => {
 		await PersonLoanRepository.writeOff(key, loan.id);
 		const afterWriteOff = await computeNetWorth(key);
 		expect(afterWriteOff.netWorth).toBe(beforeWriteOff.netWorth - 5000);
+	});
+
+	// spec 016, FR-016/017/019/020: units + weighted-average price tracking on purchase/sale.
+	describe('recordPurchase / recordSale (spec 016)', () => {
+		it('sets units/avgPrice/costBasis from the first recorded purchase', async () => {
+			const holding = await InvestmentHoldingRepository.create(key, {
+				name: 'BEL',
+				type: 'stock',
+				costBasis: 0
+			});
+
+			const updated = await recordPurchase(key, holding.id, { units: 10, price: 2780 });
+			expect(updated.units).toBe(10);
+			expect(updated.avgPrice).toBe(2780);
+			expect(updated.costBasis).toBe(27800);
+		});
+
+		it('recalculates a unit-weighted average price across two purchases', async () => {
+			const holding = await InvestmentHoldingRepository.create(key, {
+				name: 'COALINDIA',
+				type: 'stock',
+				costBasis: 0,
+				units: 100,
+				avgPrice: 400
+			});
+
+			// (100 * 400 + 50 * 700) / 150 = (40000 + 35000) / 150 = 500
+			const updated = await recordPurchase(key, holding.id, { units: 50, price: 700 });
+			expect(updated.units).toBe(150);
+			expect(updated.avgPrice).toBe(500);
+			expect(updated.costBasis).toBe(75000);
+		});
+
+		it('rejects a purchase with non-positive units or price', async () => {
+			const holding = await InvestmentHoldingRepository.create(key, {
+				name: 'ETERNAL',
+				type: 'stock',
+				costBasis: 0
+			});
+			await expect(recordPurchase(key, holding.id, { units: 0, price: 100 })).rejects.toThrow();
+			await expect(recordPurchase(key, holding.id, { units: 10, price: 0 })).rejects.toThrow();
+		});
+
+		it('reduces units on a sale while leaving average price unchanged', async () => {
+			const holding = await InvestmentHoldingRepository.create(key, {
+				name: 'BEL',
+				type: 'stock',
+				costBasis: 27800,
+				units: 10,
+				avgPrice: 2780
+			});
+
+			const updated = await recordSale(key, holding.id, { units: 4 });
+			expect(updated.units).toBe(6);
+			expect(updated.avgPrice).toBe(2780);
+			expect(updated.costBasis).toBe(16680);
+		});
+
+		it('rejects a sale that would take units below zero', async () => {
+			const holding = await InvestmentHoldingRepository.create(key, {
+				name: 'BEL',
+				type: 'stock',
+				costBasis: 27800,
+				units: 10,
+				avgPrice: 2780
+			});
+
+			await expect(recordSale(key, holding.id, { units: 11 })).rejects.toThrow();
+			const unchanged = await InvestmentHoldingRepository.getById(key, holding.id);
+			expect(unchanged?.units).toBe(10);
+		});
+
+		it('rejects any sale against a holding with no units yet', async () => {
+			const holding = await InvestmentHoldingRepository.create(key, {
+				name: 'Legacy Gold',
+				type: 'other',
+				costBasis: 20000
+			});
+			await expect(recordSale(key, holding.id, { units: 1 })).rejects.toThrow();
+		});
 	});
 });
