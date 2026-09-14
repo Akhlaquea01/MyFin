@@ -3,6 +3,8 @@ import { db } from '../../src/data/dexie/db';
 import { AccountRepository } from '../../src/data/dexie/accountRepository';
 import { TransactionEngine } from '../../src/domain/transactions/transactionEngine';
 import { getDashboardSummary } from '../../src/domain/analytics/dashboardService';
+import { InvestmentHoldingRepository } from '../../src/data/dexie/wealthRepository';
+import { computeNetWorth } from '../../src/domain/wealth/wealthEngine';
 import { deriveEncryptionKey, randomSaltBase64 } from '../../src/data/crypto/cryptoService';
 
 describe('Dashboard aggregation', () => {
@@ -39,6 +41,32 @@ describe('Dashboard aggregation', () => {
 		const summary = await getDashboardSummary(key);
 		expect(summary.totalBalance).toBe(100000 - 2000 + 50000);
 		expect(summary.netWorth).toBe(summary.totalBalance);
+	});
+
+	it('matches the Net Worth page breakdown once investments are involved, diverging from totalBalance', async () => {
+		await AccountRepository.create(key, {
+			name: 'Checking',
+			type: 'bank',
+			openingBalance: 100000,
+			creditLimit: null,
+			billingCycleDay: null
+		});
+		await InvestmentHoldingRepository.create(key, {
+			name: 'Some Stock',
+			type: 'Stock',
+			costBasis: 25000
+		});
+
+		const summary = await getDashboardSummary(key);
+		const breakdown = await computeNetWorth(key);
+
+		// Accounts alone (totalBalance) don't include the investment; netWorth does — this guards
+		// against the dashboard silently reverting to the pre-spec-017 cash-only calculation
+		// where `netWorth` was just an alias for `totalBalance`.
+		expect(summary.totalBalance).toBe(100000);
+		expect(summary.netWorth).toBe(breakdown.netWorth);
+		expect(summary.netWorth).toBe(125000);
+		expect(summary.netWorth).not.toBe(summary.totalBalance);
 	});
 
 	it('counts unreviewed transactions', async () => {

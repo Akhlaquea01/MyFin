@@ -114,19 +114,21 @@ export function DashboardPage() {
 						</CardContent>
 					</Card>
 				</Link>
-				<Card>
-					<CardHeader className="pb-2">
-						<CardTitle className="flex items-center gap-1.5 text-sm font-medium text-muted-foreground">
-							<TrendingUp className="size-3.5 text-primary" /> Net Worth
-						</CardTitle>
-					</CardHeader>
-					<CardContent>
-						<p className="font-mono text-2xl font-semibold">{formatMoney(summary.netWorth)}</p>
-						<p className="mt-1 text-xs text-muted-foreground">
-							Cash only for now — investments/liabilities factor in once tracked.
-						</p>
-					</CardContent>
-				</Card>
+				<Link to="/net-worth">
+					<Card className="h-full transition-colors hover:bg-muted/50">
+						<CardHeader className="pb-2">
+							<CardTitle className="flex items-center gap-1.5 text-sm font-medium text-muted-foreground">
+								<TrendingUp className="size-3.5 text-primary" /> Net Worth
+							</CardTitle>
+						</CardHeader>
+						<CardContent>
+							<p className="font-mono text-2xl font-semibold">{formatMoney(summary.netWorth)}</p>
+							<p className="mt-1 text-xs text-muted-foreground">
+								Cash, credit cards, investments & loans — tap for the breakdown.
+							</p>
+						</CardContent>
+					</Card>
+				</Link>
 				<Link to="/transactions">
 					<Card className="h-full transition-colors hover:bg-muted/50">
 						<CardHeader className="pb-2">
