@@ -36,6 +36,7 @@ import {
 	type ParsedFile,
 	type ImportResult
 } from '../data/io/importService';
+import { findCardMatches, type CardMatch } from '../domain/parser/cardIdentifierMatcher';
 import type { Account } from '../domain/entities';
 
 const NONE = '__none__';
@@ -60,6 +61,8 @@ export function ImportPage() {
 	const [importing, setImporting] = useState(false);
 	const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
 	const [result, setResult] = useState<ImportResult | null>(null);
+	const [cardMatchReason, setCardMatchReason] = useState<CardMatch | null>(null);
+	const [cardDisambiguation, setCardDisambiguation] = useState<CardMatch[] | null>(null);
 	const fileInputRef = useRef<HTMLInputElement>(null);
 
 	useEffect(() => {
@@ -69,6 +72,28 @@ export function ImportPage() {
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, []);
 	const activeAccounts = accounts.filter((a) => !a.isArchived);
+
+	// FR-020/FR-022/FR-023: detected once when the user picks a description column, over a
+	// preview slice of the file (not the whole thing — this is a lightweight suggestion, distinct
+	// from the per-row matching importRows itself does at commit time). Only applies when no
+	// explicit account column is mapped — that already fully determines each row's destination.
+	useEffect(() => {
+		setCardMatchReason(null);
+		setCardDisambiguation(null);
+		if (accountColumn !== NONE || descriptionColumn === NONE || !parsed) return;
+		const text = previewRows(parsed)
+			.map((r) => r[descriptionColumn] ?? '')
+			.join('\n');
+		const matches = findCardMatches(text, accounts);
+		const distinctIds = [...new Set(matches.map((m) => m.accountId))];
+		if (distinctIds.length === 1) {
+			setAccountId(distinctIds[0]);
+			setCardMatchReason(matches.find((m) => m.accountId === distinctIds[0]) ?? null);
+		} else if (distinctIds.length > 1) {
+			setCardDisambiguation(distinctIds.map((id) => matches.find((m) => m.accountId === id)!));
+		}
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [descriptionColumn, accountColumn, parsed]);
 
 	// Whole-file collision pre-check (FR-006), recomputed whenever the file or the account
 	// column selection changes — mirrors the check importRows() itself performs, surfaced
@@ -195,6 +220,34 @@ export function ImportPage() {
 
 					{parsed && (
 						<>
+							{cardMatchReason && (
+								<p className="rounded-md border border-emerald-500/40 bg-emerald-500/5 p-2 text-xs text-muted-foreground">
+									Matched by {cardMatchReason.matchType === 'last4' ? 'card ending' : 'nickname'} "
+									{cardMatchReason.matchedIdentifier}" — the Account fallback below was
+									pre-selected. You can still choose a different account.
+								</p>
+							)}
+							{cardDisambiguation && (
+								<div className="flex flex-col gap-1.5 rounded-md border border-amber-500/40 bg-amber-500/5 p-2">
+									<p className="text-xs text-muted-foreground">
+										The description column matches more than one tagged card — pick which one:
+									</p>
+									<div className="flex flex-wrap gap-2">
+										{cardDisambiguation.map((match) => (
+											<Button
+												key={match.accountId}
+												type="button"
+												variant={accountId === match.accountId ? 'default' : 'outline'}
+												size="sm"
+												className="h-auto py-1"
+												onClick={() => setAccountId(match.accountId)}
+											>
+												{match.accountName} (ending {match.matchedIdentifier})
+											</Button>
+										))}
+									</div>
+								</div>
+							)}
 							<div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
 								<div className="flex flex-col gap-1.5">
 									<Label htmlFor="import-account">
@@ -355,8 +408,8 @@ export function ImportPage() {
 							{accountNameCollisions.length > 0 && (
 								<div className="rounded-md border border-destructive/40 bg-destructive/5 p-3">
 									<p className="text-xs font-medium text-destructive">
-										Account name "{accountNameCollisions[0]}" matches more than one account.
-										Rename one of them before importing.
+										Account name "{accountNameCollisions[0]}" matches more than one account. Rename
+										one of them before importing.
 									</p>
 								</div>
 							)}
@@ -441,19 +494,18 @@ export function ImportPage() {
 								{result.flaggedDuplicates.length} flagged as possible duplicates.
 							</p>
 						)}
-						{result.perAccountSummary &&
-							Object.keys(result.perAccountSummary).length > 1 && (
-								<div>
-									<p className="mb-1 text-sm font-medium">Imported by account:</p>
-									<ul className="list-inside list-disc text-xs text-muted-foreground">
-										{Object.entries(result.perAccountSummary).map(([accId, summary]) => (
-											<li key={accId}>
-												{summary.count} to {summary.accountName}
-											</li>
-										))}
-									</ul>
-								</div>
-							)}
+						{result.perAccountSummary && Object.keys(result.perAccountSummary).length > 1 && (
+							<div>
+								<p className="mb-1 text-sm font-medium">Imported by account:</p>
+								<ul className="list-inside list-disc text-xs text-muted-foreground">
+									{Object.entries(result.perAccountSummary).map(([accId, summary]) => (
+										<li key={accId}>
+											{summary.count} to {summary.accountName}
+										</li>
+									))}
+								</ul>
+							</div>
+						)}
 						{result.skippedMalformedRows.length > 0 && (
 							<div>
 								<p className="mb-1 text-sm text-muted-foreground">

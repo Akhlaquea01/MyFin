@@ -459,7 +459,12 @@ export async function restoreBackup(key: CryptoKey, payload: BackupPayload): Pro
 			)
 		),
 		Promise.all(
-			e.budgets.map((b) => encryptRow<BudgetRow, Budget>(key, b, { categoryId: b.categoryId }))
+			e.budgets.map((b) =>
+				encryptRow<BudgetRow, Budget>(key, b, {
+					categoryId: b.categoryId,
+					deletedAt: deletedAtIndex(b.deletedAt)
+				})
+			)
 		),
 		Promise.all(
 			e.budgetItems.map((i) =>

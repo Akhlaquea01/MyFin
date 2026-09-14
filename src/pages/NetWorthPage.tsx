@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Camera, TrendingUp, TrendingDown, Minus } from 'lucide-react';
+import { Camera, TrendingUp, TrendingDown, Minus, ChevronDown, ChevronRight } from 'lucide-react';
 import {
 	Chart,
 	LineController,
@@ -20,9 +20,28 @@ import {
 	computeNetWorth,
 	netWorthHistory,
 	recordNetWorthSnapshot,
-	type NetWorthBreakdown
+	type NetWorthBreakdown,
+	type NetWorthCategory
 } from '../domain/wealth/wealthEngine';
 import type { NetWorthSnapshot } from '../domain/entities';
+
+// FR-005/FR-006: order matters for display — assets first, then liabilities, each labeled
+// distinctly instead of one undifferentiated total (research.md §2).
+const CATEGORY_LABELS: Record<
+	keyof Pick<
+		NetWorthBreakdown,
+		'cash' | 'creditCardDebt' | 'investments' | 'loansLent' | 'loansBorrowed' | 'otherLiabilities'
+	>,
+	string
+> = {
+	cash: 'Cash & bank balances',
+	investments: 'Investments',
+	loansLent: 'Money lent',
+	creditCardDebt: 'Credit card debt',
+	loansBorrowed: 'Money borrowed',
+	otherLiabilities: 'Other liabilities (loans)'
+};
+const CATEGORY_ORDER = Object.keys(CATEGORY_LABELS) as (keyof typeof CATEGORY_LABELS)[];
 
 Chart.register(LineController, LineElement, PointElement, LinearScale, CategoryScale, Tooltip);
 
@@ -45,6 +64,16 @@ export function NetWorthPage() {
 	const [breakdown, setBreakdown] = useState<NetWorthBreakdown | null>(null);
 	const [history, setHistory] = useState<NetWorthSnapshot[]>([]);
 	const [loadError, setLoadError] = useState(false);
+	const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set());
+
+	function toggleCategory(key: string) {
+		setExpandedCategories((prev) => {
+			const next = new Set(prev);
+			if (next.has(key)) next.delete(key);
+			else next.add(key);
+			return next;
+		});
+	}
 
 	async function refresh() {
 		try {
@@ -106,16 +135,56 @@ export function NetWorthPage() {
 				<CardContent>
 					<p className="font-mono text-3xl font-semibold">{formatMoney(breakdown.netWorth)}</p>
 					{history.length > 1 && <Sparkline values={history.map((s) => s.netWorth)} />}
-					<dl className="mt-4 grid grid-cols-2 gap-2 text-sm">
-						<dt className="text-muted-foreground">Cash</dt>
-						<dd className="text-right font-mono">{formatMoney(breakdown.cashBalance)}</dd>
-						<dt className="text-muted-foreground">Investments</dt>
-						<dd className="text-right font-mono">{formatMoney(breakdown.investmentValue)}</dd>
-						<dt className="text-muted-foreground">Liabilities</dt>
-						<dd className="text-right font-mono text-destructive">
-							-{formatMoney(breakdown.totalLiabilities)}
-						</dd>
-					</dl>
+					{/* FR-005/FR-006: every category is a distinct, labeled subtotal that sums exactly to
+					    the total above (SC-002) — never one undifferentiated figure. */}
+					<div className="mt-4 flex flex-col divide-y">
+						{CATEGORY_ORDER.map((categoryKey) => {
+							const category: NetWorthCategory = breakdown[categoryKey];
+							const isLiability =
+								categoryKey === 'creditCardDebt' ||
+								categoryKey === 'loansBorrowed' ||
+								categoryKey === 'otherLiabilities';
+							const isExpanded = expandedCategories.has(categoryKey);
+							const hasItems = category.items.length > 0;
+							return (
+								<div key={categoryKey} className="py-2">
+									<button
+										type="button"
+										className="flex w-full items-center justify-between gap-2 text-sm disabled:cursor-default"
+										onClick={() => hasItems && toggleCategory(categoryKey)}
+										disabled={!hasItems}
+									>
+										<span className="flex items-center gap-1 text-muted-foreground">
+											{hasItems &&
+												(isExpanded ? (
+													<ChevronDown className="size-3.5" />
+												) : (
+													<ChevronRight className="size-3.5" />
+												))}
+											{CATEGORY_LABELS[categoryKey]}
+										</span>
+										<span className={`font-mono ${isLiability ? 'text-destructive' : ''}`}>
+											{isLiability && category.subtotal > 0 ? '-' : ''}
+											{formatMoney(category.subtotal)}
+										</span>
+									</button>
+									{isExpanded && hasItems && (
+										<ul className="mt-2 flex flex-col gap-1 pl-5">
+											{category.items.map((item) => (
+												<li
+													key={item.id}
+													className="flex items-center justify-between text-xs text-muted-foreground"
+												>
+													<span>{item.name}</span>
+													<span className="font-mono">{formatMoney(item.amount)}</span>
+												</li>
+											))}
+										</ul>
+									)}
+								</div>
+							);
+						})}
+					</div>
 				</CardContent>
 			</Card>
 

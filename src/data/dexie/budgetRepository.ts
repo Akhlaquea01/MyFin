@@ -1,5 +1,6 @@
 import { db, type BudgetRow, type BudgetItemRow } from './db';
 import { putEncrypted, getDecrypted, decryptRows } from './encryptedTable';
+import { deletedAtIndex, NOT_DELETED } from './indexable';
 import type { Budget, BudgetItem, BudgetPeriodType } from '../../domain/entities';
 
 export interface NewBudget {
@@ -21,9 +22,13 @@ export const BudgetRepository = {
 			rolloverEnabled: input.rolloverEnabled,
 			isSinkingFund: input.isSinkingFund,
 			createdAt: now,
-			updatedAt: now
+			updatedAt: now,
+			deletedAt: null
 		};
-		await putEncrypted(db.budgets, key, budget, { categoryId: budget.categoryId });
+		await putEncrypted(db.budgets, key, budget, {
+			categoryId: budget.categoryId,
+			deletedAt: NOT_DELETED
+		});
 		return budget;
 	},
 
@@ -31,16 +36,32 @@ export const BudgetRepository = {
 		const existing = await getDecrypted<BudgetRow, Budget>(db.budgets, key, id);
 		if (!existing) throw new Error(`Budget ${id} not found`);
 		const updated: Budget = { ...existing, ...changes, id, updatedAt: Date.now() };
-		await putEncrypted(db.budgets, key, updated, { categoryId: updated.categoryId });
+		await putEncrypted(db.budgets, key, updated, {
+			categoryId: updated.categoryId,
+			deletedAt: deletedAtIndex(updated.deletedAt)
+		});
 		return updated;
+	},
+
+	/** FR-013: a soft delete with a short undo window (via `restore`), matching
+	 *  `AccountRepository`/`LiabilityRepository`'s existing pattern. */
+	async softDelete(key: CryptoKey, id: string): Promise<void> {
+		await this.update(key, id, { deletedAt: Date.now() });
+	},
+
+	async restore(key: CryptoKey, id: string): Promise<void> {
+		await this.update(key, id, { deletedAt: null });
 	},
 
 	async getById(key: CryptoKey, id: string): Promise<Budget | null> {
 		return (await getDecrypted<BudgetRow, Budget>(db.budgets, key, id)) ?? null;
 	},
 
+	/** Excludes soft-deleted budgets by default (FR-013), matching every other soft-deletable
+	 *  repository's `list()` — `runNotificationCheck.ts`/`analyticsEngine.ts`/`templateService.ts`
+	 *  all transparently stop seeing a deleted budget through this same call. */
 	async list(key: CryptoKey): Promise<Budget[]> {
-		const rows = await db.budgets.toArray();
+		const rows = await db.budgets.where('deletedAt').equals(NOT_DELETED).toArray();
 		return decryptRows<BudgetRow, Budget>(key, rows);
 	}
 };

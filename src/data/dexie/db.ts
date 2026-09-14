@@ -1,6 +1,7 @@
 import Dexie, { type EntityTable } from 'dexie';
 import type { EncryptedBlob } from '../crypto/cryptoService';
 import type { UserProfile } from '../../domain/entities';
+import { NOT_DELETED } from './indexable';
 
 /**
  * Every table except `userProfile` stores a row shaped as its non-sensitive structural
@@ -77,6 +78,7 @@ export interface TransactionTagRow {
 
 export interface BudgetRow extends EncryptedRow {
 	categoryId: string;
+	deletedAt: number;
 }
 
 export interface BudgetItemRow extends EncryptedRow {
@@ -170,7 +172,6 @@ export interface PersonLoanRepaymentRow extends EncryptedRow {
 export interface SavedFilterViewRow extends EncryptedRow {
 	createdAt: number;
 }
-
 
 /**
  * Holds the derived encryption key across a page reload so the app doesn't have to force a
@@ -294,8 +295,18 @@ class MyFinDatabase extends Dexie {
 		this.version(10).stores({
 			savedFilterViews: 'id, createdAt'
 		});
+		// v11: adds soft-delete to budgets (spec 017, FR-013/FR-014) so a removed budget can be
+		// undone and stops appearing in current/future tracking, matching every other
+		// soft-deletable entity's `deletedAt` index. Unlike v8's aliasHash/nameHash digests,
+		// `deletedAt` is never sensitive (a timestamp, not financial content) and needs no
+		// encryption key to compute, so the backfill happens directly here rather than deferring
+		// to a post-unlock pass (research.md §1).
+		this.version(11)
+			.stores({
+				budgets: 'id, categoryId, deletedAt'
+			})
+			.upgrade((tx) => tx.table('budgets').toCollection().modify({ deletedAt: NOT_DELETED }));
 	}
 }
-
 
 export const db = new MyFinDatabase();

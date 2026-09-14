@@ -39,7 +39,9 @@ test('Data Template export and import round trip', async ({ page }) => {
 	const fileContent = readFileSync(downloadedPath, 'utf8');
 	const parsed = JSON.parse(fileContent);
 	expect(parsed.container).toBe('myfin-data-template');
-	expect(parsed.entities.accounts.some((a: { name: string }) => a.name === 'Vacation Savings')).toBe(true);
+	expect(
+		parsed.entities.accounts.some((a: { name: string }) => a.name === 'Vacation Savings')
+	).toBe(true);
 
 	// Import the exported file back in (overlapping import)
 	const fileInput = page.locator('input[type="file"][accept*="json"]');
@@ -50,8 +52,10 @@ test('Data Template export and import round trip', async ({ page }) => {
 	await expect(summaryDialog).toBeVisible();
 	await expect(page.getByText('Template Import Summary')).toBeVisible();
 
-	// Vacation Savings already exists, so it should report skipped
-	await expect(summaryDialog.getByText(/skipped/i)).toBeVisible();
+	// Vacation Savings already exists, so it should report skipped. The summary dialog now
+	// shows several elements mentioning "skipped" (description text, a count badge, and a
+	// details heading), so target the count badge specifically rather than the ambiguous text.
+	await expect(summaryDialog.getByText('1 skipped')).toBeVisible();
 
 	// Close dialog
 	await summaryDialog.getByRole('button', { name: 'Done' }).click();

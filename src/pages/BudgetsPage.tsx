@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { ChevronLeft, ChevronRight, PiggyBank, Plus } from 'lucide-react';
+import { ChevronLeft, ChevronRight, MoreVertical, PiggyBank, Plus } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -18,6 +18,12 @@ import {
 	DialogTrigger
 } from '../components/ui/dialog';
 import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuItem,
+	DropdownMenuTrigger
+} from '../components/ui/dropdown-menu';
+import {
 	Select,
 	SelectContent,
 	SelectItem,
@@ -28,7 +34,10 @@ import { BudgetProgressCard } from '../components/BudgetProgressCard';
 import { useSession } from '../context/SessionContext';
 import { CategoryRepository } from '../data/dexie/categoryRepository';
 import { BudgetRepository } from '../data/dexie/budgetRepository';
-import { ensureBudgetItemForPeriod } from '../domain/budgets/budgetEngine';
+import {
+	ensureBudgetItemForPeriod,
+	hasActiveBudgetForCategory
+} from '../domain/budgets/budgetEngine';
 import type { Budget, BudgetItem, BudgetPeriodType, Category } from '../domain/entities';
 import { isPositiveMoney, parseMoneyOrZero } from '../domain/shared/money';
 
@@ -42,8 +51,18 @@ const budgetSchema = z.object({
 type BudgetFormValues = z.infer<typeof budgetSchema>;
 
 const MONTH_NAMES = [
-	'January', 'February', 'March', 'April', 'May', 'June',
-	'July', 'August', 'September', 'October', 'November', 'December'
+	'January',
+	'February',
+	'March',
+	'April',
+	'May',
+	'June',
+	'July',
+	'August',
+	'September',
+	'October',
+	'November',
+	'December'
 ];
 
 // User Story 5 (P5): budgeting per category with optional rollover/sinking funds.
@@ -58,8 +77,20 @@ export function BudgetsPage() {
 	const [loading, setLoading] = useState(true);
 	const [dialogOpen, setDialogOpen] = useState(false);
 	const [selectedMonth, setSelectedMonth] = useState(() => new Date());
+	const [editTarget, setEditTarget] = useState<Budget | null>(null);
 
 	const form = useForm<BudgetFormValues>({
+		resolver: zodResolver(budgetSchema),
+		defaultValues: {
+			categoryId: '',
+			periodType: 'monthly',
+			amount: '0',
+			rolloverEnabled: false,
+			isSinkingFund: false
+		}
+	});
+
+	const editForm = useForm<BudgetFormValues>({
 		resolver: zodResolver(budgetSchema),
 		defaultValues: {
 			categoryId: '',
@@ -117,6 +148,13 @@ export function BudgetsPage() {
 
 	async function onSubmit(values: BudgetFormValues) {
 		try {
+			// FR-015: two active budgets for the same category would double-count its actuals.
+			if (await hasActiveBudgetForCategory(key, values.categoryId)) {
+				toast.error(
+					`${categoryName(values.categoryId)} already has an active budget. Edit that one instead of creating another.`
+				);
+				return;
+			}
 			await BudgetRepository.create(key, {
 				categoryId: values.categoryId,
 				periodType: values.periodType,
@@ -130,6 +168,65 @@ export function BudgetsPage() {
 			await refresh();
 		} catch (err) {
 			toast.error(err instanceof Error ? err.message : 'Could not create budget.');
+		}
+	}
+
+	function openEditDialog(budget: Budget) {
+		setEditTarget(budget);
+		editForm.reset({
+			categoryId: budget.categoryId,
+			periodType: budget.periodType,
+			amount: String(budget.amount / 100),
+			rolloverEnabled: budget.rolloverEnabled,
+			isSinkingFund: budget.isSinkingFund
+		});
+	}
+
+	async function onEditSubmit(values: BudgetFormValues) {
+		if (!editTarget) return;
+		try {
+			// FR-015: also enforced on edit — changing a budget's category to one that already
+			// has its own active budget would create the same double-count.
+			if (await hasActiveBudgetForCategory(key, values.categoryId, editTarget.id)) {
+				toast.error(
+					`${categoryName(values.categoryId)} already has an active budget. Choose a different category, or merge them manually.`
+				);
+				return;
+			}
+			await BudgetRepository.update(key, editTarget.id, {
+				categoryId: values.categoryId,
+				periodType: values.periodType,
+				amount: parseMoneyOrZero(values.amount),
+				rolloverEnabled: values.rolloverEnabled,
+				isSinkingFund: values.isSinkingFund
+			});
+			setEditTarget(null);
+			toast.success('Budget updated');
+			await refresh();
+		} catch (err) {
+			toast.error(err instanceof Error ? err.message : 'Could not update budget.');
+		}
+	}
+
+	async function deleteBudget(budget: Budget) {
+		// FR-013: a confirmation step, separate from the undo window below.
+		const confirmed = window.confirm(
+			`Remove the ${categoryName(budget.categoryId)} budget? You can undo this right after.`
+		);
+		if (!confirmed) return;
+		try {
+			await BudgetRepository.softDelete(key, budget.id);
+			toast.success(`${categoryName(budget.categoryId)} budget deleted`, {
+				action: {
+					label: 'Undo',
+					onClick: () => {
+						void BudgetRepository.restore(key, budget.id).then(refresh);
+					}
+				}
+			});
+			await refresh();
+		} catch (err) {
+			toast.error(err instanceof Error ? err.message : 'Could not delete budget.');
 		}
 	}
 
@@ -265,14 +362,38 @@ export function BudgetsPage() {
 				<div className="grid gap-4 sm:grid-cols-2">
 					{budgets.map((budget) => {
 						const item = items[budget.id];
+						const actions = (
+							<DropdownMenu>
+								<DropdownMenuTrigger asChild>
+									<Button
+										variant="ghost"
+										size="icon-sm"
+										aria-label={`${categoryName(budget.categoryId)} budget actions`}
+									>
+										<MoreVertical />
+									</Button>
+								</DropdownMenuTrigger>
+								<DropdownMenuContent align="end">
+									<DropdownMenuItem onSelect={() => openEditDialog(budget)}>Edit</DropdownMenuItem>
+									<DropdownMenuItem variant="destructive" onSelect={() => deleteBudget(budget)}>
+										Delete
+									</DropdownMenuItem>
+								</DropdownMenuContent>
+							</DropdownMenu>
+						);
 						if (!item) {
 							// No BudgetItem for this category/month — distinguished from a budget
 							// set to zero per FR-012 / spec 016 edge case.
 							return (
 								<Card key={budget.id} className="opacity-50">
 									<CardContent className="flex flex-col gap-1 pt-6">
-										<p className="text-sm font-medium">{categoryName(budget.categoryId)}</p>
-										<p className="text-xs text-muted-foreground italic">No budget set for this month</p>
+										<div className="flex items-start justify-between">
+											<p className="text-sm font-medium">{categoryName(budget.categoryId)}</p>
+											{actions}
+										</div>
+										<p className="text-xs text-muted-foreground italic">
+											No budget set for this month
+										</p>
 									</CardContent>
 								</Card>
 							);
@@ -282,11 +403,108 @@ export function BudgetsPage() {
 								key={budget.id}
 								categoryName={categoryName(budget.categoryId)}
 								item={item}
+								actions={actions}
 							/>
 						);
 					})}
 				</div>
 			)}
+
+			<Dialog open={!!editTarget} onOpenChange={(open) => !open && setEditTarget(null)}>
+				<DialogContent>
+					<DialogHeader>
+						<DialogTitle>Edit budget</DialogTitle>
+					</DialogHeader>
+					<form className="flex flex-col gap-4" onSubmit={editForm.handleSubmit(onEditSubmit)}>
+						<div className="flex flex-col gap-1.5">
+							<Label htmlFor="edit-budget-category">Category</Label>
+							<Controller
+								control={editForm.control}
+								name="categoryId"
+								render={({ field }) => (
+									<Select value={field.value} onValueChange={field.onChange}>
+										<SelectTrigger id="edit-budget-category" className="w-full">
+											<SelectValue placeholder="Choose category…" />
+										</SelectTrigger>
+										<SelectContent>
+											{categories.map((c) => (
+												<SelectItem key={c.id} value={c.id}>
+													{c.name}
+												</SelectItem>
+											))}
+										</SelectContent>
+									</Select>
+								)}
+							/>
+						</div>
+						<div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+							<div className="flex flex-col gap-1.5">
+								<Label htmlFor="edit-budget-period">Period</Label>
+								<Controller
+									control={editForm.control}
+									name="periodType"
+									render={({ field }) => (
+										<Select
+											value={field.value}
+											onValueChange={(v) => field.onChange(v as BudgetPeriodType)}
+										>
+											<SelectTrigger id="edit-budget-period" className="w-full">
+												<SelectValue />
+											</SelectTrigger>
+											<SelectContent>
+												<SelectItem value="monthly">Monthly</SelectItem>
+												<SelectItem value="yearly">Yearly</SelectItem>
+											</SelectContent>
+										</Select>
+									)}
+								/>
+							</div>
+							<div className="flex flex-col gap-1.5">
+								<Label htmlFor="edit-budget-amount">Amount</Label>
+								<Input
+									id="edit-budget-amount"
+									type="number"
+									step="0.01"
+									{...editForm.register('amount')}
+								/>
+							</div>
+						</div>
+						<div className="flex items-center justify-between">
+							<Label htmlFor="edit-rollover">Roll over unused amount</Label>
+							<Controller
+								control={editForm.control}
+								name="rolloverEnabled"
+								render={({ field }) => (
+									<Switch
+										id="edit-rollover"
+										checked={field.value}
+										onCheckedChange={field.onChange}
+									/>
+								)}
+							/>
+						</div>
+						<div className="flex items-center justify-between">
+							<Label htmlFor="edit-sinking">Sinking fund (savings goal)</Label>
+							<Controller
+								control={editForm.control}
+								name="isSinkingFund"
+								render={({ field }) => (
+									<Switch
+										id="edit-sinking"
+										checked={field.value}
+										onCheckedChange={field.onChange}
+									/>
+								)}
+							/>
+						</div>
+						<DialogFooter>
+							<Button type="submit" disabled={editForm.formState.isSubmitting}>
+								Save changes
+							</Button>
+						</DialogFooter>
+					</form>
+				</DialogContent>
+			</Dialog>
 		</div>
 	);
 }

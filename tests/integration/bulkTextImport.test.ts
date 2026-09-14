@@ -71,4 +71,75 @@ describe('Bulk text import (User Story 4)', () => {
 		expect(result.createdCount).toBe(1);
 		expect(result.skippedMalformedRows).toHaveLength(0);
 	});
+
+	// spec 017, FR-020/FR-021/FR-024: per-line card-identifier routing for a mixed statement.
+	describe('card-identifier auto-routing (spec 017)', () => {
+		it('routes each line to its matched card, falling back to the default for an unmatched line', async () => {
+			const hdfcCard = await AccountRepository.create(key, {
+				name: 'HDFC Card',
+				type: 'credit_card',
+				openingBalance: 0,
+				creditLimit: null,
+				billingCycleDay: null,
+				cardLast4: '4321'
+			});
+			const iciciCard = await AccountRepository.create(key, {
+				name: 'ICICI Card',
+				type: 'credit_card',
+				openingBalance: 0,
+				creditLimit: null,
+				billingCycleDay: null,
+				cardLast4: '8765'
+			});
+			const accounts = [hdfcCard, iciciCard, (await AccountRepository.getById(key, accountId))!];
+
+			const fileText = [
+				'Rs.500 debited on card ending 4321 at Amazon',
+				'Rs.300 debited on card ending 8765 at Flipkart',
+				'Rs.100 debited at Local Store' // no identifier — falls back to the default account
+			].join('\n');
+
+			const result = await importBulkText(key, fileText, accountId, accounts);
+			expect(result.createdCount).toBe(3);
+
+			const hdfcTx = await TransactionRepository.search(key, { accountId: hdfcCard.id });
+			const iciciTx = await TransactionRepository.search(key, { accountId: iciciCard.id });
+			const defaultTx = await TransactionRepository.search(key, { accountId });
+			expect(hdfcTx).toHaveLength(1);
+			expect(iciciTx).toHaveLength(1);
+			expect(defaultTx).toHaveLength(1);
+			expect(hdfcTx[0].amount).toBe(-50000);
+			expect(iciciTx[0].amount).toBe(-30000);
+
+			// Every touched account's balance is recalculated, not just the default one.
+			expect((await AccountRepository.getById(key, hdfcCard.id))?.currentBalance).toBe(-50000);
+			expect((await AccountRepository.getById(key, iciciCard.id))?.currentBalance).toBe(-30000);
+		});
+
+		it('falls back to the default account when a line matches more than one tagged card', async () => {
+			const first = await AccountRepository.create(key, {
+				name: 'Card A',
+				type: 'credit_card',
+				openingBalance: 0,
+				creditLimit: null,
+				billingCycleDay: null,
+				cardLast4: '4321'
+			});
+			const second = await AccountRepository.create(key, {
+				name: 'Card B',
+				type: 'credit_card',
+				openingBalance: 0,
+				creditLimit: null,
+				billingCycleDay: null,
+				cardLast4: '8765'
+			});
+
+			const fileText = 'Rs.200 debited, cards ending 4321 and 8765 both mentioned';
+			const result = await importBulkText(key, fileText, accountId, [first, second]);
+			expect(result.createdCount).toBe(1);
+
+			const defaultTx = await TransactionRepository.search(key, { accountId });
+			expect(defaultTx).toHaveLength(1); // ambiguous line never blocks — falls back, unrouted
+		});
+	});
 });

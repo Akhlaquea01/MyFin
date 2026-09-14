@@ -15,10 +15,7 @@ import {
 	LiabilityRepository,
 	NetWorthSnapshotRepository
 } from '../dexie/wealthRepository';
-import {
-	SavingsGoalRepository,
-	GoalContributionRepository
-} from '../dexie/savingsGoalRepository';
+import { SavingsGoalRepository, GoalContributionRepository } from '../dexie/savingsGoalRepository';
 import { BudgetRepository, BudgetItemRepository } from '../dexie/budgetRepository';
 import { ensureBudgetItemForPeriod } from '../../domain/budgets/budgetEngine';
 import type { InvestmentType } from '../../domain/entities';
@@ -70,7 +67,10 @@ const INVESTMENT_TYPE_SYNONYMS: Record<string, InvestmentType> = {
 /** Maps a legacy/imported free-text investment type to the closest fixed `InvestmentType`
  *  member, defaulting to `'other'` for anything unmatched (FR-018). Pure. */
 export function mapLegacyInvestmentType(raw: string): InvestmentType {
-	const normalized = raw.trim().toLowerCase().replace(/[\s_-]/g, '');
+	const normalized = raw
+		.trim()
+		.toLowerCase()
+		.replace(/[\s_-]/g, '');
 	if (normalized in INVESTMENT_TYPE_SYNONYMS) return INVESTMENT_TYPE_SYNONYMS[normalized];
 	for (const [needle, type] of Object.entries(INVESTMENT_TYPE_SYNONYMS)) {
 		if (normalized.includes(needle)) return type;
@@ -305,7 +305,8 @@ export async function importDataTemplate(
 	const touchedBudgetPeriods = new Set<string>();
 	// Deferred until `transactionRemap` is populated by the Transactions step (21): file
 	// (expectedEventId, matchedTransactionId) pairs to patch onto the already-created rows.
-	const pendingExpectedEventMatches: Array<{ eventId: string; fileMatchedTransactionId: string }> = [];
+	const pendingExpectedEventMatches: Array<{ eventId: string; fileMatchedTransactionId: string }> =
+		[];
 
 	const entities = template.entities ?? ({} as Partial<typeof template.entities>);
 
@@ -324,7 +325,9 @@ export async function importDataTemplate(
 				type: acc.type,
 				openingBalance: acc.openingBalance,
 				creditLimit: acc.creditLimit,
-				billingCycleDay: acc.billingCycleDay
+				billingCycleDay: acc.billingCycleDay,
+				cardLast4: acc.cardLast4,
+				cardNickname: acc.cardNickname
 			});
 			accountRemap.set(acc.id, created.id);
 			existingAccounts.push(created);
@@ -523,7 +526,11 @@ export async function importDataTemplate(
 				emiAmount: l.emiAmount,
 				emiDueDay: l.emiDueDay,
 				interestRate: l.interestRate,
-				minimumPayment: l.minimumPayment
+				minimumPayment: l.minimumPayment,
+				// spec 017: remapped through accountRemap (accounts are step 1, already resolved)
+				// rather than trusted verbatim — the file's id is from the exporting installation.
+				linkedAccountId: l.linkedAccountId ? (accountRemap.get(l.linkedAccountId) ?? null) : null,
+				duplicateWarningDismissed: l.duplicateWarningDismissed ?? false
 			});
 			liabilityRemap.set(l.id, created.id);
 			existingLiabilities.push(created);
@@ -823,7 +830,9 @@ export async function importDataTemplate(
 			recordSkipped('savedFilterViews', 'already-exists', v.name);
 		} else {
 			const accId = v.accountId ? (accountRemap.get(v.accountId) ?? null) : null;
-			const tagIds = (v.tagIds ?? []).map((t) => tagRemap.get(t)).filter((t): t is string => Boolean(t));
+			const tagIds = (v.tagIds ?? [])
+				.map((t) => tagRemap.get(t))
+				.filter((t): t is string => Boolean(t));
 			await SavedFilterViewRepository.create(key, {
 				name: v.name,
 				accountId: accId,

@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { PiggyBank, AlertTriangle } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Badge } from './ui/badge';
@@ -14,10 +15,13 @@ function formatMoney(paise: number): string {
 /** Actual-vs-planned progress for one budget's current period (User Story 5, FR-024/027). */
 export function BudgetProgressCard({
 	categoryName,
-	item
+	item,
+	actions
 }: {
 	categoryName: string;
 	item: BudgetItem;
+	/** Optional per-budget actions (Edit/Delete, spec 017 FR-011/FR-013) rendered in the header. */
+	actions?: ReactNode;
 }) {
 	const isOverspent = item.actualAmount > item.plannedAmount;
 	const percent =
@@ -29,11 +33,14 @@ export function BudgetProgressCard({
 				<CardTitle className="flex items-center gap-2 text-base">
 					<PiggyBank className="size-4 text-primary" /> {categoryName}
 				</CardTitle>
-				{isOverspent && (
-					<Badge variant="destructive" className="gap-1">
-						<AlertTriangle className="size-3" /> Over budget
-					</Badge>
-				)}
+				<div className="flex items-center gap-1.5">
+					{isOverspent && (
+						<Badge variant="destructive" className="gap-1">
+							<AlertTriangle className="size-3" /> Over budget
+						</Badge>
+					)}
+					{actions}
+				</div>
 			</CardHeader>
 			<CardContent>
 				<div className="mb-2 flex items-baseline justify-between text-sm">

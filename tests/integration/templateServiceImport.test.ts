@@ -4,9 +4,15 @@ import { AccountRepository } from '../../src/data/dexie/accountRepository';
 import { CategoryRepository } from '../../src/data/dexie/categoryRepository';
 import { MerchantRepository } from '../../src/data/dexie/merchantRepository';
 import { TagRepository, TransactionTagRepository } from '../../src/data/dexie/tagRepository';
-import { TransactionRepository, TransactionSplitRepository } from '../../src/data/dexie/transactionRepository';
+import {
+	TransactionRepository,
+	TransactionSplitRepository
+} from '../../src/data/dexie/transactionRepository';
 import { BudgetRepository, BudgetItemRepository } from '../../src/data/dexie/budgetRepository';
-import { InvestmentHoldingRepository } from '../../src/data/dexie/wealthRepository';
+import {
+	InvestmentHoldingRepository,
+	LiabilityRepository
+} from '../../src/data/dexie/wealthRepository';
 import { AttachmentRepository } from '../../src/data/dexie/attachmentRepository';
 import { UserProfileRepository } from '../../src/data/dexie/userProfileRepository';
 import {
@@ -633,6 +639,86 @@ describe('templateService - Fresh install import (User Story 2)', () => {
 		expect(debtPref.extraMonthlyPayment).toBe(2500);
 	});
 
+	// spec 017: card identifier fields (Account) and duplicate-link fields (Liability) round-trip
+	// through import, with linkedAccountId remapped from the file's old id to the newly-created
+	// local Account id.
+	it('imports card identifier and duplicate-link fields, remapping linkedAccountId', async () => {
+		const template: DataTemplate = {
+			container: 'myfin-data-template',
+			templateVersion: 1,
+			exportedAt: new Date().toISOString(),
+			entities: {
+				accounts: [
+					{
+						id: 'old-acc-1',
+						name: 'HDFC Card',
+						type: 'credit_card',
+						openingBalance: 0,
+						currentBalance: 0,
+						creditLimit: 10000000,
+						billingCycleDay: 5,
+						cardLast4: '4321',
+						cardNickname: 'Primary Card',
+						isArchived: false,
+						createdAt: 1000,
+						updatedAt: 1000,
+						deletedAt: null
+					}
+				],
+				categories: [],
+				merchants: [],
+				merchantAliases: [],
+				tags: [],
+				investmentHoldings: [],
+				investmentValuations: [],
+				liabilities: [
+					{
+						id: 'old-liab-1',
+						name: 'HDFC Card (manual)',
+						type: 'credit_card',
+						outstandingBalance: 5000,
+						emiAmount: null,
+						emiDueDay: null,
+						interestRate: null,
+						minimumPayment: null,
+						linkedAccountId: 'old-acc-1',
+						duplicateWarningDismissed: false,
+						createdAt: 1000,
+						updatedAt: 1000,
+						deletedAt: null
+					}
+				],
+				netWorthSnapshots: [],
+				savingsGoals: [],
+				goalContributions: [],
+				budgets: [],
+				budgetItems: [],
+				recurringRules: [],
+				expectedEvents: [],
+				categorizationRules: [],
+				merchantCategorySignals: [],
+				notificationPreference: null,
+				debtPlannerPreference: null,
+				transactions: [],
+				transactionSplits: [],
+				transactionTags: [],
+				attachments: []
+			}
+		};
+
+		const result = await importDataTemplate(key, template);
+		expect(result.perEntity.accounts?.created).toBe(1);
+		expect(result.perEntity.liabilities?.created).toBe(1);
+
+		const accounts = await AccountRepository.list(key);
+		expect(accounts[0].cardLast4).toBe('4321');
+		expect(accounts[0].cardNickname).toBe('Primary Card');
+
+		const liabilities = await LiabilityRepository.list(key);
+		expect(liabilities[0].linkedAccountId).toBe(accounts[0].id); // remapped, not the file's old id
+		expect(liabilities[0].duplicateWarningDismissed).toBe(false);
+	});
+
 	it('reports a merged merchant category signal as updated, not created, on a second import', async () => {
 		const baseTemplate: DataTemplate = {
 			container: 'myfin-data-template',
@@ -652,7 +738,13 @@ describe('templateService - Fresh install import (User Story 2)', () => {
 					}
 				],
 				merchants: [
-					{ id: 'old-merch-1', name: 'Cafe Bloom', createdAt: 1000, updatedAt: 1000, deletedAt: null }
+					{
+						id: 'old-merch-1',
+						name: 'Cafe Bloom',
+						createdAt: 1000,
+						updatedAt: 1000,
+						deletedAt: null
+					}
 				],
 				merchantAliases: [],
 				tags: [],

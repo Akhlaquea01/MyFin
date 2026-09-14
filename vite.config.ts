@@ -108,7 +108,14 @@ export default defineConfig({
 			workbox: {
 				// Offline-first: precache the app shell so it works with zero network,
 				// including on first launch after install (SC-009).
-				globPatterns: ['**/*.{js,css,html,svg,png,ico,webmanifest}']
+				globPatterns: ['**/*.{js,css,html,svg,png,ico,webmanifest}'],
+				// spec 017: the main bundle crossed workbox's 2 MiB default precache limit (just
+				// over, at ~2.0 MiB) once this feature's additions landed. Raised with headroom
+				// rather than excluding the chunk from precache — excluding it would leave the app
+				// shell only partially cached, breaking the "fully functional offline after first
+				// load" guarantee (Constitution: Local-First & Zero-Server) for whatever route
+				// happened to load it first.
+				maximumFileSizeToCacheInBytes: 3 * 1024 * 1024
 			},
 			devOptions: { enabled: true, type: 'module' }
 		})

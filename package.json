@@ -1,7 +1,7 @@
 {
 	"name": "myfin",
 	"private": false,
-	"version": "0.0.3",
+	"version": "0.0.4",
 	"description": "Offline-first, zero-knowledge personal finance manager and encrypted ledger.",
 	"author": "Akhlaque <akhlaquea01@gmail.com> (https://github.com/Akhlaquea01)",
 	"license": "MIT",

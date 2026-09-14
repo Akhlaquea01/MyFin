@@ -19,7 +19,13 @@ import type {
 export const InvestmentHoldingRepository = {
 	async create(
 		key: CryptoKey,
-		input: { name: string; type: InvestmentType; costBasis: number; units?: number; avgPrice?: number }
+		input: {
+			name: string;
+			type: InvestmentType;
+			costBasis: number;
+			units?: number;
+			avgPrice?: number;
+		}
 	): Promise<InvestmentHolding> {
 		const now = Date.now();
 		const holding: InvestmentHolding = {
@@ -113,12 +119,26 @@ export const InvestmentValuationRepository = {
 		return valuations[0]?.value ?? holding.costBasis;
 	},
 
+	/** Same fallback rule as `latestValue`, plus whether the value shown is a real recorded
+	 *  valuation or the cost-basis estimate (spec 017, FR-018) — lets the UI badge an estimate
+	 *  consistently wherever a holding's value is displayed (individual card and the portfolio
+	 *  aggregate alike, research.md §6). */
+	async latestValueWithSource(
+		key: CryptoKey,
+		holding: { id: string; costBasis: number }
+	): Promise<{ value: number; isEstimate: boolean }> {
+		const valuations = await this.listForHolding(key, holding.id);
+		const latest = valuations[0];
+		return latest
+			? { value: latest.value, isEstimate: false }
+			: { value: holding.costBasis, isEstimate: true };
+	},
+
 	async list(key: CryptoKey): Promise<InvestmentValuation[]> {
 		const rows = await db.investmentValuations.toArray();
 		return decryptRows<InvestmentValuationRow, InvestmentValuation>(key, rows);
 	}
 };
-
 
 export const LiabilityRepository = {
 	async create(
@@ -131,6 +151,8 @@ export const LiabilityRepository = {
 			emiDueDay: number | null;
 			interestRate?: number | null;
 			minimumPayment?: number | null;
+			linkedAccountId?: string | null;
+			duplicateWarningDismissed?: boolean;
 		}
 	): Promise<Liability> {
 		const now = Date.now();
@@ -143,6 +165,8 @@ export const LiabilityRepository = {
 			emiDueDay: input.emiDueDay,
 			interestRate: input.interestRate ?? null,
 			minimumPayment: input.minimumPayment ?? input.emiAmount ?? null,
+			linkedAccountId: input.linkedAccountId ?? null,
+			duplicateWarningDismissed: input.duplicateWarningDismissed ?? false,
 			createdAt: now,
 			updatedAt: now,
 			deletedAt: null

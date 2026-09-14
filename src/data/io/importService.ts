@@ -3,6 +3,7 @@ import ExcelJS from 'exceljs';
 import { TransactionRepository } from '../dexie/transactionRepository';
 import { TransactionEngine } from '../../domain/transactions/transactionEngine';
 import { resolveMerchant, normalizeMerchantText } from '../../domain/parser/merchantResolver';
+import { findCardMatches } from '../../domain/parser/cardIdentifierMatcher';
 import { parseMoneyToMinorUnits } from '../../domain/shared/money';
 import type { Account } from '../../domain/entities';
 
@@ -63,7 +64,11 @@ export function shiftIsoDay(date: string, deltaDays: number): string {
 	return parsed.toISOString().slice(0, 10);
 }
 
-export function findDuplicateId(index: Map<string, string>, date: string, amount: number): string | null {
+export function findDuplicateId(
+	index: Map<string, string>,
+	date: string,
+	amount: number
+): string | null {
 	for (const delta of [0, -1, 1]) {
 		const found = index.get(duplicateKey(shiftIsoDay(date, delta), amount));
 		if (found) return found;
@@ -293,6 +298,9 @@ export async function importRows(
 		return index;
 	}
 	const touchedAccountIds = new Set<string>();
+	// FR-024: tracked so `perAccountSummary` also appears when routing came from card-identifier
+	// matching, not just from an explicit `accountColumn` mapping.
+	let usedCardMatching = false;
 
 	for (let i = 0; i < rows.length; i++) {
 		const row = rows[i];
@@ -324,7 +332,18 @@ export async function importRows(
 			}
 			txAccountId = resolvedAccount.id;
 		} else {
-			txAccountId = mapping.accountId;
+			// FR-020/FR-021/FR-024: when no explicit account column is mapped, a single tagged-
+			// card identifier detected in this row's description overrides the file-level
+			// fallback; an ambiguous or unmatched row falls back to it unchanged (never blocks).
+			let cardMatchedAccountId: string | null = null;
+			if (mapping.descriptionColumn) {
+				const cellText = row[mapping.descriptionColumn] ?? '';
+				const rowMatches = findCardMatches(cellText, accounts);
+				const distinctIds = [...new Set(rowMatches.map((m) => m.accountId))];
+				if (distinctIds.length === 1) cardMatchedAccountId = distinctIds[0];
+			}
+			if (cardMatchedAccountId) usedCardMatching = true;
+			txAccountId = cardMatchedAccountId ?? mapping.accountId;
 		}
 
 		const dateIso = parseDateWithFormat(row[mapping.dateColumn] ?? '', mapping.dateFormat);
@@ -384,7 +403,7 @@ export async function importRows(
 		if (duplicateOfId) {
 			result.flaggedDuplicates.push({ rowNumber, existingTransactionId: duplicateOfId });
 		}
-		if (mapping.accountColumn) {
+		if (mapping.accountColumn || usedCardMatching) {
 			result.perAccountSummary ??= {};
 			const accountName = accounts.find((a) => a.id === txAccountId)?.name ?? txAccountId;
 			const entry = (result.perAccountSummary[txAccountId] ??= { count: 0, accountName });

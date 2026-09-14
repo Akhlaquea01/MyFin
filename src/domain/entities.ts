@@ -26,6 +26,18 @@ export interface Account extends Timestamped, SoftDeletable {
 	creditLimit: number | null;
 	billingCycleDay: number | null;
 	isArchived: boolean;
+	/** Last 4 digits of the card number, meaningful only for `type === 'credit_card'` (spec 017,
+	 *  FR-019). Used both by `findLikelyDuplicateAccounts` (FR-008) and by
+	 *  `cardIdentifierMatcher.findCardMatches` (FR-020) to auto-match imported/pasted
+	 *  transactions to the right card. Exactly 4 digits when set. Optional (like
+	 *  `InvestmentHolding.units`, spec 016) so every pre-existing `AccountRepository.create` call
+	 *  site — most of which predate this field — keeps compiling unchanged; `undefined` and
+	 *  `null` are both treated as "untagged". */
+	cardLast4?: string | null;
+	/** A user-chosen nickname for a credit card account, meaningful only for
+	 *  `type === 'credit_card'` (spec 017, FR-019) — same two consumers and optionality as
+	 *  `cardLast4`. */
+	cardNickname?: string | null;
 }
 
 export interface Category extends Timestamped, SoftDeletable {
@@ -91,7 +103,7 @@ export interface TransactionTag {
 
 export type BudgetPeriodType = 'monthly' | 'yearly';
 
-export interface Budget extends Timestamped {
+export interface Budget extends Timestamped, SoftDeletable {
 	id: ID;
 	categoryId: ID;
 	periodType: BudgetPeriodType;
@@ -136,7 +148,8 @@ export interface ExpectedEvent extends Timestamped {
 	matchedTransactionId: ID | null;
 }
 
-export type InvestmentType = 'stock' | 'mutual_fund' | 'etf' | 'bond' | 'fixed_deposit' | 'crypto' | 'other';
+export type InvestmentType =
+	'stock' | 'mutual_fund' | 'etf' | 'bond' | 'fixed_deposit' | 'crypto' | 'other';
 
 export interface InvestmentHolding extends Timestamped, SoftDeletable {
 	id: ID;
@@ -171,6 +184,15 @@ export interface Liability extends Timestamped, SoftDeletable {
 	interestRate: number | null;
 	/** Smallest currency unit; null until supplied for the debt payoff planner (defaults from emiAmount for loans). */
 	minimumPayment: number | null;
+	/** Set when this liability has been merged into a transaction-linked Account of type
+	 *  'credit_card' (spec 017, FR-009) — that Account becomes the single source of truth for
+	 *  this debt in net worth (wealthEngine.computeNetWorth excludes it), while this row is kept
+	 *  unfiltered everywhere else (Liabilities page, Debt Payoff Planner). */
+	linkedAccountId: ID | null;
+	/** True once the user has confirmed a name/identifier match flagged by
+	 *  findLikelyDuplicateAccounts is NOT the same real card (spec 017, FR-010) — suppresses the
+	 *  warning on later views without changing what counts in net worth. */
+	duplicateWarningDismissed: boolean;
 }
 
 export interface NetWorthSnapshot extends Timestamped {

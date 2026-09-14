@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { db } from '../../src/data/dexie/db';
 import { AccountRepository } from '../../src/data/dexie/accountRepository';
 import { CategoryRepository } from '../../src/data/dexie/categoryRepository';
@@ -8,7 +8,8 @@ import {
 	ensureBudgetItemForPeriod,
 	ensureCurrentBudgetItem,
 	getCurrentPeriodRange,
-	recalcActualAmount
+	recalcActualAmount,
+	hasActiveBudgetForCategory
 } from '../../src/domain/budgets/budgetEngine';
 import { deriveEncryptionKey, randomSaltBase64 } from '../../src/data/crypto/cryptoService';
 
@@ -18,6 +19,13 @@ describe('Budget engine', () => {
 	let accountId: string;
 
 	beforeEach(async () => {
+		// Pins "real now" to a fixed date within the March periods most tests below already use
+		// as their stand-in for "the current period" — without this, `ensureBudgetItemForPeriod`'s
+		// past-vs-current distinction (spec 017, research.md §4) would make these tests' pass/fail
+		// outcome depend on the wall-clock date the suite happens to run on.
+		vi.useFakeTimers({ toFake: ['Date'] });
+		vi.setSystemTime(new Date('2026-03-20T12:00:00Z'));
+
 		await db.delete();
 		await db.open();
 		key = await deriveEncryptionKey('5555', randomSaltBase64());
@@ -31,6 +39,10 @@ describe('Budget engine', () => {
 			billingCycleDay: null
 		});
 		accountId = account.id;
+	});
+
+	afterEach(() => {
+		vi.useRealTimers();
 	});
 
 	it('starts a new budget period at 0 spent with the full amount available', async () => {
@@ -193,7 +205,7 @@ describe('Budget engine', () => {
 			expect(item.actualAmount).toBe(2500);
 		});
 
-		it("corrects a stale actualAmount on an already-existing BudgetItem (the imported-json bug)", async () => {
+		it('corrects a stale actualAmount on an already-existing BudgetItem (the imported-json bug)', async () => {
 			const budget = await BudgetRepository.create(key, {
 				categoryId,
 				periodType: 'monthly',
@@ -242,6 +254,121 @@ describe('Budget engine', () => {
 			const viaGeneral = await ensureBudgetItemForPeriod(key, budget, now);
 			expect(viaGeneral.id).toBe(viaWrapper.id);
 			expect(viaGeneral.periodStart).toBe(viaWrapper.periodStart);
+		});
+	});
+
+	// spec 017, FR-012, research.md §4: editing a budget must not retroactively rewrite an
+	// already-closed period's historical plannedAmount, even though ensureBudgetItemForPeriod is
+	// also the function BudgetsPage's month selector (spec 016) calls when browsing history.
+	// "now" is pinned to 2026-03-20 in beforeEach, so January is a genuinely closed period.
+	describe('ensureBudgetItemForPeriod historical-preservation fix (spec 017)', () => {
+		it('does not overwrite plannedAmount for an existing item in a period before "now", but still recomputes actualAmount', async () => {
+			const budget = await BudgetRepository.create(key, {
+				categoryId,
+				periodType: 'monthly',
+				amount: 10000,
+				rolloverEnabled: false,
+				isSinkingFund: false
+			});
+			const januaryDate = new Date('2026-01-15T00:00:00Z');
+			const firstItem = await ensureBudgetItemForPeriod(key, budget, januaryDate);
+			expect(firstItem.plannedAmount).toBe(10000);
+			expect(firstItem.actualAmount).toBe(0);
+
+			// Edit the budget's amount today (March) — a real edit path, spec 017 User Story 3.
+			const updatedBudget = await BudgetRepository.update(key, budget.id, { amount: 25000 });
+
+			// A backdated transaction lands in January after the edit.
+			await TransactionRepository.create(
+				key,
+				{ accountId, date: '2026-01-10', amount: -1500, type: 'expense' },
+				[{ categoryId, amount: -1500 }]
+			);
+
+			const secondItem = await ensureBudgetItemForPeriod(key, updatedBudget, januaryDate);
+			expect(secondItem.id).toBe(firstItem.id);
+			expect(secondItem.plannedAmount).toBe(10000); // untouched — this is the fix
+			expect(secondItem.actualAmount).toBe(1500); // still recomputes from real transactions
+		});
+
+		it('still recomputes plannedAmount for the current period after a budget edit', async () => {
+			const budget = await BudgetRepository.create(key, {
+				categoryId,
+				periodType: 'monthly',
+				amount: 10000,
+				rolloverEnabled: false,
+				isSinkingFund: false
+			});
+			const marchDate = new Date('2026-03-15T00:00:00Z'); // same period as pinned "now"
+			const firstItem = await ensureBudgetItemForPeriod(key, budget, marchDate);
+			expect(firstItem.plannedAmount).toBe(10000);
+
+			const updatedBudget = await BudgetRepository.update(key, budget.id, { amount: 25000 });
+			const secondItem = await ensureBudgetItemForPeriod(key, updatedBudget, marchDate);
+			expect(secondItem.id).toBe(firstItem.id);
+			expect(secondItem.plannedAmount).toBe(25000);
+		});
+
+		it('creates a brand-new item for a past period using the current budget amount (nothing existed before)', async () => {
+			const budget = await BudgetRepository.create(key, {
+				categoryId,
+				periodType: 'monthly',
+				amount: 10000,
+				rolloverEnabled: false,
+				isSinkingFund: false
+			});
+			await BudgetRepository.update(key, budget.id, { amount: 25000 });
+			const updatedBudget = (await BudgetRepository.getById(key, budget.id))!;
+
+			// January has no existing BudgetItem — there is no historical figure to preserve.
+			const item = await ensureBudgetItemForPeriod(
+				key,
+				updatedBudget,
+				new Date('2026-01-15T00:00:00Z')
+			);
+			expect(item.plannedAmount).toBe(25000);
+		});
+	});
+
+	// spec 017, FR-015: prevent/warn against two active budgets for the same category.
+	describe('hasActiveBudgetForCategory', () => {
+		it('returns true when an active budget already exists for the category', async () => {
+			await BudgetRepository.create(key, {
+				categoryId,
+				periodType: 'monthly',
+				amount: 10000,
+				rolloverEnabled: false,
+				isSinkingFund: false
+			});
+			expect(await hasActiveBudgetForCategory(key, categoryId)).toBe(true);
+		});
+
+		it('returns false when the only budget for the category is soft-deleted', async () => {
+			const budget = await BudgetRepository.create(key, {
+				categoryId,
+				periodType: 'monthly',
+				amount: 10000,
+				rolloverEnabled: false,
+				isSinkingFund: false
+			});
+			await BudgetRepository.softDelete(key, budget.id);
+			expect(await hasActiveBudgetForCategory(key, categoryId)).toBe(false);
+		});
+
+		it('excludes the budget being edited via excludeBudgetId', async () => {
+			const budget = await BudgetRepository.create(key, {
+				categoryId,
+				periodType: 'monthly',
+				amount: 10000,
+				rolloverEnabled: false,
+				isSinkingFund: false
+			});
+			expect(await hasActiveBudgetForCategory(key, categoryId, budget.id)).toBe(false);
+		});
+
+		it('returns false when no budget exists for the category at all', async () => {
+			const otherCategory = await CategoryRepository.create(key, { name: 'Rent' });
+			expect(await hasActiveBudgetForCategory(key, otherCategory.id)).toBe(false);
 		});
 	});
 });

@@ -141,7 +141,9 @@ describe('Import service', () => {
 			// debitColumn/creditColumn deliberately omitted — the misconfiguration under test.
 		};
 		const rows = [{ Date: '2026-03-05', Debit: '40.00', Credit: '' }];
-		await expect(importRows(key, rows, mapping)).rejects.toThrow(/debit column and a credit column/);
+		await expect(importRows(key, rows, mapping)).rejects.toThrow(
+			/debit column and a credit column/
+		);
 
 		const transactions = await TransactionRepository.search(key, { accountId });
 		expect(transactions).toHaveLength(0);
@@ -418,6 +420,124 @@ describe('Import service', () => {
 				[accountId]: { count: 2, accountName: 'Checking' },
 				[savings.id]: { count: 1, accountName: 'Savings' }
 			});
+		});
+	});
+
+	// spec 017, FR-020/FR-021/FR-024: per-row card-identifier routing via the description column,
+	// only when no explicit accountColumn mapping is in play.
+	describe('importRows card-identifier routing (spec 017)', () => {
+		it('routes a row to its matched card via the description column when no accountColumn is set', async () => {
+			const hdfcCard = await AccountRepository.create(key, {
+				name: 'HDFC Card',
+				type: 'credit_card',
+				openingBalance: 0,
+				creditLimit: null,
+				billingCycleDay: null,
+				cardLast4: '4321'
+			});
+			const mapping: ColumnMapping = {
+				dateColumn: 'Date',
+				amountColumn: 'Amount',
+				descriptionColumn: 'Description',
+				accountId, // default fallback — Checking
+				dateFormat: 'YYYY-MM-DD',
+				amountSignConvention: 'negative-is-expense'
+			};
+			const rows = [
+				{ Date: '2026-03-05', Amount: '-40.00', Description: 'Card ending 4321 at Amazon' },
+				{ Date: '2026-03-06', Amount: '-20.00', Description: 'Local store, no card mentioned' }
+			];
+
+			const result = await importRows(key, rows, mapping, [
+				{ id: accountId, name: 'Checking' } as Account,
+				hdfcCard
+			]);
+
+			expect(result.createdCount).toBe(2);
+			const hdfcTx = await TransactionRepository.search(key, { accountId: hdfcCard.id });
+			const checkingTx = await TransactionRepository.search(key, { accountId });
+			expect(hdfcTx).toHaveLength(1);
+			expect(checkingTx).toHaveLength(1);
+		});
+
+		it('does not apply card-identifier routing when accountColumn is set', async () => {
+			const hdfcCard = await AccountRepository.create(key, {
+				name: 'HDFC Card',
+				type: 'credit_card',
+				openingBalance: 0,
+				creditLimit: null,
+				billingCycleDay: null,
+				cardLast4: '4321'
+			});
+			const mapping: ColumnMapping = {
+				dateColumn: 'Date',
+				amountColumn: 'Amount',
+				descriptionColumn: 'Description',
+				accountColumn: 'Account',
+				accountId,
+				dateFormat: 'YYYY-MM-DD',
+				amountSignConvention: 'negative-is-expense'
+			};
+			const rows = [
+				{
+					Date: '2026-03-05',
+					Amount: '-40.00',
+					Description: 'Card ending 4321',
+					Account: 'Checking'
+				}
+			];
+
+			const result = await importRows(key, rows, mapping, [
+				{ id: accountId, name: 'Checking' } as Account,
+				hdfcCard
+			]);
+
+			// The explicit account column wins — the description text is not consulted.
+			const hdfcTx = await TransactionRepository.search(key, { accountId: hdfcCard.id });
+			const checkingTx = await TransactionRepository.search(key, { accountId });
+			expect(hdfcTx).toHaveLength(0);
+			expect(checkingTx).toHaveLength(1);
+			expect(result.createdCount).toBe(1);
+		});
+
+		it('falls back to the default account, without blocking, when a row matches more than one tagged card', async () => {
+			const first = await AccountRepository.create(key, {
+				name: 'Card A',
+				type: 'credit_card',
+				openingBalance: 0,
+				creditLimit: null,
+				billingCycleDay: null,
+				cardLast4: '4321'
+			});
+			const second = await AccountRepository.create(key, {
+				name: 'Card B',
+				type: 'credit_card',
+				openingBalance: 0,
+				creditLimit: null,
+				billingCycleDay: null,
+				cardLast4: '8765'
+			});
+			const mapping: ColumnMapping = {
+				dateColumn: 'Date',
+				amountColumn: 'Amount',
+				descriptionColumn: 'Description',
+				accountId,
+				dateFormat: 'YYYY-MM-DD',
+				amountSignConvention: 'negative-is-expense'
+			};
+			const rows = [
+				{ Date: '2026-03-05', Amount: '-40.00', Description: 'Cards ending 4321 and 8765' }
+			];
+
+			const result = await importRows(key, rows, mapping, [
+				{ id: accountId, name: 'Checking' } as Account,
+				first,
+				second
+			]);
+
+			expect(result.createdCount).toBe(1);
+			const checkingTx = await TransactionRepository.search(key, { accountId });
+			expect(checkingTx).toHaveLength(1);
 		});
 	});
 });

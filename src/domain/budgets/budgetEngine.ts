@@ -1,6 +1,6 @@
 import { db } from '../../data/dexie/db';
 import { decryptRows } from '../../data/dexie/encryptedTable';
-import { BudgetItemRepository } from '../../data/dexie/budgetRepository';
+import { BudgetItemRepository, BudgetRepository } from '../../data/dexie/budgetRepository';
 import type { TransactionSplitRow } from '../../data/dexie/db';
 import { NOT_DELETED } from '../../data/dexie/indexable';
 import type { Budget, BudgetItem, BudgetPeriodType, TransactionSplit } from '../../domain/entities';
@@ -107,10 +107,25 @@ export async function ensureBudgetItemForPeriod(
 	const existing = await BudgetItemRepository.findForPeriod(key, budget.id, periodStart);
 	if (existing) {
 		const actualAmount = await recalcActualAmount(key, budget.categoryId, periodStart, periodEnd);
-		// Reflects a mid-period edit to the parent Budget's amount in the *current* period only
-		// — rolloverInAmount is left as already stored (it was fixed when this item was first
-		// created) so an edit doesn't retroactively change how much rolled in from before.
-		const plannedAmount = budget.amount + existing.rolloverInAmount;
+
+		// FR-012, spec 017 (research.md §4): a period that has already closed relative to the
+		// *real* current date keeps its historical plannedAmount, even when this function is
+		// asked to recompute it (e.g. BudgetsPage's month-history selector, spec 016, browsing a
+		// past month after the budget's amount was edited today). Only actualAmount — what was
+		// really spent — keeps recomputing unconditionally, since a backdated transaction/import
+		// can legitimately change it for any period regardless of age.
+		const { periodStart: currentPeriodStart } = getCurrentPeriodRange(
+			budget.periodType,
+			new Date()
+		);
+		const isClosedPeriod = periodStart < currentPeriodStart;
+
+		// Reflects a mid-period edit to the parent Budget's amount in the current/future period
+		// only — rolloverInAmount is left as already stored (it was fixed when this item was
+		// first created) so an edit doesn't retroactively change how much rolled in from before.
+		const plannedAmount = isClosedPeriod
+			? existing.plannedAmount
+			: budget.amount + existing.rolloverInAmount;
 		if (actualAmount !== existing.actualAmount || plannedAmount !== existing.plannedAmount) {
 			return BudgetItemRepository.update(key, existing.id, { actualAmount, plannedAmount });
 		}
@@ -159,4 +174,19 @@ export async function ensureCurrentBudgetItem(
 	referenceDate: Date = new Date()
 ): Promise<BudgetItem> {
 	return ensureBudgetItemForPeriod(key, budget, referenceDate);
+}
+
+/**
+ * Whether an active (non-soft-deleted) budget already exists for `categoryId`, other than
+ * `excludeBudgetId` itself (FR-015, spec 017) — used both when creating a new budget and when
+ * editing an existing one's category, to block/warn against two active budgets double-counting
+ * the same category's actuals.
+ */
+export async function hasActiveBudgetForCategory(
+	key: CryptoKey,
+	categoryId: string,
+	excludeBudgetId?: string
+): Promise<boolean> {
+	const budgets = await BudgetRepository.list(key);
+	return budgets.some((b) => b.categoryId === categoryId && b.id !== excludeBudgetId);
 }

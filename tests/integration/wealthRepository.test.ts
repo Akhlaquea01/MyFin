@@ -72,6 +72,32 @@ describe('WealthRepository (holdings, valuations, liabilities, snapshots) agains
 		expect((await LiabilityRepository.list(key)).map((l) => l.id)).not.toContain(liability.id);
 	});
 
+	// spec 017, FR-008/FR-009/FR-010: a Liability can be merged into a tracked credit_card
+	// Account (linkedAccountId), or its duplicate warning dismissed, and both persist.
+	it('persists linkedAccountId and duplicateWarningDismissed on create and update', async () => {
+		const liability = await LiabilityRepository.create(key, {
+			name: 'HDFC Card (manual)',
+			type: 'credit_card',
+			outstandingBalance: 5000,
+			emiAmount: null,
+			emiDueDay: null
+		});
+		expect(liability.linkedAccountId).toBeNull();
+		expect(liability.duplicateWarningDismissed).toBe(false);
+
+		const linked = await LiabilityRepository.update(key, liability.id, {
+			linkedAccountId: 'account-123'
+		});
+		expect(linked.linkedAccountId).toBe('account-123');
+
+		const dismissed = await LiabilityRepository.update(key, liability.id, {
+			duplicateWarningDismissed: true
+		});
+		expect(dismissed.duplicateWarningDismissed).toBe(true);
+		// linking and dismissing are independent fields — neither write clobbers the other.
+		expect(dismissed.linkedAccountId).toBe('account-123');
+	});
+
 	it('stores and lists net worth snapshots', async () => {
 		await NetWorthSnapshotRepository.create(key, {
 			date: '2026-01-01',

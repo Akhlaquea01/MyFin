@@ -19,6 +19,8 @@ export const AccountRepository = {
 			currentBalance: input.openingBalance,
 			creditLimit: input.creditLimit ?? null,
 			billingCycleDay: input.billingCycleDay ?? null,
+			cardLast4: input.cardLast4 ?? null,
+			cardNickname: input.cardNickname ?? null,
 			isArchived: false,
 			createdAt: now,
 			updatedAt: now,

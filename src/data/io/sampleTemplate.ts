@@ -119,6 +119,8 @@ export const SAMPLE_DATA_TEMPLATE: DataTemplate = {
 				emiDueDay: 5,
 				interestRate: 850,
 				minimumPayment: 1500000,
+				linkedAccountId: null,
+				duplicateWarningDismissed: false,
 				createdAt: 1788699245267,
 				updatedAt: 1788699245267,
 				deletedAt: null
@@ -165,7 +167,8 @@ export const SAMPLE_DATA_TEMPLATE: DataTemplate = {
 				rolloverEnabled: true,
 				isSinkingFund: false,
 				createdAt: 1788699245267,
-				updatedAt: 1788699245267
+				updatedAt: 1788699245267,
+				deletedAt: null
 			}
 		],
 		budgetItems: [
