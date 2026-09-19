@@ -125,8 +125,18 @@ export function SavingsGoalsPage() {
 	}
 
 	async function deleteGoal(goal: SavingsGoal) {
+		const confirmed = window.confirm(`Remove the ${goal.name} goal? You can undo this right after.`);
+		if (!confirmed) return;
 		try {
 			await SavingsGoalRepository.softDelete(key, goal.id);
+			toast.success(`${goal.name} deleted`, {
+				action: {
+					label: 'Undo',
+					onClick: () => {
+						void SavingsGoalRepository.restore(key, goal.id).then(refresh);
+					}
+				}
+			});
 			await refresh();
 		} catch (err) {
 			toast.error(err instanceof Error ? err.message : 'Could not delete goal.');

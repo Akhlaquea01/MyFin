@@ -76,6 +76,8 @@ export function CategoriesPage() {
 	}
 
 	async function remove(category: Category) {
+		const confirmed = window.confirm(`Remove the ${category.name} category? You can undo this right after.`);
+		if (!confirmed) return;
 		try {
 			await CategoryRepository.softDelete(key, category.id);
 			// Categories have no Trash entry of their own to recover this from — an in-toast

@@ -231,9 +231,18 @@ export function TransactionsPage() {
 	}
 
 	async function remove(tx: Transaction) {
+		const confirmed = window.confirm('Move this transaction to trash? You can undo this right after.');
+		if (!confirmed) return;
 		try {
 			await TransactionEngine.deleteTransaction(key, tx.id);
-			toast.success('Transaction moved to trash');
+			toast.success('Transaction moved to trash', {
+				action: {
+					label: 'Undo',
+					onClick: () => {
+						void TransactionEngine.restoreTransaction(key, tx.id).then(refresh);
+					}
+				}
+			});
 			await refresh();
 		} catch (err) {
 			toast.error(err instanceof Error ? err.message : 'Could not delete transaction.');
