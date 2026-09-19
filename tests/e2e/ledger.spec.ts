@@ -107,4 +107,61 @@ test.describe('Core Ledger', () => {
 		await goTo(page, 'Transactions', 'Transactions');
 		await expect(page.getByText('Snacks')).toBeVisible();
 	});
+
+	// spec 018, User Story 3 (FR-012/FR-013/FR-014): one consistent label rule (notes > merchant
+	// > placeholder, never the bare type) applied identically on the transaction list, dashboard,
+	// and review queue. Mirrors quickstart.md Scenario 3.
+	test('transaction labels show notes/merchant/placeholder consistently, never the bare type', async ({
+		page
+	}) => {
+		await onboard(page, '447712');
+
+		await goTo(page, 'Accounts', 'Accounts');
+		await addAccount(page, 'Checking', '1000');
+
+		// Merchant-only, no notes, created via Quick Add so it lands unreviewed — the one
+		// transaction we can check identically across all three surfaces (FR-014).
+		await goTo(page, 'Quick Add', 'Quick Add');
+		await page
+			.getByLabel('Paste a payment notification')
+			.fill('Rs.200.00 debited at Cafe Coffee Day');
+		await page.getByRole('button', { name: 'Parse' }).click();
+		await chooseOption(page, 'Account', 'Checking');
+		await page.getByRole('button', { name: 'Confirm & add to review queue' }).click();
+		await expect(page.getByRole('heading', { name: 'Review Queue' })).toBeVisible();
+
+		// Notes present, no merchant.
+		await goTo(page, 'Transactions', 'Transactions');
+		await page.getByRole('link', { name: 'New transaction' }).click();
+		await chooseOption(page, 'Account', 'Checking');
+		await page.getByLabel('Amount').fill('20');
+		await page.getByLabel('Notes').fill('Split with roommate');
+		await page.getByRole('button', { name: 'Save transaction' }).click();
+		await expect(page.getByRole('heading', { name: 'Transactions' })).toBeVisible();
+
+		// Neither notes nor merchant.
+		await page.getByRole('link', { name: 'New transaction' }).click();
+		await chooseOption(page, 'Account', 'Checking');
+		await page.getByLabel('Amount').fill('15');
+		await page.getByRole('button', { name: 'Save transaction' }).click();
+		await expect(page.getByRole('heading', { name: 'Transactions' })).toBeVisible();
+
+		// --- Transaction list: merchant name, notes, and the neutral placeholder — never "expense" ---
+		await expect(page.getByText('Cafe Coffee Day')).toBeVisible();
+		await expect(page.getByText('Split with roommate')).toBeVisible();
+		await expect(page.getByText('Unlabeled transaction')).toBeVisible();
+
+		// --- Dashboard: the exact same three labels ---
+		await goTo(page, 'Dashboard', 'Dashboard');
+		await expect(page.getByText('Cafe Coffee Day')).toBeVisible();
+		await expect(page.getByText('Split with roommate')).toBeVisible();
+		await expect(page.getByText('Unlabeled transaction')).toBeVisible();
+
+		// --- Review Queue: only the Quick-Add transaction is unreviewed, and shows the same
+		//     merchant-name label as everywhere else. `exact: true` avoids matching the
+		//     Dashboard's own "Unreviewed N Transactions" link, which also contains "Review". ---
+		await page.getByRole('link', { name: 'Review', exact: true }).click();
+		await expect(page.getByRole('heading', { name: 'Review Queue' })).toBeVisible();
+		await expect(page.getByText('Cafe Coffee Day')).toBeVisible();
+	});
 });

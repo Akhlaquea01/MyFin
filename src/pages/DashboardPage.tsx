@@ -8,8 +8,11 @@ import { Sparkline } from '../components/Sparkline';
 import { useSession } from '../context/SessionContext';
 import { getDashboardSummary, type DashboardSummary } from '../domain/analytics/dashboardService';
 import { PersonLoanRepository, LoanRepaymentRepository } from '../data/dexie/personLoanRepository';
+import { MerchantRepository } from '../data/dexie/merchantRepository';
 import { computePendingBalance, computeOpenLoanTotals } from '../domain/personLoans/loanProgress';
+import { formatTransactionLabel } from '../domain/transactions/transactionLabel';
 import type { OpenLoanTotals } from '../domain/personLoans/types';
+import type { Merchant } from '../domain/entities';
 
 function formatMoney(paise: number): string {
 	return (paise / 100).toLocaleString(undefined, {
@@ -44,16 +47,18 @@ export function DashboardPage() {
 
 	const [summary, setSummary] = useState<DashboardSummary | null>(null);
 	const [lending, setLending] = useState<OpenLoanTotals | null>(null);
+	const [merchants, setMerchants] = useState<Merchant[]>([]);
 	const [loadError, setLoadError] = useState(false);
 
 	useEffect(() => {
 		let cancelled = false;
 		setLoadError(false);
-		Promise.all([getDashboardSummary(key), getLendingSummary(key)])
-			.then(([nextSummary, nextLending]) => {
+		Promise.all([getDashboardSummary(key), getLendingSummary(key), MerchantRepository.list(key)])
+			.then(([nextSummary, nextLending, nextMerchants]) => {
 				if (cancelled) return;
 				setSummary(nextSummary);
 				setLending(nextLending);
+				setMerchants(nextMerchants);
 			})
 			.catch((err: unknown) => {
 				if (cancelled) return;
@@ -163,9 +168,13 @@ export function DashboardPage() {
 										) : (
 											<ArrowDownLeft className="size-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
 										)}
-										<span className="truncate" title={tx.notes || undefined}>{tx.notes || (tx.type === 'transfer' ? 'Transfer' : tx.type)}</span>
+										<span className="truncate" title={formatTransactionLabel(tx, merchants)}>
+											{formatTransactionLabel(tx, merchants)}
+										</span>
 										{tx.reviewStatus === 'unreviewed' && (
-											<Badge variant="outline" className="shrink-0">Unreviewed</Badge>
+											<Badge variant="outline" className="shrink-0">
+												Unreviewed
+											</Badge>
 										)}
 									</div>
 									<div className="flex shrink-0 items-center gap-3 text-muted-foreground">

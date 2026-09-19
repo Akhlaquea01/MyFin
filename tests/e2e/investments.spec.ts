@@ -13,7 +13,9 @@ test('investment portfolio aggregate totals, by-type breakdown, and estimated ba
 	await page.getByRole('button', { name: 'Set PIN' }).click();
 	await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible();
 
-	await page.getByRole('link', { name: 'Investments' }).click();
+	// exact:true — the Dashboard's own Net Worth tile subtext ("Cash, credit cards,
+	// investments & loans — tap for the breakdown") otherwise substring-matches this lookup too.
+	await page.getByRole('link', { name: 'Investments', exact: true }).click();
 	await expect(page.getByRole('heading', { name: 'Investments' })).toBeVisible();
 
 	async function addHolding(name: string, type: string, units: string, avgPrice: string) {

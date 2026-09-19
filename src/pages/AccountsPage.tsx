@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Controller, useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -90,6 +91,7 @@ function formatMoney(paise: number): string {
 export function AccountsPage() {
 	const { getEncryptionKey } = useSession();
 	const key = getEncryptionKey();
+	const navigate = useNavigate();
 
 	const [accounts, setAccounts] = useState<Account[]>([]);
 	const [loading, setLoading] = useState(true);
@@ -400,6 +402,17 @@ export function AccountsPage() {
 											<DropdownMenuItem onSelect={() => openEditDialog(account)}>
 												Edit
 											</DropdownMenuItem>
+											{account.type === 'credit_card' && (
+												<DropdownMenuItem
+													onSelect={() =>
+														navigate('/transactions/transfer', {
+															state: { toAccountId: account.id, mode: 'pay-bill' }
+														})
+													}
+												>
+													Pay bill
+												</DropdownMenuItem>
+											)}
 											<DropdownMenuItem onSelect={() => archiveAccount(account)}>
 												{account.isArchived ? 'Unarchive' : 'Archive'}
 											</DropdownMenuItem>

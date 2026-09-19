@@ -1,14 +1,36 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowRightLeft, Check, Paperclip, Plus, Search, Tag as TagIcon, X, Bookmark, Save, Trash2, Edit2 } from 'lucide-react';
+import {
+	ArrowRightLeft,
+	Check,
+	Paperclip,
+	Plus,
+	Search,
+	Tag as TagIcon,
+	X,
+	Bookmark,
+	Save,
+	Trash2,
+	Edit2
+} from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Badge } from '../components/ui/badge';
 import { Card, CardContent } from '../components/ui/card';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../components/ui/dialog';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from '../components/ui/dropdown-menu';
+import {
+	Dialog,
+	DialogContent,
+	DialogHeader,
+	DialogTitle,
+	DialogFooter
+} from '../components/ui/dialog';
+import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuTrigger
+} from '../components/ui/dropdown-menu';
 import { Popover, PopoverContent, PopoverTrigger } from '../components/ui/popover';
 import {
 	Select,
@@ -30,10 +52,18 @@ import { AccountRepository } from '../data/dexie/accountRepository';
 import { TransactionRepository } from '../data/dexie/transactionRepository';
 import { AttachmentRepository } from '../data/dexie/attachmentRepository';
 import { TagRepository } from '../data/dexie/tagRepository';
+import { MerchantRepository } from '../data/dexie/merchantRepository';
 import { TransactionEngine } from '../domain/transactions/transactionEngine';
 import { filterTagOptions, type TagOption } from '../domain/transactions/tagFilterEngine';
+import { formatTransactionLabel } from '../domain/transactions/transactionLabel';
 import { validateAttachmentFile, compressImage } from '../lib/imageAttachment';
-import type { Account, Attachment, Transaction, SavedFilterView } from '../domain/entities';
+import type {
+	Account,
+	Attachment,
+	Merchant,
+	Transaction,
+	SavedFilterView
+} from '../domain/entities';
 import { SavedFilterViewRepository } from '../data/dexie/savedFilterViewRepository';
 
 function formatMoney(paise: number): string {
@@ -79,6 +109,7 @@ export function TransactionsPage() {
 	const key = getEncryptionKey();
 
 	const [accounts, setAccounts] = useState<Account[]>([]);
+	const [merchants, setMerchants] = useState<Merchant[]>([]);
 	const [transactions, setTransactions] = useState<Transaction[]>([]);
 	const [accountFilter, setAccountFilter] = useState('');
 	const [dateFrom, setDateFrom] = useState('');
@@ -135,6 +166,7 @@ export function TransactionsPage() {
 		setLoading(true);
 		try {
 			setAccounts(await AccountRepository.list(key));
+			setMerchants(await MerchantRepository.list(key));
 			setTags(await TagRepository.listInUse(key));
 			setSavedViews(await SavedFilterViewRepository.list(key));
 			setTransactions(
@@ -279,7 +311,8 @@ export function TransactionsPage() {
 
 	function applySavedView(view: SavedFilterView) {
 		let hasMissingAccounts = false;
-		const newAccountId = view.accountId && accounts.some((a) => a.id === view.accountId) ? view.accountId : '';
+		const newAccountId =
+			view.accountId && accounts.some((a) => a.id === view.accountId) ? view.accountId : '';
 		if (view.accountId && !newAccountId) hasMissingAccounts = true;
 
 		const newDateFrom = view.dateFrom || '';
@@ -466,7 +499,9 @@ export function TransactionsPage() {
 							</DropdownMenuTrigger>
 							<DropdownMenuContent align="end" className="w-56">
 								{savedViews.length === 0 ? (
-									<div className="p-2 text-center text-sm text-muted-foreground">No saved views</div>
+									<div className="p-2 text-center text-sm text-muted-foreground">
+										No saved views
+									</div>
 								) : (
 									savedViews.map((view) => (
 										<div
@@ -566,9 +601,11 @@ export function TransactionsPage() {
 										style={isVirtualized ? { height: ROW_HEIGHT_PX } : undefined}
 									>
 										<TableCell className="text-muted-foreground">{tx.date}</TableCell>
-										<TableCell className="max-w-0 w-full">
-											<div className="flex items-center gap-2 min-w-0">
-												<span className="truncate" title={tx.notes || undefined}>{tx.notes || (tx.type === 'transfer' ? 'Transfer' : tx.type)}</span>
+										<TableCell className="w-full max-w-0">
+											<div className="flex min-w-0 items-center gap-2">
+												<span className="truncate" title={formatTransactionLabel(tx, merchants)}>
+													{formatTransactionLabel(tx, merchants)}
+												</span>
 												{tx.reviewStatus === 'unreviewed' && (
 													<Badge variant="outline" className="ml-0 shrink-0">
 														Unreviewed

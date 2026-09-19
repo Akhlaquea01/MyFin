@@ -19,6 +19,7 @@ import { AccountRepository } from '../data/dexie/accountRepository';
 import { TransactionEngine } from '../domain/transactions/transactionEngine';
 import { resolveMerchant } from '../domain/parser/merchantResolver';
 import { parseQuickAddText, isConfident } from '../domain/parser/quickAddParser';
+import { findCardMatches, type CardMatch } from '../domain/parser/cardIdentifierMatcher';
 import type { Account, TransactionType } from '../domain/entities';
 import { formatMinorUnits, parseMoneyToMinorUnits } from '../domain/shared/money';
 
@@ -41,32 +42,51 @@ export function QuickAddPage() {
 	const [merchantName, setMerchantName] = useState('');
 	const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
 	const [submitting, setSubmitting] = useState(false);
-
-	useEffect(() => {
-		void AccountRepository.list(key, false).then(setAccounts);
-		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, []);
+	const [cardMatchReason, setCardMatchReason] = useState<CardMatch | null>(null);
+	const [cardDisambiguation, setCardDisambiguation] = useState<CardMatch[] | null>(null);
 
 	// Spec 008, User Story 1 (FR-002): text shared in via the OS share sheet arrives here as
-	// router state from ShareTargetLandingPage and must parse identically to manual paste —
-	// so it's seeded into the same `rawText` state and run through the same `parseText` call
-	// the "Parse" button uses, rather than a separate/duplicated parse path.
+	// router state from ShareTargetLandingPage and must parse identically to manual paste — so
+	// it's seeded into the same `rawText` state and run through the same `parseText` call the
+	// "Parse" button uses, rather than a separate/duplicated parse path. It's parsed only once
+	// the account list has actually loaded (passed explicitly, not read from state) so spec 018's
+	// card auto-match below isn't racing this mount-time effect against the async account fetch.
 	useEffect(() => {
-		const sharedText = (location.state as { sharedText?: string } | null)?.sharedText;
-		if (sharedText) {
-			setRawText(sharedText);
-			parseText(sharedText);
-		}
+		void AccountRepository.list(key, false).then((loaded) => {
+			setAccounts(loaded);
+			const sharedText = (location.state as { sharedText?: string } | null)?.sharedText;
+			if (sharedText) {
+				setRawText(sharedText);
+				parseText(sharedText, loaded);
+			}
+		});
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, []);
 
-	function parseText(text: string) {
+	// Spec 018, User Story 1 (FR-001-FR-006): reuses `findCardMatches` (spec 017) already relied
+	// on by ImportPage/BulkTextImportPage — a single tagged-card match pre-selects that account
+	// (with the reason shown); more than one never guesses, it prompts; zero matches leaves the
+	// account field exactly as it behaves today. `accountsList` defaults to current state so
+	// `handleParse` (button click, accounts already loaded well before then) doesn't need to pass
+	// it explicitly.
+	function parseText(text: string, accountsList: Account[] = accounts) {
 		const candidate = parseQuickAddText(text);
 		setParsed(true);
 		setConfident(isConfident(candidate));
 		if (candidate.amount !== null) setAmountInput(formatMinorUnits(candidate.amount));
 		if (candidate.type) setType(candidate.type);
 		if (candidate.merchantText) setMerchantName(candidate.merchantText);
+
+		setCardMatchReason(null);
+		setCardDisambiguation(null);
+		const matches = findCardMatches(text, accountsList);
+		const distinctIds = [...new Set(matches.map((m) => m.accountId))];
+		if (distinctIds.length === 1) {
+			setAccountId(distinctIds[0]);
+			setCardMatchReason(matches.find((m) => m.accountId === distinctIds[0]) ?? null);
+		} else if (distinctIds.length > 1) {
+			setCardDisambiguation(distinctIds.map((id) => matches.find((m) => m.accountId === id)!));
+		}
 	}
 
 	function handleParse() {
@@ -133,6 +153,34 @@ export function QuickAddPage() {
 							<p className="text-sm text-amber-600 dark:text-amber-400">
 								Couldn't confidently read that message — please fill in the details below.
 							</p>
+						)}
+						{cardMatchReason && (
+							<p className="rounded-md border border-emerald-500/40 bg-emerald-500/5 p-2 text-xs text-muted-foreground">
+								Matched by {cardMatchReason.matchType === 'last4' ? 'card ending' : 'nickname'} "
+								{cardMatchReason.matchedIdentifier}" — the Account field below was pre-selected. You
+								can still choose a different account.
+							</p>
+						)}
+						{cardDisambiguation && (
+							<div className="flex flex-col gap-1.5 rounded-md border border-amber-500/40 bg-amber-500/5 p-2">
+								<p className="text-xs text-muted-foreground">
+									This matches more than one tagged card — pick which one:
+								</p>
+								<div className="flex flex-wrap gap-2">
+									{cardDisambiguation.map((match) => (
+										<Button
+											key={match.accountId}
+											type="button"
+											variant={accountId === match.accountId ? 'default' : 'outline'}
+											size="sm"
+											className="h-auto py-1"
+											onClick={() => setAccountId(match.accountId)}
+										>
+											{match.accountName} (ending {match.matchedIdentifier})
+										</Button>
+									))}
+								</div>
+							</div>
 						)}
 						<div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
 							<div className="flex flex-col gap-1.5">

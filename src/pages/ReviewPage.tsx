@@ -32,6 +32,7 @@ import {
 	type SplitInput
 } from '../data/dexie/transactionRepository';
 import { TransactionEngine } from '../domain/transactions/transactionEngine';
+import { formatTransactionLabel } from '../domain/transactions/transactionLabel';
 import { createRuleFromTransaction } from '../domain/recurring/recurringEngine';
 import type {
 	Account,
@@ -120,12 +121,6 @@ export function ReviewPage() {
 		return accounts.find((a) => a.id === id)?.name ?? id;
 	}
 
-	function transactionLabel(tx: Transaction): string {
-		if (tx.notes) return tx.notes;
-		const merchant = tx.merchantId ? merchants.find((m) => m.id === tx.merchantId) : undefined;
-		return merchant?.name ?? 'Unlabeled transaction';
-	}
-
 	async function accept(tx: Transaction) {
 		const categoryId = categoryChoice[tx.id] ?? UNCATEGORIZED_CATEGORY_ID;
 		const splits: SplitInput[] = [{ categoryId, amount: tx.amount }];
@@ -166,9 +161,7 @@ export function ReviewPage() {
 			});
 			// Update the local transaction to reflect the new link
 			setItems((prev) =>
-				prev.map((t) =>
-					t.id === recurringTarget.id ? { ...t, recurringRuleId: rule.id } : t
-				)
+				prev.map((t) => (t.id === recurringTarget.id ? { ...t, recurringRuleId: rule.id } : t))
 			);
 			setRecurringTarget(null);
 			toast.success('Recurring rule created');
@@ -222,7 +215,7 @@ export function ReviewPage() {
 								<div className="flex items-center justify-between">
 									<div>
 										<p className="text-sm font-medium">
-											{transactionLabel(tx)}
+											{formatTransactionLabel(tx, merchants)}
 											{tx.duplicateOfId && (
 												<Badge variant="outline" className="ml-2">
 													Possible duplicate
@@ -329,8 +322,8 @@ export function ReviewPage() {
 					</DialogHeader>
 					<div className="flex flex-col gap-4">
 						<p className="text-sm text-muted-foreground">
-							Create a recurring rule from this transaction. You can adjust the frequency
-							and day before confirming.
+							Create a recurring rule from this transaction. You can adjust the frequency and day
+							before confirming.
 						</p>
 						<div className="grid grid-cols-2 gap-3">
 							<div className="flex flex-col gap-1.5">
@@ -366,9 +359,7 @@ export function ReviewPage() {
 						<Button variant="outline" onClick={() => setRecurringTarget(null)}>
 							Cancel
 						</Button>
-						<Button onClick={() => void confirmRecurring()}>
-							Create recurring rule
-						</Button>
+						<Button onClick={() => void confirmRecurring()}>Create recurring rule</Button>
 					</DialogFooter>
 				</DialogContent>
 			</Dialog>

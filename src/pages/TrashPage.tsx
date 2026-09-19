@@ -27,6 +27,7 @@ import {
 	LoanRepaymentRepository
 } from '../data/dexie/personLoanRepository';
 import { TransactionEngine } from '../domain/transactions/transactionEngine';
+import { formatTransactionLabel } from '../domain/transactions/transactionLabel';
 import { useSession } from '../context/SessionContext';
 import type {
 	Account,
@@ -212,7 +213,7 @@ export function TrashPage() {
 										className="flex items-center justify-between rounded-lg border px-4 py-2"
 									>
 										<span className="text-sm">
-											{tx.date} · {tx.notes || tx.type}
+											{tx.date} · {formatTransactionLabel(tx, merchants)}
 										</span>
 										<div className="flex items-center gap-3">
 											<Button variant="link" size="sm" onClick={() => restoreTransaction(tx)}>

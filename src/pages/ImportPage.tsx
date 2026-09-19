@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Upload } from 'lucide-react';
+import { Upload, ClipboardCopy } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -37,6 +37,7 @@ import {
 	type ImportResult
 } from '../data/io/importService';
 import { findCardMatches, type CardMatch } from '../domain/parser/cardIdentifierMatcher';
+import { buildReconciliationPrompt } from '../domain/io/reconciliationPrompt';
 import type { Account } from '../domain/entities';
 
 const NONE = '__none__';
@@ -105,6 +106,20 @@ export function ImportPage() {
 					accounts
 				)
 			: [];
+
+	// spec 018, User Story 2 (FR-007/FR-008/FR-011): copies a self-contained prompt — no file,
+	// account, or transaction data is read — so reconciliation never requires a plaintext export
+	// of this app's encrypted data. See contracts/reconciliation-prompt.md.
+	async function handleCopyPrompt() {
+		try {
+			await navigator.clipboard.writeText(buildReconciliationPrompt());
+			toast.success(
+				'Reconciliation prompt copied — paste it into your AI tool along with your statement.'
+			);
+		} catch {
+			toast.error('Could not copy to clipboard.');
+		}
+	}
 
 	async function handleFileChange(event: React.ChangeEvent<HTMLInputElement>) {
 		const file = event.target.files?.[0];
@@ -202,14 +217,29 @@ export function ImportPage() {
 						Import a CSV or XLSX file. Map its columns below — nothing is imported until you
 						confirm.
 					</p>
-					<Button
-						type="button"
-						variant="outline"
-						className="w-fit"
-						onClick={() => fileInputRef.current?.click()}
-					>
-						<Upload /> Choose file…
-					</Button>
+					<div className="flex flex-wrap gap-2">
+						<Button
+							type="button"
+							variant="outline"
+							className="w-fit"
+							onClick={() => fileInputRef.current?.click()}
+						>
+							<Upload /> Choose file…
+						</Button>
+						<Button
+							type="button"
+							variant="outline"
+							className="w-fit"
+							onClick={() => void handleCopyPrompt()}
+						>
+							<ClipboardCopy /> Copy reconciliation prompt
+						</Button>
+					</div>
+					<p className="text-xs text-muted-foreground">
+						Paste the copied prompt plus your statement into an AI tool, then upload the CSV it
+						returns using: Date column → Date, Description column → Description, Amount column →
+						Amount, Date format → YYYY-MM-DD.
+					</p>
 					<input
 						ref={fileInputRef}
 						type="file"
