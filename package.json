@@ -70,6 +70,7 @@
 		"@types/papaparse": "^5.5.2",
 		"chart.js": "^4.5.1",
 		"class-variance-authority": "^0.7.1",
+		"cmdk": "^1.1.1",
 		"cn": "^0.2.5",
 		"dexie": "^4.4.5",
 		"exceljs": "^4.4.0",

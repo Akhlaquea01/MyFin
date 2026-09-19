@@ -34,6 +34,7 @@ import {
 } from '../components/ui/dropdown-menu';
 import { useSession } from '../context/SessionContext';
 import { AccountRepository } from '../data/dexie/accountRepository';
+import { TransactionEngine } from '../domain/transactions/transactionEngine';
 import type { Account, AccountType } from '../domain/entities';
 import { isValidMoney, parseMoneyOrZero } from '../domain/shared/money';
 import { computeCardUtilization } from '../domain/wealth/wealthEngine';
@@ -60,6 +61,11 @@ const accountSchema = z.object({
 	cardNickname: z.string()
 });
 type AccountFormValues = z.infer<typeof accountSchema>;
+
+const adjustBalanceSchema = z.object({
+	actualBalance: z.string().refine((v) => isValidMoney(v || '0'), 'Enter a valid amount.')
+});
+type AdjustBalanceFormValues = z.infer<typeof adjustBalanceSchema>;
 
 function creditLimitToPaise(raw: string): number | null {
 	return raw.trim() ? parseMoneyOrZero(raw) : null;
@@ -97,6 +103,7 @@ export function AccountsPage() {
 	const [loading, setLoading] = useState(true);
 	const [dialogOpen, setDialogOpen] = useState(false);
 	const [editTarget, setEditTarget] = useState<Account | null>(null);
+	const [adjustTarget, setAdjustTarget] = useState<Account | null>(null);
 
 	const form = useForm<AccountFormValues>({
 		resolver: zodResolver(accountSchema),
@@ -125,6 +132,11 @@ export function AccountsPage() {
 		}
 	});
 	const editFormType = editForm.watch('type');
+
+	const adjustForm = useForm<AdjustBalanceFormValues>({
+		resolver: zodResolver(adjustBalanceSchema),
+		defaultValues: { actualBalance: '0' }
+	});
 
 	async function refresh() {
 		setAccounts(await AccountRepository.list(key));
@@ -191,11 +203,48 @@ export function AccountsPage() {
 				cardLast4: isCreditCard ? optionalTrimmed(values.cardLast4) : null,
 				cardNickname: isCreditCard ? optionalTrimmed(values.cardNickname) : null
 			});
+			// Opening balance feeds into currentBalance (= openingBalance + sum of transactions),
+			// so a change here must be reflected immediately, not left stale until the next
+			// unrelated transaction happens to trigger a recalculation.
+			await TransactionEngine.recalculateAccountBalance(key, editTarget.id);
 			setEditTarget(null);
 			toast.success(`${values.name} updated`);
 			await refresh();
 		} catch (err) {
 			toast.error(err instanceof Error ? err.message : 'Could not update account.');
+		}
+	}
+
+	function openAdjustDialog(account: Account) {
+		setAdjustTarget(account);
+		adjustForm.reset({ actualBalance: String(account.currentBalance / 100) });
+	}
+
+	async function onAdjustSubmit(values: AdjustBalanceFormValues) {
+		if (!adjustTarget) return;
+		try {
+			const actualBalance = parseMoneyOrZero(values.actualBalance || '0');
+			const diff = actualBalance - adjustTarget.currentBalance;
+			if (diff === 0) {
+				setAdjustTarget(null);
+				return;
+			}
+			// Recorded as a normal transaction (not a direct overwrite of currentBalance) so the
+			// "balance = opening balance + sum of transactions" invariant always holds, and every
+			// correction leaves an auditable trail instead of being silently lost on the next
+			// recalculation.
+			await TransactionEngine.recordTransaction(key, {
+				accountId: adjustTarget.id,
+				date: new Date().toISOString().slice(0, 10),
+				amount: diff,
+				type: diff > 0 ? 'income' : 'expense',
+				notes: 'Balance adjustment'
+			});
+			setAdjustTarget(null);
+			toast.success(`${adjustTarget.name} balance updated`);
+			await refresh();
+		} catch (err) {
+			toast.error(err instanceof Error ? err.message : 'Could not adjust balance.');
 		}
 	}
 
@@ -402,6 +451,9 @@ export function AccountsPage() {
 											<DropdownMenuItem onSelect={() => openEditDialog(account)}>
 												Edit
 											</DropdownMenuItem>
+											<DropdownMenuItem onSelect={() => openAdjustDialog(account)}>
+												Adjust balance
+											</DropdownMenuItem>
 											{account.type === 'credit_card' && (
 												<DropdownMenuItem
 													onSelect={() =>
@@ -575,6 +627,42 @@ export function AccountsPage() {
 							</Button>
 						</DialogFooter>
 					</form>
+				</DialogContent>
+			</Dialog>
+
+			<Dialog open={!!adjustTarget} onOpenChange={(open) => !open && setAdjustTarget(null)}>
+				<DialogContent>
+					<DialogHeader>
+						<DialogTitle>Adjust balance</DialogTitle>
+					</DialogHeader>
+					{adjustTarget && (
+						<form className="flex flex-col gap-4" onSubmit={adjustForm.handleSubmit(onAdjustSubmit)}>
+							<p className="text-sm text-muted-foreground">
+								{adjustTarget.name} is currently tracked at {formatMoney(adjustTarget.currentBalance)}.
+								Enter what the account actually holds and a balancing transaction will be added to
+								close the gap.
+							</p>
+							<div className="flex flex-col gap-1.5">
+								<Label htmlFor="actual-balance">Actual balance</Label>
+								<Input
+									id="actual-balance"
+									type="number"
+									step="0.01"
+									{...adjustForm.register('actualBalance')}
+								/>
+								{adjustForm.formState.errors.actualBalance && (
+									<p className="text-sm text-destructive">
+										{adjustForm.formState.errors.actualBalance.message}
+									</p>
+								)}
+							</div>
+							<DialogFooter>
+								<Button type="submit" disabled={adjustForm.formState.isSubmitting}>
+									Save
+								</Button>
+							</DialogFooter>
+						</form>
+					)}
 				</DialogContent>
 			</Dialog>
 		</div>

@@ -16,7 +16,9 @@ import {
 	LineChart,
 	Menu,
 	PiggyBank,
+	Repeat,
 	Sparkles,
+	TrendingDown,
 	Tags,
 	Target,
 	Trash2,
@@ -30,7 +32,18 @@ import { cn } from '../lib/utils';
 import { Button } from './ui/button';
 import { Sheet, SheetContent, SheetTrigger } from './ui/sheet';
 import { PageErrorBoundary } from './PageErrorBoundary';
+import { CommandPalette } from './CommandPalette';
 import { useQuickTour } from '../hooks/useQuickTour';
+import { useSession } from '../context/SessionContext';
+import { TransactionRepository } from '../data/dexie/transactionRepository';
+import { MerchantRepository } from '../data/dexie/merchantRepository';
+import { AccountRepository } from '../data/dexie/accountRepository';
+import { buildSearchIndex, type SearchIndexEntry } from '../domain/search/searchIndex';
+
+/** Bounds the command palette's index build to recent history rather than the full ledger —
+ *  same "narrow, don't decrypt everything" discipline as `getDashboardSummary` (spec 019,
+ *  contracts/command-palette-search.md). */
+const SEARCH_INDEX_TRANSACTION_LIMIT = 500;
 
 /** Tailwind's `md` breakpoint (768px) — the point at which the sidebar replaces this sheet. */
 const MOBILE_BREAKPOINT_QUERY = '(max-width: 767px)';
@@ -47,9 +60,12 @@ const NAV_ITEMS = [
 	{ to: '/quick-add', label: 'Quick Add', icon: Sparkles },
 	{ to: '/review', label: 'Review', icon: Inbox },
 	{ to: '/budgets', label: 'Budgets', icon: PiggyBank, dataTour: 'budgets-nav' },
+	{ to: '/budgets/variance', label: 'Budget vs. Actual', icon: BarChart3 },
 	{ to: '/savings-goals', label: 'Savings Goals', icon: Target },
 	{ to: '/people', label: 'People', icon: Users },
 	{ to: '/recurring', label: 'Recurring', icon: CalendarClock },
+	{ to: '/subscriptions', label: 'Subscriptions', icon: Repeat },
+	{ to: '/forecast', label: 'Forecast', icon: TrendingDown },
 	{ to: '/investments', label: 'Investments', icon: LineChart },
 	{ to: '/liabilities', label: 'Liabilities', icon: CreditCard },
 	{ to: '/liabilities/payoff-planner', label: 'Payoff Planner', icon: Landmark },
@@ -97,6 +113,7 @@ export function AppShell() {
 	const [mobileOpen, setMobileOpen] = useState(false);
 	const location = useLocation();
 	const { isTourActive } = useQuickTour();
+	const { getEncryptionKey } = useSession();
 	// True only when this component itself opened the sheet for the tour, so ending the tour
 	// doesn't blow away a sheet the user had already opened manually.
 	const tourOpenedSheetRef = useRef(false);
@@ -117,8 +134,50 @@ export function AppShell() {
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [isTourActive]);
 
+	// User Story 5 (spec 019): the command palette's index. AppShell only ever mounts inside
+	// the authenticated route tree (Gate() renders <LockScreen> instead of these routes while
+	// locked, see App.tsx), so this state — and the Ctrl+K listener below — structurally cannot
+	// exist while locked, and is discarded automatically the moment AppShell unmounts on lock
+	// (FR-021, contracts/command-palette-search.md) — no separate teardown call needed.
+	const [searchIndex, setSearchIndex] = useState<SearchIndexEntry[]>([]);
+	const [paletteOpen, setPaletteOpen] = useState(false);
+
+	async function refreshSearchIndex() {
+		const key = getEncryptionKey();
+		const [transactions, merchants, accounts] = await Promise.all([
+			TransactionRepository.listRecent(key, SEARCH_INDEX_TRANSACTION_LIMIT),
+			MerchantRepository.list(key),
+			AccountRepository.list(key)
+		]);
+		setSearchIndex(buildSearchIndex(transactions, merchants, accounts));
+	}
+
+	useEffect(() => {
+		void refreshSearchIndex();
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, []);
+
+	// Rebuild on every open, not just once at mount — the index is otherwise a stale snapshot
+	// of whatever existed at unlock time, missing anything the user added mid-session.
+	useEffect(() => {
+		if (paletteOpen) void refreshSearchIndex();
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [paletteOpen]);
+
+	useEffect(() => {
+		function onKeyDown(e: KeyboardEvent) {
+			if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+				e.preventDefault();
+				setPaletteOpen((open) => !open);
+			}
+		}
+		window.addEventListener('keydown', onKeyDown);
+		return () => window.removeEventListener('keydown', onKeyDown);
+	}, []);
+
 	return (
 		<div className="flex min-h-dvh">
+			<CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} index={searchIndex} />
 			<aside className="hidden w-56 shrink-0 overflow-y-auto border-r bg-card/50 p-4 md:sticky md:top-0 md:flex md:h-dvh md:max-h-dvh md:flex-col">
 				<div className="mb-6 flex items-center gap-2 px-2">
 					<Wallet className="size-5 text-primary" />

@@ -135,6 +135,133 @@ describe('Budget engine', () => {
 		expect(marchItem.plannedAmount).toBe(16000);
 	});
 
+	describe('envelope rollover mode (spec 019)', () => {
+		it("carries a deficit forward when rolloverMode is 'full'", async () => {
+			const budget = await BudgetRepository.create(key, {
+				categoryId,
+				periodType: 'monthly',
+				amount: 10000,
+				rolloverEnabled: false,
+				isSinkingFund: false,
+				rolloverMode: 'full'
+			});
+			// February: overspend by 3000 (13000 actual vs 10000 planned).
+			await TransactionRepository.create(
+				key,
+				{ accountId, date: '2026-02-10', amount: -13000, type: 'expense' },
+				[{ categoryId, amount: -13000 }]
+			);
+			await ensureCurrentBudgetItem(key, budget, new Date('2026-02-15T00:00:00Z'));
+
+			const marchItem = await ensureCurrentBudgetItem(
+				key,
+				budget,
+				new Date('2026-03-15T00:00:00Z')
+			);
+			expect(marchItem.rolloverInAmount).toBe(-3000);
+			expect(marchItem.plannedAmount).toBe(7000);
+		});
+
+		it("clamps a deficit to zero when rolloverMode is 'positive-only'", async () => {
+			const budget = await BudgetRepository.create(key, {
+				categoryId,
+				periodType: 'monthly',
+				amount: 10000,
+				rolloverEnabled: false,
+				isSinkingFund: false,
+				rolloverMode: 'positive-only'
+			});
+			await TransactionRepository.create(
+				key,
+				{ accountId, date: '2026-02-10', amount: -13000, type: 'expense' },
+				[{ categoryId, amount: -13000 }]
+			);
+			await ensureCurrentBudgetItem(key, budget, new Date('2026-02-15T00:00:00Z'));
+
+			const marchItem = await ensureCurrentBudgetItem(
+				key,
+				budget,
+				new Date('2026-03-15T00:00:00Z')
+			);
+			expect(marchItem.rolloverInAmount).toBe(0);
+			expect(marchItem.plannedAmount).toBe(10000);
+		});
+
+		it("carries a surplus forward when rolloverMode is 'full', same as 'positive-only'", async () => {
+			const budget = await BudgetRepository.create(key, {
+				categoryId,
+				periodType: 'monthly',
+				amount: 10000,
+				rolloverEnabled: false,
+				isSinkingFund: false,
+				rolloverMode: 'full'
+			});
+			await TransactionRepository.create(
+				key,
+				{ accountId, date: '2026-02-10', amount: -4000, type: 'expense' },
+				[{ categoryId, amount: -4000 }]
+			);
+			await ensureCurrentBudgetItem(key, budget, new Date('2026-02-15T00:00:00Z'));
+
+			const marchItem = await ensureCurrentBudgetItem(
+				key,
+				budget,
+				new Date('2026-03-15T00:00:00Z')
+			);
+			expect(marchItem.rolloverInAmount).toBe(6000);
+		});
+
+		it("does not roll over at all when rolloverMode is 'off', even if legacy rolloverEnabled is true", async () => {
+			const budget = await BudgetRepository.create(key, {
+				categoryId,
+				periodType: 'monthly',
+				amount: 10000,
+				rolloverEnabled: true,
+				isSinkingFund: false,
+				rolloverMode: 'off'
+			});
+			await TransactionRepository.create(
+				key,
+				{ accountId, date: '2026-02-10', amount: -4000, type: 'expense' },
+				[{ categoryId, amount: -4000 }]
+			);
+			await ensureCurrentBudgetItem(key, budget, new Date('2026-02-15T00:00:00Z'));
+
+			const marchItem = await ensureCurrentBudgetItem(
+				key,
+				budget,
+				new Date('2026-03-15T00:00:00Z')
+			);
+			expect(marchItem.rolloverInAmount).toBe(0);
+			expect(marchItem.plannedAmount).toBe(10000);
+		});
+
+		it('falls back to legacy rolloverEnabled positive-only behavior when rolloverMode is absent', async () => {
+			const budget = await BudgetRepository.create(key, {
+				categoryId,
+				periodType: 'monthly',
+				amount: 10000,
+				rolloverEnabled: true,
+				isSinkingFund: false
+				// rolloverMode intentionally omitted — pre-existing Budget row shape.
+			});
+			await TransactionRepository.create(
+				key,
+				{ accountId, date: '2026-02-10', amount: -13000, type: 'expense' },
+				[{ categoryId, amount: -13000 }]
+			);
+			await ensureCurrentBudgetItem(key, budget, new Date('2026-02-15T00:00:00Z'));
+
+			const marchItem = await ensureCurrentBudgetItem(
+				key,
+				budget,
+				new Date('2026-03-15T00:00:00Z')
+			);
+			// Legacy behavior is positive-only: a deficit clamps to 0, never carries negative.
+			expect(marchItem.rolloverInAmount).toBe(0);
+		});
+	});
+
 	it('indicates overspending when actual exceeds planned', async () => {
 		const budget = await BudgetRepository.create(key, {
 			categoryId,

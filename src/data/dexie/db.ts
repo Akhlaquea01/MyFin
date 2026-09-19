@@ -1,6 +1,6 @@
 import Dexie, { type EntityTable } from 'dexie';
 import type { EncryptedBlob } from '../crypto/cryptoService';
-import type { UserProfile } from '../../domain/entities';
+import type { UserProfile, AutoBackupSettings } from '../../domain/entities';
 import { NOT_DELETED } from './indexable';
 
 /**
@@ -221,6 +221,7 @@ class MyFinDatabase extends Dexie {
 	// Unencrypted by design — see research.md #11 "Exception — UserProfile".
 	userProfile!: EntityTable<UserProfile, 'id'>;
 	sessionKeys!: EntityTable<SessionKeyRow, 'id'>;
+	autoBackupSettings!: EntityTable<AutoBackupSettings, 'id'>;
 
 	constructor() {
 		super('myfin');
@@ -306,6 +307,13 @@ class MyFinDatabase extends Dexie {
 				budgets: 'id, categoryId, deletedAt'
 			})
 			.upgrade((tx) => tx.table('budgets').toCollection().modify({ deletedAt: NOT_DELETED }));
+		// v12: adds the scheduled local encrypted backup settings singleton (spec 019,
+		// FR-026–FR-031). Isolated in its own table rather than folded into `userProfile`
+		// because `directoryHandle` is a structured-clone-only browser object, not a plain JSON
+		// value like the rest of `userProfile`'s fields (research.md R7).
+		this.version(12).stores({
+			autoBackupSettings: 'id'
+		});
 	}
 }
 

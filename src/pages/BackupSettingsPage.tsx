@@ -6,6 +6,13 @@ import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Switch } from '../components/ui/switch';
+import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue
+} from '../components/ui/select';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Alert, AlertDescription, AlertTitle } from '../components/ui/alert';
 import {
@@ -29,6 +36,13 @@ import {
 	type BackupPayload
 } from '../data/io/backupService';
 import { resetAllData } from '../data/io/resetService';
+import {
+	isAutoBackupSupported,
+	requestBackupFolder,
+	configureAutoBackup
+} from '../data/io/autoBackupService';
+import { AutoBackupSettingsRepository } from '../data/dexie/autoBackupSettingsRepository';
+import type { AutoBackupSettings as ScheduledBackupSettings } from '../domain/entities';
 import { useQuickTour } from '../hooks/useQuickTour';
 
 const AUTO_BACKUP_KEY = 'myfin.autoBackup';
@@ -94,9 +108,57 @@ export function BackupSettingsPage() {
 	const [clearing, setClearing] = useState(false);
 	const fileInputRef = useRef<HTMLInputElement>(null);
 
+	// spec 019, User Story 7 (P4): scheduled local encrypted backups — distinct from the
+	// existing `autoBackup` state above, which is only a UI "remind me" preference and never
+	// writes a file itself.
+	const [scheduled, setScheduled] = useState<ScheduledBackupSettings | null>(null);
+	const [choosingFolder, setChoosingFolder] = useState(false);
+	const scheduledSupported = isAutoBackupSupported();
+
 	useEffect(() => {
 		saveAutoBackupSettings(autoBackup);
 	}, [autoBackup]);
+
+	useEffect(() => {
+		void AutoBackupSettingsRepository.get().then(setScheduled);
+	}, []);
+
+	async function handleChooseScheduledFolder(intervalDays: number) {
+		setChoosingFolder(true);
+		try {
+			const directoryHandle = await requestBackupFolder();
+			await configureAutoBackup({ enabled: true, intervalDays, directoryHandle });
+			setScheduled(await AutoBackupSettingsRepository.get());
+			toast.success('Automatic backups enabled');
+		} catch (err) {
+			// The user cancelling the native folder picker throws too — not a real error.
+			if (err instanceof Error && err.name !== 'AbortError') {
+				toast.error(err.message);
+			}
+		} finally {
+			setChoosingFolder(false);
+		}
+	}
+
+	async function handleToggleScheduled(enabled: boolean) {
+		if (!scheduled) return;
+		await configureAutoBackup({
+			enabled,
+			intervalDays: scheduled.intervalDays,
+			directoryHandle: scheduled.directoryHandle
+		});
+		setScheduled(await AutoBackupSettingsRepository.get());
+	}
+
+	async function handleScheduledIntervalChange(intervalDays: number) {
+		if (!scheduled) return;
+		await configureAutoBackup({
+			enabled: scheduled.enabled,
+			intervalDays,
+			directoryHandle: scheduled.directoryHandle
+		});
+		setScheduled(await AutoBackupSettingsRepository.get());
+	}
 
 	const overdue =
 		autoBackup.enabled &&
@@ -254,6 +316,92 @@ export function BackupSettingsPage() {
 							onCheckedChange={(enabled) => setAutoBackup((s) => ({ ...s, enabled }))}
 						/>
 					</div>
+				</CardContent>
+			</Card>
+
+			<Card className="mb-6">
+				<CardHeader>
+					<CardTitle className="text-base">Automatic backups</CardTitle>
+				</CardHeader>
+				<CardContent className="flex flex-col gap-4">
+					{!scheduledSupported ? (
+						<p className="text-sm text-muted-foreground">
+							Automatic backups aren't available in this browser — it doesn't support saving
+							directly to a folder on this device. Use "Create backup now" above instead.
+						</p>
+					) : !scheduled?.directoryHandle ? (
+						<>
+							<p className="text-sm text-muted-foreground">
+								Automatically save a new encrypted backup to a folder on this device, checked each
+								time you unlock the app.
+							</p>
+							<Button
+								type="button"
+								variant="outline"
+								className="w-fit"
+								disabled={choosingFolder}
+								onClick={() => void handleChooseScheduledFolder(7)}
+							>
+								{choosingFolder ? 'Choosing…' : 'Choose backup folder'}
+							</Button>
+						</>
+					) : (
+						<>
+							<div className="flex items-center justify-between">
+								<div>
+									<Label htmlFor="scheduled-backup-enabled">Enabled</Label>
+									<p className="text-xs text-muted-foreground">
+										Checked automatically on each unlock.
+									</p>
+								</div>
+								<Switch
+									id="scheduled-backup-enabled"
+									checked={scheduled.enabled}
+									onCheckedChange={(enabled) => void handleToggleScheduled(enabled)}
+								/>
+							</div>
+							<div className="flex flex-col gap-1.5">
+								<Label htmlFor="scheduled-backup-interval">Interval</Label>
+								<Select
+									value={String(scheduled.intervalDays)}
+									onValueChange={(v) => void handleScheduledIntervalChange(Number(v))}
+								>
+									<SelectTrigger id="scheduled-backup-interval" className="w-full">
+										<SelectValue />
+									</SelectTrigger>
+									<SelectContent>
+										<SelectItem value="1">Daily</SelectItem>
+										<SelectItem value="7">Weekly</SelectItem>
+										<SelectItem value="30">Monthly</SelectItem>
+									</SelectContent>
+								</Select>
+							</div>
+							<p className="text-sm text-muted-foreground">
+								{scheduled.lastBackupAt
+									? `Last successful backup: ${formatBackupDate(scheduled.lastBackupAt)}`
+									: 'No automatic backup has run yet.'}
+							</p>
+							{scheduled.lastBackupStatus === 'failed' && (
+								<Alert variant="destructive">
+									<ShieldAlert />
+									<AlertTitle>Last automatic backup failed</AlertTitle>
+									<AlertDescription>
+										Check that this app still has permission to write to the chosen folder, or
+										choose a new one.
+									</AlertDescription>
+								</Alert>
+							)}
+							<Button
+								type="button"
+								variant="outline"
+								className="w-fit"
+								disabled={choosingFolder}
+								onClick={() => void handleChooseScheduledFolder(scheduled.intervalDays)}
+							>
+								{choosingFolder ? 'Choosing…' : 'Change folder'}
+							</Button>
+						</>
+					)}
 				</CardContent>
 			</Card>
 

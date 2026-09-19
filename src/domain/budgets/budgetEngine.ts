@@ -132,8 +132,14 @@ export async function ensureBudgetItemForPeriod(
 		return existing;
 	}
 
+	// spec 019 (envelope rollover, research.md R4): `rolloverMode` is the new authoritative
+	// field. Absent (every pre-existing Budget row) falls back to the legacy `rolloverEnabled`
+	// boolean, which was always positive-only — so old data's behavior is unchanged with no
+	// migration. Only an explicit `'full'` additionally carries a *deficit* forward.
+	const rolloverMode = budget.rolloverMode ?? (budget.rolloverEnabled ? 'positive-only' : 'off');
+
 	let rolloverInAmount = 0;
-	if (budget.rolloverEnabled || budget.isSinkingFund) {
+	if (rolloverMode !== 'off' || budget.isSinkingFund) {
 		// Walk back past periods the user never opened the app in. Items are created lazily, so
 		// looking exactly one period back found nothing after any gap and silently reset the
 		// accumulated balance to zero — which, for a sinking fund, destroys the entire point of
@@ -147,9 +153,14 @@ export async function ensureBudgetItemForPeriod(
 			prevItem = await BudgetItemRepository.findForPeriod(key, budget.id, cursor.periodStart);
 		}
 		if (prevItem) {
-			const unspent = Math.max(0, prevItem.plannedAmount - prevItem.actualAmount);
+			const rawDelta = prevItem.plannedAmount - prevItem.actualAmount;
+			// A sinking fund's allowance is never negative, regardless of rolloverMode — only a
+			// plain envelope budget in 'full' mode carries a deficit (overspend) forward.
+			const unspent =
+				budget.isSinkingFund || rolloverMode !== 'full' ? Math.max(0, rawDelta) : rawDelta;
 			// A sinking fund keeps accruing its allowance through the skipped periods; a plain
-			// rollover budget only carries forward what was actually left unspent.
+			// rollover budget only carries forward what was actually left over (positive or, in
+			// 'full' mode, negative).
 			rolloverInAmount = budget.isSinkingFund ? unspent + skippedPeriods * budget.amount : unspent;
 		}
 	}

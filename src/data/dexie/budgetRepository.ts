@@ -1,7 +1,7 @@
 import { db, type BudgetRow, type BudgetItemRow } from './db';
 import { putEncrypted, getDecrypted, decryptRows } from './encryptedTable';
 import { deletedAtIndex, NOT_DELETED } from './indexable';
-import type { Budget, BudgetItem, BudgetPeriodType } from '../../domain/entities';
+import type { Budget, BudgetItem, BudgetPeriodType, BudgetRolloverMode } from '../../domain/entities';
 
 export interface NewBudget {
 	categoryId: string;
@@ -9,6 +9,7 @@ export interface NewBudget {
 	amount: number;
 	rolloverEnabled: boolean;
 	isSinkingFund: boolean;
+	rolloverMode?: BudgetRolloverMode;
 }
 
 export const BudgetRepository = {
@@ -21,6 +22,7 @@ export const BudgetRepository = {
 			amount: input.amount,
 			rolloverEnabled: input.rolloverEnabled,
 			isSinkingFund: input.isSinkingFund,
+			rolloverMode: input.rolloverMode,
 			createdAt: now,
 			updatedAt: now,
 			deletedAt: null

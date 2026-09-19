@@ -38,6 +38,10 @@ export interface Account extends Timestamped, SoftDeletable {
 	 *  `type === 'credit_card'` (spec 017, FR-019) — same two consumers and optionality as
 	 *  `cardLast4`. */
 	cardNickname?: string | null;
+	/** User-configured low-balance warning threshold for cash-flow forecasting (spec 019,
+	 *  FR-008), in the smallest currency unit. Optional — absent/undefined means the default
+	 *  of 0 (forecastEngine.ts). */
+	lowBalanceThresholdMinor?: number;
 }
 
 export interface Category extends Timestamped, SoftDeletable {
@@ -50,6 +54,10 @@ export interface Category extends Timestamped, SoftDeletable {
 export interface Merchant extends Timestamped, SoftDeletable {
 	id: ID;
 	name: string;
+	/** Set when the user dismisses this merchant from the auto-detected Subscriptions view
+	 *  (spec 019, FR-005). Optional so every existing Merchant row (all predating this field)
+	 *  keeps loading unchanged; absent/false means "not dismissed". */
+	subscriptionDismissed?: boolean;
 }
 
 export interface MerchantAlias extends Timestamped {
@@ -103,6 +111,8 @@ export interface TransactionTag {
 
 export type BudgetPeriodType = 'monthly' | 'yearly';
 
+export type BudgetRolloverMode = 'off' | 'positive-only' | 'full';
+
 export interface Budget extends Timestamped, SoftDeletable {
 	id: ID;
 	categoryId: ID;
@@ -110,6 +120,12 @@ export interface Budget extends Timestamped, SoftDeletable {
 	amount: number;
 	rolloverEnabled: boolean;
 	isSinkingFund: boolean;
+	/** Envelope rollover mode (spec 019, FR-013–FR-017). Optional: when absent, the effective
+	 *  mode is derived from the legacy `rolloverEnabled` boolean ('positive-only' if true, 'off'
+	 *  if false) — see budgetEngine.ts — so every pre-existing Budget row keeps its current
+	 *  behavior unchanged with no data migration. 'full' additionally carries a deficit
+	 *  (overspend) forward, which `rolloverEnabled` alone never did. */
+	rolloverMode?: BudgetRolloverMode;
 }
 
 export interface BudgetItem extends Timestamped {
@@ -355,9 +371,27 @@ export interface UserProfile {
 		prfSalt: string; // base64, fixed per-installation salt fed into the PRF eval
 		wrappedPin: { iv: string; ciphertext: string };
 	};
+	/** Persisted Dashboard widget order/visibility (spec 019, FR-022/FR-023). Array order is
+	 *  display order. Absent, or an empty array, means "use the built-in default" — see
+	 *  `resolveDashboardLayout` in `dashboardLayout.ts`, the only place this is interpreted. */
+	dashboardLayout?: { widgetId: string; visible: boolean }[];
 }
 
 export const DEFAULT_AUTO_LOCK_TIMEOUT_MS = 5 * 60 * 1000; // FR-003, spec clarification
+
+/** Scheduled local encrypted backup config (spec 019, FR-026–FR-031). Singleton, same
+ *  `'local-user'` id pattern as `UserProfile`/`DebtPlannerPreference`. Unencrypted by design —
+ *  `directoryHandle` is an opaque, non-exportable browser permission object (structured-clone
+ *  only, not JSON-serializable), not financial content; the encrypted backup *file* itself is
+ *  produced unchanged by the existing `createBackup()` (data-model.md #6, research.md R7). */
+export interface AutoBackupSettings {
+	id: 'local-user';
+	enabled: boolean;
+	intervalDays: number;
+	directoryHandle?: FileSystemDirectoryHandle;
+	lastBackupAt?: string;
+	lastBackupStatus?: 'success' | 'failed';
+}
 
 /** User-defined filter views for Transactions list. */
 export interface SavedFilterView extends Timestamped {

@@ -51,9 +51,11 @@ export function BudgetProgressCard({
 					value={percent}
 					className={isOverspent ? '[&_[data-slot=progress-indicator]]:bg-destructive' : undefined}
 				/>
-				{item.rolloverInAmount > 0 && (
+				{item.rolloverInAmount !== 0 && (
 					<p className="mt-2 text-xs text-muted-foreground">
-						Includes {formatMoney(item.rolloverInAmount)} rolled over
+						{item.rolloverInAmount > 0
+							? `Includes ${formatMoney(item.rolloverInAmount)} rolled over from last period`
+							: `Includes a ${formatMoney(Math.abs(item.rolloverInAmount))} deficit carried over from last period`}
 					</p>
 				)}
 			</CardContent>

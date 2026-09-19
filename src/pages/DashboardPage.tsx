@@ -1,16 +1,23 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowDownLeft, ArrowUpRight, Wallet, TrendingUp } from 'lucide-react';
 import { toast } from 'sonner';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
 import { Sparkline } from '../components/Sparkline';
+import { DashboardCustomizeSheet } from '../components/DashboardCustomizeSheet';
 import { useSession } from '../context/SessionContext';
 import { getDashboardSummary, type DashboardSummary } from '../domain/analytics/dashboardService';
 import { PersonLoanRepository, LoanRepaymentRepository } from '../data/dexie/personLoanRepository';
 import { MerchantRepository } from '../data/dexie/merchantRepository';
+import { UserProfileRepository } from '../data/dexie/userProfileRepository';
 import { computePendingBalance, computeOpenLoanTotals } from '../domain/personLoans/loanProgress';
 import { formatTransactionLabel } from '../domain/transactions/transactionLabel';
+import {
+	resolveDashboardLayout,
+	type DashboardWidgetConfig,
+	type DashboardWidgetId
+} from '../domain/analytics/dashboardLayout';
 import type { OpenLoanTotals } from '../domain/personLoans/types';
 import type { Merchant } from '../domain/entities';
 
@@ -41,6 +48,8 @@ async function getLendingSummary(key: CryptoKey): Promise<OpenLoanTotals> {
 }
 
 // User Story 3 (P3): at-a-glance summary reconciled exactly with the ledger (FR-016/017).
+// User Story 6 (spec 019, P3): which cards render, and in what order, is config-driven
+// (`resolveDashboardLayout`) rather than fixed JSX — see contracts/dashboard-widgets.md.
 export function DashboardPage() {
 	const { getEncryptionKey } = useSession();
 	const key = getEncryptionKey();
@@ -48,17 +57,24 @@ export function DashboardPage() {
 	const [summary, setSummary] = useState<DashboardSummary | null>(null);
 	const [lending, setLending] = useState<OpenLoanTotals | null>(null);
 	const [merchants, setMerchants] = useState<Merchant[]>([]);
+	const [layout, setLayout] = useState<DashboardWidgetConfig[]>(() => resolveDashboardLayout(undefined));
 	const [loadError, setLoadError] = useState(false);
 
 	useEffect(() => {
 		let cancelled = false;
 		setLoadError(false);
-		Promise.all([getDashboardSummary(key), getLendingSummary(key), MerchantRepository.list(key)])
-			.then(([nextSummary, nextLending, nextMerchants]) => {
+		Promise.all([
+			getDashboardSummary(key),
+			getLendingSummary(key),
+			MerchantRepository.list(key),
+			UserProfileRepository.get()
+		])
+			.then(([nextSummary, nextLending, nextMerchants, profile]) => {
 				if (cancelled) return;
 				setSummary(nextSummary);
 				setLending(nextLending);
 				setMerchants(nextMerchants);
+				setLayout(resolveDashboardLayout(profile?.dashboardLayout));
 			})
 			.catch((err: unknown) => {
 				if (cancelled) return;
@@ -71,6 +87,18 @@ export function DashboardPage() {
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, []);
 
+	async function saveLayout(next: DashboardWidgetConfig[]) {
+		// `next` is the raw form to persist (an empty array is "reset to default" — FR-025's
+		// sentinel), but local render state must always be the fully-resolved layout, or a
+		// reset would render nothing until the next reload.
+		setLayout(resolveDashboardLayout(next));
+		try {
+			await UserProfileRepository.update({ dashboardLayout: next });
+		} catch (err) {
+			toast.error(err instanceof Error ? err.message : 'Could not save dashboard layout.');
+		}
+	}
+
 	if (loadError && !summary) {
 		return (
 			<div className="mx-auto max-w-4xl px-4 py-8 text-sm text-destructive sm:px-6">
@@ -82,73 +110,74 @@ export function DashboardPage() {
 		return <div className="mx-auto max-w-4xl px-4 py-8 sm:px-6">Loading…</div>;
 	}
 
-	return (
-		<div className="mx-auto max-w-4xl px-4 py-8 sm:px-6">
-			<h1 className="mb-6 text-2xl font-semibold tracking-tight">Dashboard</h1>
-
-			<div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-				<Card>
+	const widgets: Record<DashboardWidgetId, ReactNode> = {
+		'total-balance': (
+			<Card>
+				<CardHeader className="pb-2">
+					<CardTitle className="text-sm font-medium text-muted-foreground">
+						Total Balance
+					</CardTitle>
+				</CardHeader>
+				<CardContent>
+					<p className="font-mono text-2xl font-semibold">{formatMoney(summary.totalBalance)}</p>
+					{summary.balanceTrend.length > 1 && <Sparkline values={summary.balanceTrend} />}
+				</CardContent>
+			</Card>
+		),
+		lending: (
+			<Link to="/people">
+				<Card className="h-full transition-colors hover:bg-muted/50">
 					<CardHeader className="pb-2">
-						<CardTitle className="text-sm font-medium text-muted-foreground">
-							Total Balance
+						<CardTitle className="text-sm font-medium text-muted-foreground">Lending</CardTitle>
+					</CardHeader>
+					<CardContent className="flex flex-col gap-1">
+						<p className="text-sm">
+							You're owed{' '}
+							<span className="font-mono font-semibold">
+								{formatMoney(lending?.totalLent ?? 0)}
+							</span>
+						</p>
+						<p className="text-sm">
+							You owe{' '}
+							<span className="font-mono font-semibold">
+								{formatMoney(lending?.totalBorrowed ?? 0)}
+							</span>
+						</p>
+					</CardContent>
+				</Card>
+			</Link>
+		),
+		'net-worth': (
+			<Link to="/net-worth">
+				<Card className="h-full transition-colors hover:bg-muted/50">
+					<CardHeader className="pb-2">
+						<CardTitle className="flex items-center gap-1.5 text-sm font-medium text-muted-foreground">
+							<TrendingUp className="size-3.5 text-primary" /> Net Worth
 						</CardTitle>
 					</CardHeader>
 					<CardContent>
-						<p className="font-mono text-2xl font-semibold">{formatMoney(summary.totalBalance)}</p>
-						{summary.balanceTrend.length > 1 && <Sparkline values={summary.balanceTrend} />}
+						<p className="font-mono text-2xl font-semibold">{formatMoney(summary.netWorth)}</p>
+						<p className="mt-1 text-xs text-muted-foreground">
+							Cash, credit cards, investments & loans — tap for the breakdown.
+						</p>
 					</CardContent>
 				</Card>
-				<Link to="/people">
-					<Card className="h-full transition-colors hover:bg-muted/50">
-						<CardHeader className="pb-2">
-							<CardTitle className="text-sm font-medium text-muted-foreground">Lending</CardTitle>
-						</CardHeader>
-						<CardContent className="flex flex-col gap-1">
-							<p className="text-sm">
-								You're owed{' '}
-								<span className="font-mono font-semibold">
-									{formatMoney(lending?.totalLent ?? 0)}
-								</span>
-							</p>
-							<p className="text-sm">
-								You owe{' '}
-								<span className="font-mono font-semibold">
-									{formatMoney(lending?.totalBorrowed ?? 0)}
-								</span>
-							</p>
-						</CardContent>
-					</Card>
-				</Link>
-				<Link to="/net-worth">
-					<Card className="h-full transition-colors hover:bg-muted/50">
-						<CardHeader className="pb-2">
-							<CardTitle className="flex items-center gap-1.5 text-sm font-medium text-muted-foreground">
-								<TrendingUp className="size-3.5 text-primary" /> Net Worth
-							</CardTitle>
-						</CardHeader>
-						<CardContent>
-							<p className="font-mono text-2xl font-semibold">{formatMoney(summary.netWorth)}</p>
-							<p className="mt-1 text-xs text-muted-foreground">
-								Cash, credit cards, investments & loans — tap for the breakdown.
-							</p>
-						</CardContent>
-					</Card>
-				</Link>
-				<Link to="/transactions">
-					<Card className="h-full transition-colors hover:bg-muted/50">
-						<CardHeader className="pb-2">
-							<CardTitle className="text-sm font-medium text-muted-foreground">
-								Unreviewed
-							</CardTitle>
-						</CardHeader>
-						<CardContent>
-							<p className="text-2xl font-semibold">{summary.unreviewedCount}</p>
-							<p className="mt-1 text-xs text-muted-foreground">Transactions awaiting review</p>
-						</CardContent>
-					</Card>
-				</Link>
-			</div>
-
+			</Link>
+		),
+		unreviewed: (
+			<Link to="/transactions">
+				<Card className="h-full transition-colors hover:bg-muted/50">
+					<CardHeader className="pb-2">
+						<CardTitle className="text-sm font-medium text-muted-foreground">Unreviewed</CardTitle>
+					</CardHeader>
+					<CardContent>
+						<p className="text-2xl font-semibold">{summary.unreviewedCount}</p>
+						<p className="mt-1 text-xs text-muted-foreground">Transactions awaiting review</p>
+					</CardContent>
+				</Card>
+			</Link>
+		),
+		'recent-transactions': (
 			<Card>
 				<CardHeader>
 					<CardTitle className="text-base">Recent Transactions</CardTitle>
@@ -191,6 +220,36 @@ export function DashboardPage() {
 					)}
 				</CardContent>
 			</Card>
+		)
+	};
+
+	const gridWidgetIds: DashboardWidgetId[] = ['total-balance', 'lending', 'net-worth', 'unreviewed'];
+	const visible = new Set(layout.filter((w) => w.visible).map((w) => w.widgetId));
+	const orderedGridWidgets = layout
+		.map((w) => w.widgetId as DashboardWidgetId)
+		.filter((id) => gridWidgetIds.includes(id) && visible.has(id));
+	const showRecentTransactions = visible.has('recent-transactions');
+
+	return (
+		<div className="mx-auto max-w-4xl px-4 py-8 sm:px-6">
+			<div className="mb-6 flex items-center justify-between">
+				<h1 className="text-2xl font-semibold tracking-tight">Dashboard</h1>
+				<DashboardCustomizeSheet
+					layout={layout}
+					onChange={(next) => void saveLayout(next)}
+					onReset={() => void saveLayout([])}
+				/>
+			</div>
+
+			{orderedGridWidgets.length > 0 && (
+				<div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+					{orderedGridWidgets.map((id) => (
+						<div key={id}>{widgets[id]}</div>
+					))}
+				</div>
+			)}
+
+			{showRecentTransactions && widgets['recent-transactions']}
 		</div>
 	);
 }

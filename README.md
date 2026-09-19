@@ -41,6 +41,13 @@ Every transaction, account balance, category, payee, and receipt attachment is e
 - 🏷️ **Tag Taxonomy & Saved Filter Views**: Non-hierarchical multidimensional tagging with fast boolean query filters and saved presets.
 - 🎨 **Starter Setup Templates**: Export and share sanitized configurations (categories, rules, budgets) without exposing private financial balances.
 - 🚶 **Interactive Onboarding Tour**: Built-in spotlight guide introducing key workflows to new users.
+- 🔁 **Subscription Tracker**: Automatically detects repeating merchant charges from your existing transaction history — no manual setup — and flags subscriptions that look lapsed.
+- 📈 **Cash-Flow Forecasting**: Projects each account's balance 30/60/90 days out and warns in advance of a projected low or negative balance.
+- 📐 **Budget vs. Actual Variance Report**: A dedicated month-range report comparing budgeted and actual spend per category.
+- ✉️ **Envelope Rollover Budgeting**: Opt-in mode that carries a category's unspent budget — or its overspend deficit — into the next period.
+- ⌘ **Global Command Palette**: Ctrl+K/Cmd+K quick search across transactions, payees, and accounts from anywhere in the app.
+- 🧩 **Customizable Dashboard**: Hide, show, and reorder your Dashboard's widgets, persisted across sessions.
+- 💾 **Scheduled Local Backups**: Optional automatic encrypted backups to a folder on your own device, checked on each unlock.
 
 ---
 

@@ -125,3 +125,68 @@ test('editing and deleting a budget behaves correctly, including the past-month 
 	await page.getByRole('button', { name: 'Undo' }).click();
 	await expect(page.getByText('of 200.00')).toBeVisible();
 });
+
+// User Story 4 (spec 019, P2): envelope rollover 'full' mode carries an overspend deficit into
+// the next period, distinct from the original positive-only rollover. See quickstart.md §4.
+test('envelope rollover in full mode carries an overspend deficit into the next month', async ({
+	page
+}) => {
+	await page.goto('/');
+	await page.getByLabel('Create PIN').fill('582013');
+	await page.getByLabel('Confirm PIN').fill('582013');
+	await page.getByRole('button', { name: 'Set PIN' }).click();
+	await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible();
+
+	await page.getByRole('link', { name: 'Accounts' }).click();
+	await page.getByRole('button', { name: 'Add account' }).click();
+	const accountDialog = page.getByRole('dialog');
+	await accountDialog.getByLabel('Name').fill('Checking');
+	await accountDialog.getByLabel('Opening balance').fill('0');
+	await accountDialog.getByRole('button', { name: 'Add account' }).click();
+	await expect(accountDialog).not.toBeVisible();
+
+	await page.getByRole('link', { name: 'Categories' }).click();
+	await page.getByRole('button', { name: 'Add category' }).click();
+	const categoryDialog = page.getByRole('dialog');
+	await categoryDialog.getByLabel('Name').fill('Envelope Test');
+	await categoryDialog.getByRole('button', { name: 'Add category' }).click();
+	await expect(categoryDialog).not.toBeVisible();
+
+	await page.getByRole('link', { name: 'Budgets', exact: true }).click();
+	await page.getByRole('button', { name: 'Add budget' }).click();
+	const budgetDialog = page.getByRole('dialog');
+	await budgetDialog.getByLabel('Category').click();
+	await page.getByRole('option', { name: 'Envelope Test' }).click();
+	await budgetDialog.getByLabel('Amount', { exact: true }).fill('100');
+	await budgetDialog.getByLabel('Rollover mode').click();
+	await page.getByRole('option', { name: /carry overspend forward/ }).click();
+	await budgetDialog.getByRole('button', { name: 'Add budget' }).click();
+	await expect(budgetDialog).not.toBeVisible();
+
+	// Overspend THIS month by 50 (150 actual vs. 100 planned). Note: this month's BudgetItem was
+	// already materialized (rolloverInAmount locked at 0) the instant the budget was created
+	// above — ensureBudgetItemForPeriod never retroactively recomputes an already-existing
+	// period's rollover, only its actualAmount (budgetEngine.ts's own documented "closed period"
+	// precedent extends to rolloverInAmount for every period, not just closed ones). So the
+	// deficit can only be observed on the *next* period's BudgetItem, which is materialized for
+	// the first time below — after this month's actualAmount already reflects the overspend.
+	await page.getByRole('link', { name: 'Transactions', exact: true }).click();
+	await page.getByRole('link', { name: 'New transaction' }).click();
+	await page.getByLabel('Account').click();
+	await page.getByRole('option', { name: 'Checking', exact: true }).click();
+	await page.getByLabel('Amount').fill('150');
+	await page.locator('button[role="combobox"]').filter({ hasText: 'Category…' }).click();
+	await page.getByRole('option', { name: 'Envelope Test' }).click();
+	await page.locator('input[placeholder="Amount"]').fill('150');
+	await page.getByRole('button', { name: 'Save transaction' }).click();
+	await expect(page).toHaveURL(/\/transactions$/);
+
+	await page.getByRole('link', { name: 'Budgets', exact: true }).click();
+	await expect(page.getByText('of 100.00')).toBeVisible(); // this month: 150 actual, still 100 planned
+
+	// Next month's BudgetItem is created for the first time now, reading this month's
+	// already-recalculated actualAmount: rollover = 100 planned - 150 actual = -50.
+	await page.getByRole('button', { name: 'Next month' }).click();
+	await expect(page.getByText('of 50.00')).toBeVisible();
+	await expect(page.getByText(/deficit carried over from last period/)).toBeVisible();
+});

@@ -7,6 +7,7 @@ import { acquireSingleInstanceLock, type InstanceRole } from './lib/singleInstan
 import { UserProfileRepository } from './data/dexie/userProfileRepository';
 import { runNotificationCheck } from './domain/notifications/runNotificationCheck';
 import { runBlindIndexMaintenance } from './data/dexie/blindIndexMaintenance';
+import { maybeRunScheduledBackup } from './data/io/autoBackupService';
 import { isStoragePersisted } from './data/storage/persistence';
 import { OnboardingScreen } from './components/OnboardingScreen';
 import { LockScreen } from './components/LockScreen';
@@ -44,6 +45,9 @@ import { ImportPage } from './pages/ImportPage';
 import { ExportPage } from './pages/ExportPage';
 import { BackupSettingsPage } from './pages/BackupSettingsPage';
 import { CategorizationRulesPage } from './pages/CategorizationRulesPage';
+import { SubscriptionsPage } from './pages/SubscriptionsPage';
+import { CashFlowForecastPage } from './pages/CashFlowForecastPage';
+import { BudgetVarianceReportPage } from './pages/BudgetVarianceReportPage';
 import { AboutPage } from './pages/AboutPage';
 import { QuickTourProvider } from './components/ui/quick-tour/QuickTourProvider';
 import { QuickTourOverlay } from './components/ui/quick-tour/QuickTourOverlay';
@@ -137,6 +141,12 @@ function Gate() {
 			setOnboarded(!!p);
 			setShowEnrollPrompt(!p?.webauthn);
 			setCheckingProfile(false);
+			// spec 019, research.md R5: this is the ONLY moment the plaintext PIN exists in
+			// memory (it is never stored — Constitution Principle II), so a scheduled backup
+			// (which needs the PIN to derive its encryption key, same as a manual export) can
+			// only ever run here, on an explicit unlock — never on the silent session-restore
+			// path below, which never has the PIN. No-ops unless a backup is actually due.
+			if (p) void maybeRunScheduledBackup(pin, getEncryptionKey(), p);
 		});
 		// research.md §3 (spec 004): "app opened" is treated as "just unlocked," the same
 		// hook point BiometricEnrollmentPrompt already uses.
@@ -179,10 +189,13 @@ function Gate() {
 							<Route path="review" element={<ReviewPage />} />
 							<Route path="import/bulk-text" element={<BulkTextImportPage />} />
 							<Route path="budgets" element={<BudgetsPage />} />
+							<Route path="budgets/variance" element={<BudgetVarianceReportPage />} />
 							<Route path="savings-goals" element={<SavingsGoalsPage />} />
 							<Route path="people" element={<PeoplePage />} />
 							<Route path="recurring" element={<RecurringPage />} />
 							<Route path="recurring/upcoming" element={<RecurringUpcomingPage />} />
+							<Route path="subscriptions" element={<SubscriptionsPage />} />
+							<Route path="forecast" element={<CashFlowForecastPage />} />
 							<Route path="investments" element={<InvestmentsPage />} />
 							<Route path="liabilities" element={<LiabilitiesPage />} />
 							<Route path="liabilities/payoff-planner" element={<DebtPayoffPlannerPage />} />

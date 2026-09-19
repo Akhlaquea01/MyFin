@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -46,9 +47,19 @@ const budgetSchema = z.object({
 	periodType: z.enum(['monthly', 'yearly']),
 	amount: z.string().refine((v) => isPositiveMoney(v), 'Enter a positive amount.'),
 	rolloverEnabled: z.boolean(),
-	isSinkingFund: z.boolean()
+	isSinkingFund: z.boolean(),
+	// spec 019 (envelope rollover): the authoritative rollover field going forward.
+	// 'positive-only' matches the original rolloverEnabled=true behavior; 'full' additionally
+	// carries a deficit (overspend) forward.
+	rolloverMode: z.enum(['off', 'positive-only', 'full'])
 });
 type BudgetFormValues = z.infer<typeof budgetSchema>;
+
+const ROLLOVER_MODE_LABELS: Record<'off' | 'positive-only' | 'full', string> = {
+	off: 'Off — resets to the budgeted amount each period',
+	'positive-only': 'Roll over unused amount',
+	full: 'Roll over unused amount, and carry overspend forward'
+};
 
 const MONTH_NAMES = [
 	'January',
@@ -86,7 +97,8 @@ export function BudgetsPage() {
 			periodType: 'monthly',
 			amount: '0',
 			rolloverEnabled: false,
-			isSinkingFund: false
+			isSinkingFund: false,
+			rolloverMode: 'off'
 		}
 	});
 
@@ -97,7 +109,8 @@ export function BudgetsPage() {
 			periodType: 'monthly',
 			amount: '0',
 			rolloverEnabled: false,
-			isSinkingFund: false
+			isSinkingFund: false,
+			rolloverMode: 'off'
 		}
 	});
 
@@ -159,8 +172,9 @@ export function BudgetsPage() {
 				categoryId: values.categoryId,
 				periodType: values.periodType,
 				amount: parseMoneyOrZero(values.amount),
-				rolloverEnabled: values.rolloverEnabled,
-				isSinkingFund: values.isSinkingFund
+				rolloverEnabled: values.rolloverMode !== 'off',
+				isSinkingFund: values.isSinkingFund,
+				rolloverMode: values.rolloverMode
 			});
 			form.reset();
 			setDialogOpen(false);
@@ -178,7 +192,8 @@ export function BudgetsPage() {
 			periodType: budget.periodType,
 			amount: String(budget.amount / 100),
 			rolloverEnabled: budget.rolloverEnabled,
-			isSinkingFund: budget.isSinkingFund
+			isSinkingFund: budget.isSinkingFund,
+			rolloverMode: budget.rolloverMode ?? (budget.rolloverEnabled ? 'positive-only' : 'off')
 		});
 	}
 
@@ -193,12 +208,28 @@ export function BudgetsPage() {
 				);
 				return;
 			}
+			// FR-016: disabling rollover on a budget that has an accumulated balance needs an
+			// explicit heads-up about what happens to it (it's kept, frozen on the current
+			// period, but nothing further rolls in or out from that point on).
+			const wasRolling =
+				(editTarget.rolloverMode ?? (editTarget.rolloverEnabled ? 'positive-only' : 'off')) !==
+				'off';
+			const accumulated = items[editTarget.id]?.rolloverInAmount ?? 0;
+			if (wasRolling && values.rolloverMode === 'off' && accumulated !== 0) {
+				const confirmed = window.confirm(
+					`This category has an accumulated rollover balance of ${(accumulated / 100).toFixed(2)}. ` +
+						'Turning rollover off keeps that amount on the current period, but no further ' +
+						'periods will add to or subtract from it. Continue?'
+				);
+				if (!confirmed) return;
+			}
 			await BudgetRepository.update(key, editTarget.id, {
 				categoryId: values.categoryId,
 				periodType: values.periodType,
 				amount: parseMoneyOrZero(values.amount),
-				rolloverEnabled: values.rolloverEnabled,
-				isSinkingFund: values.isSinkingFund
+				rolloverEnabled: values.rolloverMode !== 'off',
+				isSinkingFund: values.isSinkingFund,
+				rolloverMode: values.rolloverMode
 			});
 			setEditTarget(null);
 			toast.success('Budget updated');
@@ -234,6 +265,11 @@ export function BudgetsPage() {
 		<div className="mx-auto max-w-3xl px-4 py-8 sm:px-6">
 			<div className="mb-6 flex items-center justify-between">
 				<h1 className="text-2xl font-semibold tracking-tight">Budgets</h1>
+				<Button variant="outline" size="sm" asChild>
+					<Link to="/budgets/variance">Budget vs. Actual</Link>
+				</Button>
+			</div>
+			<div className="mb-6 flex justify-end">
 				<Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
 					<DialogTrigger asChild>
 						<Button>
@@ -298,13 +334,24 @@ export function BudgetsPage() {
 									/>
 								</div>
 							</div>
-							<div className="flex items-center justify-between">
-								<Label htmlFor="rollover">Roll over unused amount</Label>
+							<div className="flex flex-col gap-1.5">
+								<Label htmlFor="rollover-mode">Rollover mode</Label>
 								<Controller
 									control={form.control}
-									name="rolloverEnabled"
+									name="rolloverMode"
 									render={({ field }) => (
-										<Switch id="rollover" checked={field.value} onCheckedChange={field.onChange} />
+										<Select value={field.value} onValueChange={field.onChange}>
+											<SelectTrigger id="rollover-mode" className="w-full">
+												<SelectValue />
+											</SelectTrigger>
+											<SelectContent>
+												<SelectItem value="off">{ROLLOVER_MODE_LABELS.off}</SelectItem>
+												<SelectItem value="positive-only">
+													{ROLLOVER_MODE_LABELS['positive-only']}
+												</SelectItem>
+												<SelectItem value="full">{ROLLOVER_MODE_LABELS.full}</SelectItem>
+											</SelectContent>
+										</Select>
 									)}
 								/>
 							</div>
@@ -469,17 +516,24 @@ export function BudgetsPage() {
 								/>
 							</div>
 						</div>
-						<div className="flex items-center justify-between">
-							<Label htmlFor="edit-rollover">Roll over unused amount</Label>
+						<div className="flex flex-col gap-1.5">
+							<Label htmlFor="edit-rollover-mode">Rollover mode</Label>
 							<Controller
 								control={editForm.control}
-								name="rolloverEnabled"
+								name="rolloverMode"
 								render={({ field }) => (
-									<Switch
-										id="edit-rollover"
-										checked={field.value}
-										onCheckedChange={field.onChange}
-									/>
+									<Select value={field.value} onValueChange={field.onChange}>
+										<SelectTrigger id="edit-rollover-mode" className="w-full">
+											<SelectValue />
+										</SelectTrigger>
+										<SelectContent>
+											<SelectItem value="off">{ROLLOVER_MODE_LABELS.off}</SelectItem>
+											<SelectItem value="positive-only">
+												{ROLLOVER_MODE_LABELS['positive-only']}
+											</SelectItem>
+											<SelectItem value="full">{ROLLOVER_MODE_LABELS.full}</SelectItem>
+										</SelectContent>
+									</Select>
 								)}
 							/>
 						</div>

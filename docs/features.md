@@ -1,6 +1,6 @@
 # MyFin — Feature Documentation
 
-This document provides a comprehensive reference of all 17 core features built into the MyFin application, detailing user workflows, business logic, domain engines, data models, and UI surfaces.
+This document provides a comprehensive reference of all 18 core features built into the MyFin application, detailing user workflows, business logic, domain engines, data models, and UI surfaces.
 
 ---
 
@@ -23,6 +23,7 @@ This document provides a comprehensive reference of all 17 core features built i
 15. [Feature 015: Starter Setup Template Export & Import](#feature-015-starter-setup-template-export--import)
 16. [Feature 016: Core Workflow Improvements](#feature-016-core-workflow-improvements)
 17. [Feature 017: Financial Visibility & Control Enhancements](#feature-017-financial-visibility--control-enhancements)
+18. [Feature 018: Financial Planning & Productivity Enhancements](#feature-018-financial-planning--productivity-enhancements)
 
 ---
 
@@ -361,3 +362,26 @@ A bundle of five visibility and control gaps closed across credit cards, net wor
 - **Import Integration**: [`importService.ts`](file:///e:/MyFin/src/data/io/importService.ts), [`bulkTextImportService.ts`](file:///e:/MyFin/src/data/io/bulkTextImportService.ts)
 - **Primary Pages**: [`AccountsPage.tsx`](file:///e:/MyFin/src/pages/AccountsPage.tsx), [`LiabilitiesPage.tsx`](file:///e:/MyFin/src/pages/LiabilitiesPage.tsx), [`NetWorthPage.tsx`](file:///e:/MyFin/src/pages/NetWorthPage.tsx), [`BudgetsPage.tsx`](file:///e:/MyFin/src/pages/BudgetsPage.tsx), [`InvestmentsPage.tsx`](file:///e:/MyFin/src/pages/InvestmentsPage.tsx), [`ImportPage.tsx`](file:///e:/MyFin/src/pages/ImportPage.tsx), [`BulkTextImportPage.tsx`](file:///e:/MyFin/src/pages/BulkTextImportPage.tsx)
 - **Spec**: [`specs/017-financial-visibility-enhancements/`](file:///e:/MyFin/specs/017-financial-visibility-enhancements/)
+
+---
+
+## Feature 018: Financial Planning & Productivity Enhancements
+
+### Overview
+Seven independently-shippable additions spanning passive insight (subscriptions, forecasting), budgeting depth (variance reporting, envelope rollover), and everyday usability (quick search, a customizable dashboard, unattended local backups) — each reusing an existing domain engine as its foundation rather than introducing a parallel one.
+
+### Key Capabilities
+- **Subscription Tracker**: Detects merchants with a repeating amount/interval charge pattern directly from existing transaction history — no manual recurring-rule setup. Groups charges by merchant (or normalized description text when no merchant is resolved), classifies a cadence (weekly/monthly/quarterly/yearly) within a tolerance window, and flags a subscription as possibly lapsed once it's overdue for its own cadence. Shows total detected monthly cost, and a merchant can be dismissed from the view without touching its transactions.
+- **Cash-Flow Forecasting**: Projects an account's balance 30/60/90 days out by combining its scheduled recurring transactions (deterministic) with a trailing-average "drift" term for ordinary non-recurring spend, and warns in advance of the first date a configurable low-balance threshold would be crossed. Marks a forecast low-confidence rather than fabricating a projection when an account has too little recurring/historical signal.
+- **Budget vs. Actual Variance Report**: A dedicated month-range report distinct from the general Analytics page, showing budgeted, actual, and variance per category with over/under/on-track/unbudgeted status — a category with real spend but no budget is never silently folded into zero-variance, and a budgeted category with zero spend is never omitted.
+- **Envelope Rollover Budgeting**: Extends the existing (positive-only) budget rollover with an opt-in "full" mode that also carries an overspend deficit into the next period, alongside the original "roll over surplus only" behavior and the default "off." The rolled-over amount (positive or negative) is always shown as a line distinct from the period's base budget, and disabling rollover on a category with an accumulated balance requires an explicit confirmation explaining what happens to it.
+- **Global Command Palette**: A Ctrl+K/Cmd+K keyboard-accessible overlay searching transactions, payees, and accounts, built on an in-memory index (Dexie's encrypted-field indexes are exact-match only, so ciphertext can't be substring-searched) that's rebuilt on every palette open and exists only inside the authenticated app shell — structurally unreachable while the app is locked.
+- **Customizable Dashboard Widgets**: The Dashboard's cards are config-driven instead of fixed — users can hide, show, and reorder widgets from a settings sheet, with the layout persisted across sessions. At least one core widget always stays visible, and an unrecognized or missing widget id in a stored layout is handled gracefully rather than breaking the page.
+- **Scheduled Local Encrypted Backups**: An optional automatic backup to a folder on the same device (via the File System Access API), reusing the existing manual export's encryption path unchanged. Because the backup encryption key is derived from the plaintext PIN — which is never stored — an automatic backup can only run at the moment of a successful PIN unlock, not on a background timer; this is surfaced honestly via a last-successful-backup timestamp rather than implying a stronger guarantee. Gracefully explains when a browser doesn't support the underlying API.
+
+### Domain Engine & Architecture
+- **Engines**: [`subscriptionDetectionEngine.ts`](file:///e:/MyFin/src/domain/recurring/subscriptionDetectionEngine.ts) (`detectSubscriptions`), [`forecastEngine.ts`](file:///e:/MyFin/src/domain/forecast/forecastEngine.ts) (`projectAccountBalance`), [`budgetVarianceEngine.ts`](file:///e:/MyFin/src/domain/budgets/budgetVarianceEngine.ts) (`computeVarianceReport`), [`budgetEngine.ts`](file:///e:/MyFin/src/domain/budgets/budgetEngine.ts) (extended with `rolloverMode`'s deficit-carry), [`searchIndex.ts`](file:///e:/MyFin/src/domain/search/searchIndex.ts) (`buildSearchIndex`/`querySearchIndex`), [`dashboardLayout.ts`](file:///e:/MyFin/src/domain/analytics/dashboardLayout.ts) (`resolveDashboardLayout`)
+- **Data Layer**: [`autoBackupSettingsRepository.ts`](file:///e:/MyFin/src/data/dexie/autoBackupSettingsRepository.ts), [`autoBackupService.ts`](file:///e:/MyFin/src/data/io/autoBackupService.ts) (`maybeRunScheduledBackup`, reusing `backupService.ts`'s `createBackup` unchanged), Dexie schema v12 (`autoBackupSettings` table)
+- **Primary Pages**: [`SubscriptionsPage.tsx`](file:///e:/MyFin/src/pages/SubscriptionsPage.tsx), [`CashFlowForecastPage.tsx`](file:///e:/MyFin/src/pages/CashFlowForecastPage.tsx), [`BudgetVarianceReportPage.tsx`](file:///e:/MyFin/src/pages/BudgetVarianceReportPage.tsx), [`BudgetsPage.tsx`](file:///e:/MyFin/src/pages/BudgetsPage.tsx), [`DashboardPage.tsx`](file:///e:/MyFin/src/pages/DashboardPage.tsx), [`BackupSettingsPage.tsx`](file:///e:/MyFin/src/pages/BackupSettingsPage.tsx)
+- **Components**: [`CommandPalette.tsx`](file:///e:/MyFin/src/components/CommandPalette.tsx), [`DashboardCustomizeSheet.tsx`](file:///e:/MyFin/src/components/DashboardCustomizeSheet.tsx)
+- **Spec**: [`specs/019-financial-planning-and-productivity/`](file:///e:/MyFin/specs/019-financial-planning-and-productivity/)

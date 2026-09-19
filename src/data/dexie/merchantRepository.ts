@@ -36,6 +36,22 @@ export const MerchantRepository = {
 			deletedAt: deletedAtIndex(updated.deletedAt)
 		});
 		return updated;
+	},
+
+	/** Dismisses/undismisses this merchant from the auto-detected Subscriptions view (spec 019,
+	 *  FR-005) — a non-destructive preference flag, never touches the merchant's transactions. */
+	async setSubscriptionDismissed(
+		key: CryptoKey,
+		id: string,
+		dismissed: boolean
+	): Promise<Merchant> {
+		const existing = await this.getById(key, id);
+		if (!existing) throw new Error(`Merchant ${id} not found`);
+		const updated: Merchant = { ...existing, subscriptionDismissed: dismissed, updatedAt: Date.now() };
+		await putEncrypted(db.merchants, key, updated, {
+			deletedAt: deletedAtIndex(updated.deletedAt)
+		});
+		return updated;
 	}
 };
 
