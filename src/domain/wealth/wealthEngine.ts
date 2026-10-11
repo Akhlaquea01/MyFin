@@ -388,18 +388,59 @@ export async function dismissDuplicateWarning(
 	return LiabilityRepository.update(key, liabilityId, { duplicateWarningDismissed: true });
 }
 
-/** Records today's net worth as a history point (FR-034's "history over time"). */
+function snapshotFigures(breakdown: NetWorthBreakdown) {
+	return {
+		totalAssets: breakdown.totalAssets,
+		totalLiabilities: breakdown.totalLiabilities,
+		netWorth: breakdown.netWorth
+	};
+}
+
+/**
+ * Records net worth as the history point for `date` (FR-034's "history over time"). There is one
+ * point per day: recording again the same day REFRESHES it rather than adding a second, which is
+ * what "Record snapshot" means after the numbers have changed.
+ */
 export async function recordNetWorthSnapshot(
 	key: CryptoKey,
 	date: string = todayLocalISO()
 ): Promise<NetWorthSnapshot> {
-	const breakdown = await computeNetWorth(key);
-	return NetWorthSnapshotRepository.create(key, {
-		date,
-		totalAssets: breakdown.totalAssets,
-		totalLiabilities: breakdown.totalLiabilities,
-		netWorth: breakdown.netWorth
-	});
+	const figures = snapshotFigures(await computeNetWorth(key));
+	const existing = await NetWorthSnapshotRepository.findByDate(key, date);
+	return existing
+		? NetWorthSnapshotRepository.update(key, existing.id, figures)
+		: NetWorthSnapshotRepository.create(key, { date, ...figures });
+}
+
+/**
+ * Makes sure today has a history point, without anyone having to remember to click: the history was
+ * only ever as long as the number of times the user thought of recording it. Run when the app is
+ * opened and when Net Worth is. It records the day's FIRST look and never overwrites an existing
+ * point, so it is cheap to call and cannot undo a snapshot the user took on purpose.
+ *
+ * Nothing is recorded for a ledger with nothing in it — a fresh install would otherwise start its
+ * history with a meaningless zero. Returns the snapshot it created, or null if it did nothing.
+ * Pass a `breakdown` already computed for the page to avoid computing it twice.
+ */
+export async function ensureDailyNetWorthSnapshot(
+	key: CryptoKey,
+	options: { date?: string; breakdown?: NetWorthBreakdown } = {}
+): Promise<NetWorthSnapshot | null> {
+	const date = options.date ?? todayLocalISO();
+	if (await NetWorthSnapshotRepository.findByDate(key, date)) return null;
+
+	const breakdown = options.breakdown ?? (await computeNetWorth(key));
+	const hasAnything = [
+		breakdown.cash,
+		breakdown.creditCardDebt,
+		breakdown.investments,
+		breakdown.loansLent,
+		breakdown.loansBorrowed,
+		breakdown.otherLiabilities
+	].some((category) => category.items.length > 0);
+	if (!hasAnything) return null;
+
+	return NetWorthSnapshotRepository.create(key, { date, ...snapshotFigures(breakdown) });
 }
 
 export async function netWorthHistory(key: CryptoKey): Promise<NetWorthSnapshot[]> {

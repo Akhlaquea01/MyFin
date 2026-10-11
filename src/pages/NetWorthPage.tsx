@@ -11,13 +11,14 @@ import {
 } from 'chart.js';
 import { toast } from 'sonner';
 import { Button } from '../components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Sparkline } from '../components/Sparkline';
 import { ChartCanvas } from '../components/ChartCanvas';
 import { useSession } from '../context/SessionContext';
 import { getChartPalette, getAxisColor, getGridColor, withAlpha } from '../lib/chartColors';
 import {
 	computeNetWorth,
+	ensureDailyNetWorthSnapshot,
 	netWorthHistory,
 	recordNetWorthSnapshot,
 	type NetWorthBreakdown,
@@ -78,10 +79,11 @@ export function NetWorthPage() {
 	async function refresh() {
 		try {
 			setLoadError(false);
-			const [nextBreakdown, nextHistory] = await Promise.all([
-				computeNetWorth(key),
-				netWorthHistory(key)
-			]);
+			const nextBreakdown = await computeNetWorth(key);
+			// Today's point is recorded by looking, not by remembering to ask — and from the figures
+			// already on this page, so it is not computed twice.
+			await ensureDailyNetWorthSnapshot(key, { breakdown: nextBreakdown });
+			const nextHistory = await netWorthHistory(key);
 			setBreakdown(nextBreakdown);
 			setHistory(nextHistory);
 		} catch (err) {
@@ -191,6 +193,10 @@ export function NetWorthPage() {
 			<Card>
 				<CardHeader>
 					<CardTitle className="text-base">History</CardTitle>
+					<CardDescription>
+						One point per day, recorded automatically the first time you open the app each day.
+						"Record snapshot" refreshes today's point if your numbers have changed since.
+					</CardDescription>
 				</CardHeader>
 				<CardContent className="flex flex-col gap-4">
 					{history.length === 0 ? (

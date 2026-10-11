@@ -6,6 +6,7 @@ import { SessionProvider, useSession } from './context/SessionContext';
 import { acquireSingleInstanceLock, type InstanceRole } from './lib/singleInstance';
 import { UserProfileRepository } from './data/dexie/userProfileRepository';
 import { runNotificationCheck } from './domain/notifications/runNotificationCheck';
+import { ensureDailyNetWorthSnapshot } from './domain/wealth/wealthEngine';
 import { runBlindIndexMaintenance } from './data/dexie/blindIndexMaintenance';
 import { maybeRunScheduledBackup } from './data/io/autoBackupService';
 import { isStoragePersisted } from './data/storage/persistence';
@@ -73,6 +74,12 @@ async function afterUnlock(key: CryptoKey): Promise<void> {
 		await runNotificationCheck(key);
 	} catch (err) {
 		console.warn('[afterUnlock] notification check failed', err);
+	}
+	// Net worth history builds itself: the first unlock of each day records that day's point.
+	try {
+		await ensureDailyNetWorthSnapshot(key);
+	} catch (err) {
+		console.warn('[afterUnlock] net worth snapshot failed', err);
 	}
 }
 

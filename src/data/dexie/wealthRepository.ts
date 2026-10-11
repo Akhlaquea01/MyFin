@@ -255,9 +255,34 @@ export const NetWorthSnapshotRepository = {
 		return snapshot;
 	},
 
+	/** The snapshot recorded for `date`, read off the indexed column. */
+	async findByDate(key: CryptoKey, date: string): Promise<NetWorthSnapshot | null> {
+		const rows = await db.netWorthSnapshots.where('date').equals(date).toArray();
+		const snapshots = await decryptRows<NetWorthSnapshotRow, NetWorthSnapshot>(key, rows);
+		// Newest first, so if older data holds several for a day the latest is the one that counts.
+		snapshots.sort((a, b) => b.createdAt - a.createdAt);
+		return snapshots[0] ?? null;
+	},
+
+	async update(
+		key: CryptoKey,
+		id: string,
+		changes: Partial<Pick<NetWorthSnapshot, 'totalAssets' | 'totalLiabilities' | 'netWorth'>>
+	): Promise<NetWorthSnapshot> {
+		const existing = await getDecrypted<NetWorthSnapshotRow, NetWorthSnapshot>(
+			db.netWorthSnapshots,
+			key,
+			id
+		);
+		if (!existing) throw new Error(`NetWorthSnapshot ${id} not found`);
+		const updated: NetWorthSnapshot = { ...existing, ...changes, id, updatedAt: Date.now() };
+		await putEncrypted(db.netWorthSnapshots, key, updated, { date: updated.date });
+		return updated;
+	},
+
 	async list(key: CryptoKey): Promise<NetWorthSnapshot[]> {
 		const rows = await db.netWorthSnapshots.toArray();
 		const snapshots = await decryptRows<NetWorthSnapshotRow, NetWorthSnapshot>(key, rows);
-		return snapshots.sort((a, b) => (a.date < b.date ? -1 : 1));
+		return snapshots.sort((a, b) => a.date.localeCompare(b.date) || a.createdAt - b.createdAt);
 	}
 };
