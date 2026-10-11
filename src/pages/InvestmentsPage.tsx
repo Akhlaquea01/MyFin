@@ -25,6 +25,7 @@ import {
 	SelectValue
 } from '../components/ui/select';
 import { useSession } from '../context/SessionContext';
+import { AccountRepository } from '../data/dexie/accountRepository';
 import {
 	InvestmentHoldingRepository,
 	InvestmentValuationRepository
@@ -38,7 +39,7 @@ import {
 } from '../domain/wealth/wealthEngine';
 import { INVESTMENT_TYPE_LABELS as TYPE_LABELS } from '../domain/wealth/investmentTypeLabels';
 import { todayLocalISO } from '../domain/shared/dateMath';
-import type { InvestmentHolding, InvestmentType } from '../domain/entities';
+import type { Account, InvestmentHolding, InvestmentType } from '../domain/entities';
 import {
 	formatMinorUnits,
 	isNonNegativeMoney,
@@ -69,16 +70,48 @@ const valuationSchema = z.object({
 });
 type ValuationFormValues = z.infer<typeof valuationSchema>;
 
+/** The account picker's "no account" choice: the trade is recorded on the holding alone. */
+const NO_ACCOUNT = '__none__';
+
 const purchaseSchema = z.object({
 	units: z.string().refine(isPositiveUnits, 'Enter a positive number of units.'),
-	price: z.string().refine((v) => isPositiveMoney(v), 'Enter a positive price per unit.')
+	price: z.string().refine((v) => isPositiveMoney(v), 'Enter a positive price per unit.'),
+	date: z.string().min(1, 'Choose a date.'),
+	accountId: z.string()
 });
 type PurchaseFormValues = z.infer<typeof purchaseSchema>;
 
-const saleSchema = z.object({
-	units: z.string().refine(isPositiveUnits, 'Enter a positive number of units.')
-});
+const saleSchema = z
+	.object({
+		units: z.string().refine(isPositiveUnits, 'Enter a positive number of units.'),
+		date: z.string().min(1, 'Choose a date.'),
+		accountId: z.string(),
+		price: z.string()
+	})
+	.superRefine((values, ctx) => {
+		// The proceeds are units × price, so an account needs a price to know how much arrives.
+		if (values.accountId !== NO_ACCOUNT && !isPositiveMoney(values.price)) {
+			ctx.addIssue({
+				code: 'custom',
+				path: ['price'],
+				message: 'Enter the sale price per unit to record the proceeds.'
+			});
+		}
+	});
 type SaleFormValues = z.infer<typeof saleSchema>;
+
+const purchaseDefaults = (): PurchaseFormValues => ({
+	units: '',
+	price: '',
+	date: todayLocalISO(),
+	accountId: NO_ACCOUNT
+});
+const saleDefaults = (): SaleFormValues => ({
+	units: '',
+	price: '',
+	date: todayLocalISO(),
+	accountId: NO_ACCOUNT
+});
 
 function formatMoney(paise: number): string {
 	return (paise / 100).toLocaleString(undefined, {
@@ -104,6 +137,8 @@ export function InvestmentsPage() {
 	const key = getEncryptionKey();
 
 	const [holdings, setHoldings] = useState<InvestmentHolding[]>([]);
+	// Where a trade's money can come from or go to: never a credit card.
+	const [accounts, setAccounts] = useState<Account[]>([]);
 	const [valuesWithSource, setValuesWithSource] = useState<
 		Record<string, { value: number; isEstimate: boolean }>
 	>({});
@@ -124,18 +159,22 @@ export function InvestmentsPage() {
 	});
 	const purchaseForm = useForm<PurchaseFormValues>({
 		resolver: zodResolver(purchaseSchema),
-		defaultValues: { units: '', price: '' }
+		defaultValues: purchaseDefaults()
 	});
 	const saleForm = useForm<SaleFormValues>({
 		resolver: zodResolver(saleSchema),
-		defaultValues: { units: '' }
+		defaultValues: saleDefaults()
 	});
 
 	async function refresh() {
 		setLoading(true);
 		try {
-			const list = await InvestmentHoldingRepository.list(key);
+			const [list, allAccounts] = await Promise.all([
+				InvestmentHoldingRepository.list(key),
+				AccountRepository.list(key, false)
+			]);
 			setHoldings(list);
+			setAccounts(allAccounts.filter((a) => a.type !== 'credit_card'));
 			const values = await Promise.all(
 				list.map((h) => InvestmentValuationRepository.latestValueWithSource(key, h))
 			);
@@ -189,16 +228,39 @@ export function InvestmentsPage() {
 		}
 	}
 
+	function accountName(id: string): string {
+		return accounts.find((a) => a.id === id)?.name ?? 'the account';
+	}
+
+	function openPurchase(holding: InvestmentHolding) {
+		purchaseForm.reset(purchaseDefaults());
+		setPurchaseTarget(holding);
+	}
+
+	function openSale(holding: InvestmentHolding) {
+		saleForm.reset(saleDefaults());
+		setSaleTarget(holding);
+	}
+
 	async function onPurchase(values: PurchaseFormValues) {
 		if (!purchaseTarget) return;
 		try {
+			const units = parseUnits(values.units);
+			const price = parseMoneyOrZero(values.price);
+			const accountId = values.accountId === NO_ACCOUNT ? null : values.accountId;
 			await recordPurchase(key, purchaseTarget.id, {
-				units: parseUnits(values.units),
-				price: parseMoneyOrZero(values.price)
+				units,
+				price,
+				date: values.date,
+				accountId
 			});
-			purchaseForm.reset({ units: '', price: '' });
+			purchaseForm.reset(purchaseDefaults());
 			setPurchaseTarget(null);
-			toast.success('Purchase recorded');
+			toast.success(
+				accountId
+					? `Purchase recorded — ${formatMoney(Math.round(units * price))} taken from ${accountName(accountId)}`
+					: 'Purchase recorded'
+			);
 			await refresh();
 		} catch (err) {
 			toast.error(err instanceof Error ? err.message : 'Could not record purchase.');
@@ -208,10 +270,17 @@ export function InvestmentsPage() {
 	async function onSale(values: SaleFormValues) {
 		if (!saleTarget) return;
 		try {
-			await recordSale(key, saleTarget.id, { units: parseUnits(values.units) });
-			saleForm.reset({ units: '' });
+			const units = parseUnits(values.units);
+			const accountId = values.accountId === NO_ACCOUNT ? null : values.accountId;
+			const price = accountId ? parseMoneyOrZero(values.price) : null;
+			await recordSale(key, saleTarget.id, { units, price, date: values.date, accountId });
+			saleForm.reset(saleDefaults());
 			setSaleTarget(null);
-			toast.success('Sale recorded');
+			toast.success(
+				accountId && price
+					? `Sale recorded — ${formatMoney(Math.round(units * price))} added to ${accountName(accountId)}`
+					: 'Sale recorded'
+			);
 			await refresh();
 		} catch (err) {
 			toast.error(err instanceof Error ? err.message : 'Could not record sale.');
@@ -475,7 +544,7 @@ export function InvestmentsPage() {
 											variant="link"
 											size="sm"
 											className="h-auto p-0"
-											onClick={() => setPurchaseTarget(holding)}
+											onClick={() => openPurchase(holding)}
 										>
 											<Plus className="size-3" /> Buy more units
 										</Button>
@@ -483,7 +552,7 @@ export function InvestmentsPage() {
 											variant="link"
 											size="sm"
 											className="h-auto p-0"
-											onClick={() => setSaleTarget(holding)}
+											onClick={() => openSale(holding)}
 										>
 											<Minus className="size-3" /> Sell units
 										</Button>
@@ -570,6 +639,34 @@ export function InvestmentsPage() {
 								)}
 							</div>
 						</div>
+						<div className="grid grid-cols-2 gap-3">
+							<div className="flex flex-col gap-1.5">
+								<Label htmlFor="purchase-date">Date</Label>
+								<Input id="purchase-date" type="date" {...purchaseForm.register('date')} />
+								{purchaseForm.formState.errors.date && (
+									<p className="text-sm text-destructive">
+										{purchaseForm.formState.errors.date.message}
+									</p>
+								)}
+							</div>
+							<Controller
+								control={purchaseForm.control}
+								name="accountId"
+								render={({ field }) => (
+									<AccountSelect
+										id="purchase-account"
+										label="Paid from (optional)"
+										accounts={accounts}
+										value={field.value}
+										onChange={field.onChange}
+									/>
+								)}
+							/>
+						</div>
+						<p className="text-xs text-muted-foreground">
+							Choose an account to take the money out of it in the same step. Leave it as it is to
+							change the holding only.
+						</p>
 						<DialogFooter>
 							<Button type="submit">Record purchase</Button>
 						</DialogFooter>
@@ -597,6 +694,45 @@ export function InvestmentsPage() {
 								</p>
 							)}
 						</div>
+						<div className="grid grid-cols-2 gap-3">
+							<div className="flex flex-col gap-1.5">
+								<Label htmlFor="sale-date">Date</Label>
+								<Input id="sale-date" type="date" {...saleForm.register('date')} />
+								{saleForm.formState.errors.date && (
+									<p className="text-sm text-destructive">
+										{saleForm.formState.errors.date.message}
+									</p>
+								)}
+							</div>
+							<Controller
+								control={saleForm.control}
+								name="accountId"
+								render={({ field }) => (
+									<AccountSelect
+										id="sale-account"
+										label="Proceeds to (optional)"
+										accounts={accounts}
+										value={field.value}
+										onChange={field.onChange}
+									/>
+								)}
+							/>
+						</div>
+						{saleForm.watch('accountId') !== NO_ACCOUNT && (
+							<div className="flex flex-col gap-1.5">
+								<Label htmlFor="sale-price">Sale price / unit</Label>
+								<Input id="sale-price" type="number" step="0.01" {...saleForm.register('price')} />
+								{saleForm.formState.errors.price && (
+									<p className="text-sm text-destructive">
+										{saleForm.formState.errors.price.message}
+									</p>
+								)}
+							</div>
+						)}
+						<p className="text-xs text-muted-foreground">
+							Choose an account to add the proceeds to it in the same step. Leave it as it is to
+							change the holding only.
+						</p>
 						<DialogFooter>
 							<Button type="submit" variant="destructive">
 								Record sale
@@ -605,6 +741,40 @@ export function InvestmentsPage() {
 					</form>
 				</DialogContent>
 			</Dialog>
+		</div>
+	);
+}
+
+/** A bank, cash or wallet account to move a trade's money through - or none, to leave accounts alone. */
+function AccountSelect({
+	id,
+	label,
+	accounts,
+	value,
+	onChange
+}: {
+	id: string;
+	label: string;
+	accounts: Account[];
+	value: string;
+	onChange: (value: string) => void;
+}) {
+	return (
+		<div className="flex flex-col gap-1.5">
+			<Label htmlFor={id}>{label}</Label>
+			<Select value={value} onValueChange={onChange}>
+				<SelectTrigger id={id} className="w-full">
+					<SelectValue />
+				</SelectTrigger>
+				<SelectContent>
+					<SelectItem value={NO_ACCOUNT}>No account</SelectItem>
+					{accounts.map((a) => (
+						<SelectItem key={a.id} value={a.id}>
+							{a.name}
+						</SelectItem>
+					))}
+				</SelectContent>
+			</Select>
 		</div>
 	);
 }

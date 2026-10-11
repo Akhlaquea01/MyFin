@@ -12,11 +12,20 @@ export interface LinkedTransactionNotice {
 
 /**
  * Wording for a ledger entry that is the other half of a record elsewhere (a person loan or its
- * repayment, or a payment toward a liability). One place, so the delete guard, the edit dialog,
+ * repayment, a payment toward a liability, or an investment purchase or sale). One place, so the delete guard, the edit dialog,
  * the transfer conversion and the permanent-delete guard all send the user to the same page with
  * the same explanation.
  */
 export function linkedTransactionNotice(link: TransactionLink): LinkedTransactionNotice {
+	if (link.kind === 'investment-trade') {
+		return {
+			message:
+				'This entry is a purchase or sale on the Investments page, so it is managed there. Open the holding\'s Edit dialog and use "Undo" on its latest trade to reverse it (restore the holding from Trash first if it was deleted).',
+			to: '/investments',
+			linkLabel: 'Go to Investments',
+			subject: 'investment purchase or sale'
+		};
+	}
 	if (link.kind === 'liability-payment') {
 		return {
 			message:

@@ -178,6 +178,40 @@ export interface InvestmentHolding extends Timestamped, SoftDeletable {
 	/** Average price per unit, integer in the smallest currency unit (paise). Present under
 	 *  the same condition as units. */
 	avgPrice?: number;
+	/** Purchases and sales recorded through "Buy more units" / "Sell units", oldest first. Kept ON
+	 *  the holding (like a liability's payments) so it needs no schema migration and travels with
+	 *  backups. The latest one can be undone. Absent on a holding that has never traded. */
+	trades?: InvestmentTrade[];
+}
+
+/** How a trade moved the holding's recorded value, in enough detail to put it back: the value
+ *  written was either a NEW valuation (to be deleted again) or a replacement of today's existing
+ *  one (to be set back to `previousValue`). */
+export interface InvestmentValueChange {
+	id: ID;
+	created: boolean;
+	previousValue: number;
+}
+
+/** One purchase or sale of units. */
+export interface InvestmentTrade {
+	id: ID;
+	kind: 'buy' | 'sell';
+	units: number;
+	/** Price per unit in the smallest currency unit. Null for a sale entered without one. */
+	price: number | null;
+	/** units × price — what moved to or from `accountId`. Null when no price was given. */
+	amount: number | null;
+	date: ISODateString;
+	/** The account the money left or arrived in; null when the trade was not recorded in one. */
+	accountId: ID | null;
+	/** The ledger entry for that movement — which is what keeps the two from drifting apart; see
+	 *  `TransactionRepository.getLoanLink`. Null when `accountId` is. */
+	transactionId: ID | null;
+	/** The holding as it was before this trade, so undoing it puts everything back exactly. */
+	before: { units?: number; avgPrice?: number; costBasis: number };
+	/** What the trade did to the recorded value; null when the holding had none to adjust. */
+	valueChange: InvestmentValueChange | null;
 }
 
 export interface InvestmentValuation extends Timestamped {

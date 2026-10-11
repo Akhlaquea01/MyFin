@@ -17,7 +17,9 @@ import { formatMinorUnits } from '../shared/money';
 import type {
 	Account,
 	InvestmentHolding,
+	InvestmentTrade,
 	InvestmentType,
+	InvestmentValueChange,
 	InvestmentValuation,
 	Liability,
 	LiabilityPayment,
@@ -456,16 +458,7 @@ function costBasisFor(units: number, avgPrice: number): number {
 	return Math.round(units * avgPrice);
 }
 
-/**
- * What a change to a holding's recorded value did, in enough detail to put it back: the value
- * written today is either a NEW valuation (to be deleted again) or a replacement of today's existing
- * one (to be set back to what it was).
- */
-export interface RecordedValueChange {
-	id: string;
-	created: boolean;
-	previousValue: number;
-}
+type RecordedValueChange = InvestmentValueChange;
 
 /**
  * Moves a holding's RECORDED value along with a change in its units. The recorded value is the
@@ -508,21 +501,75 @@ async function revertRecordedValue(key: CryptoKey, change: RecordedValueChange):
 	}
 }
 
+/** Where and when a trade happened. With an account, the money's movement is posted to the ledger. */
+export interface TradeOptions {
+	/** The day of the trade; today when omitted. */
+	date?: string;
+	/** The account the money left (a purchase) or arrived in (a sale). Omit to record the trade on
+	 *  the holding only, leaving every account untouched. */
+	accountId?: string | null;
+}
+
+/** "Bought 5 units of BEL" - the description on the account's side of a trade. */
+function tradeNote(kind: 'buy' | 'sell', units: number, holdingName: string): string {
+	const count = units.toLocaleString(undefined, { maximumFractionDigits: 4 });
+	return `${kind === 'buy' ? 'Bought' : 'Sold'} ${count} ${units === 1 ? 'unit' : 'units'} of ${holdingName}`;
+}
+
+/** Money for a trade comes from, or goes to, a bank, cash or wallet account - never a card. */
+async function assertTradeAccount(key: CryptoKey, accountId: string): Promise<void> {
+	const account = await AccountRepository.getById(key, accountId);
+	if (!account || account.deletedAt !== null) throw new Error('Account not found.');
+	if (account.type === 'credit_card') {
+		throw new Error('Use a bank, cash or wallet account for this, not a credit card.');
+	}
+}
+
+/**
+ * Posts the account's side of a trade. It is a single-sided transfer, as a person loan's movement
+ * is: money moving between the account and an asset the user owns - not spending, not income - so
+ * it stays out of budgets and reports while still moving the account's balance. Net worth is
+ * unchanged by it (cash down, holding up).
+ */
+async function postTradeEntry(
+	key: CryptoKey,
+	input: { accountId: string; date: string; amount: number; note: string }
+): Promise<string> {
+	const tx = await TransactionEngine.recordTransaction(key, {
+		accountId: input.accountId,
+		date: input.date,
+		amount: input.amount,
+		type: 'transfer',
+		transferPairId: null,
+		notes: input.note,
+		source: 'manual',
+		reviewStatus: 'confirmed'
+	});
+	return tx.id;
+}
+
 /**
  * Records a purchase of additional units for an existing holding, recalculating the
  * weighted-average price and cost basis (spec 016, FR-017, contracts/wealth-engine.md). A recorded
  * value goes up by what the units cost, so the extra money put in is not reported as a loss.
+ *
+ * Given an `accountId`, the cost also leaves that account, as ONE action: the ledger entry and the
+ * holding change together, and the entry is tied to the trade so it cannot be edited or deleted on
+ * its own and leave the two disagreeing. Without one, only the holding changes. Either way the
+ * latest trade can be undone - see `undoLatestTrade`.
  */
 export async function recordPurchase(
 	key: CryptoKey,
 	holdingId: string,
-	purchase: { units: number; price: number }
+	purchase: { units: number; price: number } & TradeOptions
 ): Promise<InvestmentHolding> {
 	if (purchase.units <= 0) throw new Error('Units must be positive.');
 	if (purchase.price <= 0) throw new Error('Price must be positive.');
 
 	const holding = await InvestmentHoldingRepository.getById(key, holdingId);
-	if (!holding) throw new Error('Holding not found.');
+	if (!holding || holding.deletedAt !== null) throw new Error('Holding not found.');
+	const accountId = purchase.accountId || null;
+	if (accountId) await assertTradeAccount(key, accountId);
 
 	const existingUnits = holding.units ?? 0;
 	const existingAvgPrice = holding.avgPrice ?? 0;
@@ -533,16 +580,43 @@ export async function recordPurchase(
 	);
 	const newCostBasis = costBasisFor(newUnits, newAvgPrice);
 	const spent = Math.round(purchase.units * purchase.price);
+	const date = purchase.date ?? todayLocalISO();
 
-	const valueChange = await adjustRecordedValue(key, holdingId, (value) => value + spent);
+	const transactionId = accountId
+		? await postTradeEntry(key, {
+				accountId,
+				date,
+				amount: -spent,
+				note: tradeNote('buy', purchase.units, holding.name)
+			})
+		: null;
+	let valueChange: RecordedValueChange | null = null;
 	try {
+		valueChange = await adjustRecordedValue(key, holdingId, (value) => value + spent);
+		const trade: InvestmentTrade = {
+			id: crypto.randomUUID(),
+			kind: 'buy',
+			units: purchase.units,
+			price: purchase.price,
+			amount: spent,
+			date,
+			accountId,
+			transactionId,
+			before: { units: holding.units, avgPrice: holding.avgPrice, costBasis: holding.costBasis },
+			valueChange
+		};
 		return await InvestmentHoldingRepository.update(key, holdingId, {
 			units: newUnits,
 			avgPrice: newAvgPrice,
-			costBasis: newCostBasis
+			costBasis: newCostBasis,
+			trades: [...(holding.trades ?? []), trade]
 		});
 	} catch (err) {
+		// Never leave money taken out of the account with the holding unchanged.
 		if (valueChange) await revertRecordedValue(key, valueChange);
+		if (transactionId) {
+			await TransactionEngine.deleteTransaction(key, transactionId).catch(() => undefined);
+		}
 		throw err;
 	}
 }
@@ -550,38 +624,119 @@ export async function recordPurchase(
 /**
  * Records a sale (decrease) of units for an existing holding. Average price is unchanged;
  * costBasis is recalculated as remaining units × avgPrice (spec 016, FR-019/020,
- * contracts/wealth-engine.md). A recorded value shrinks in proportion to the units that remain —
+ * contracts/wealth-engine.md). A recorded value shrinks in proportion to the units that remain -
  * to nothing when they are all sold.
+ *
+ * Given an `accountId`, the proceeds (units × `price`) arrive in that account in the same action;
+ * the price is then required, since the amount has to come from somewhere. See `recordPurchase`.
  */
 export async function recordSale(
 	key: CryptoKey,
 	holdingId: string,
-	sale: { units: number }
+	sale: { units: number; price?: number | null } & TradeOptions
 ): Promise<InvestmentHolding> {
 	if (sale.units <= 0) throw new Error('Units must be positive.');
+	const price = sale.price ?? null;
+	if (price !== null && price < 0) throw new Error('Price must be positive.');
 
 	const holding = await InvestmentHoldingRepository.getById(key, holdingId);
-	if (!holding) throw new Error('Holding not found.');
+	if (!holding || holding.deletedAt !== null) throw new Error('Holding not found.');
 
 	const existingUnits = holding.units ?? 0;
 	if (sale.units > existingUnits) {
 		throw new Error('Cannot sell more units than currently held.');
 	}
+	const accountId = sale.accountId || null;
+	if (accountId) {
+		if (price === null || price === 0) {
+			throw new Error('Enter the sale price per unit to record the proceeds in an account.');
+		}
+		await assertTradeAccount(key, accountId);
+	}
 
 	const newUnits = existingUnits - sale.units;
 	const avgPrice = holding.avgPrice ?? 0;
 	const newCostBasis = costBasisFor(newUnits, avgPrice);
+	const proceeds = price ? Math.round(sale.units * price) : null;
+	const date = sale.date ?? todayLocalISO();
 
-	const valueChange = await adjustRecordedValue(key, holdingId, (value) =>
-		existingUnits > 0 ? (value * newUnits) / existingUnits : 0
-	);
+	const transactionId =
+		accountId && proceeds !== null
+			? await postTradeEntry(key, {
+					accountId,
+					date,
+					amount: proceeds,
+					note: tradeNote('sell', sale.units, holding.name)
+				})
+			: null;
+	let valueChange: RecordedValueChange | null = null;
 	try {
+		valueChange = await adjustRecordedValue(key, holdingId, (value) =>
+			existingUnits > 0 ? (value * newUnits) / existingUnits : 0
+		);
+		const trade: InvestmentTrade = {
+			id: crypto.randomUUID(),
+			kind: 'sell',
+			units: sale.units,
+			price: price || null,
+			amount: proceeds,
+			date,
+			accountId: transactionId ? accountId : null,
+			transactionId,
+			before: { units: holding.units, avgPrice: holding.avgPrice, costBasis: holding.costBasis },
+			valueChange
+		};
 		return await InvestmentHoldingRepository.update(key, holdingId, {
 			units: newUnits,
-			costBasis: newCostBasis
+			costBasis: newCostBasis,
+			trades: [...(holding.trades ?? []), trade]
 		});
 	} catch (err) {
 		if (valueChange) await revertRecordedValue(key, valueChange);
+		if (transactionId) {
+			await TransactionEngine.deleteTransaction(key, transactionId).catch(() => undefined);
+		}
+		throw err;
+	}
+}
+
+/**
+ * Reverses the MOST RECENT trade on a holding: its units, average price and cost basis go back to
+ * what they were, the value it adjusted is put back, and the account entry it posted (if any) moves
+ * to Trash, returning the money. The way to correct a trade recorded with the wrong units, price,
+ * date or account (its ledger entry is deliberately not editable on its own).
+ *
+ * Only the latest can be undone: each trade's "before" assumes every trade after it still stands.
+ */
+export async function undoLatestTrade(
+	key: CryptoKey,
+	holdingId: string,
+	tradeId: string
+): Promise<InvestmentHolding> {
+	const holding = await InvestmentHoldingRepository.getById(key, holdingId);
+	if (!holding) throw new Error('Holding not found.');
+	const trades = holding.trades ?? [];
+	const trade = trades.find((t) => t.id === tradeId);
+	if (!trade) throw new Error('Trade not found.');
+	if (trades[trades.length - 1].id !== tradeId) {
+		throw new Error('Only the most recent trade can be undone. Undo the later ones first.');
+	}
+
+	// Ledger first, then the holding - and put the entry back if the second step fails, so the money
+	// and the holding are never left moved by only one half.
+	if (trade.transactionId) await TransactionEngine.deleteTransaction(key, trade.transactionId);
+	try {
+		if (trade.valueChange) await revertRecordedValue(key, trade.valueChange);
+		return await InvestmentHoldingRepository.update(key, holdingId, {
+			units: trade.before.units,
+			avgPrice: trade.before.avgPrice,
+			costBasis: trade.before.costBasis,
+			trades: trades.slice(0, -1)
+		});
+	} catch (err) {
+		if (trade.transactionId) {
+			await TransactionEngine.restoreTransaction(key, trade.transactionId).catch(() => undefined);
+		}
 		throw err;
 	}
 }
@@ -595,7 +750,9 @@ export type HoldingEdit = { name: string; type: InvestmentType } & (
 /**
  * Corrects a holding's details as entered — a misspelled name, the wrong type, a units or price typo.
  * It is not how a purchase or sale is recorded (those weight the average price / reduce the units
- * and keep the history coherent); it overwrites the numbers outright.
+ * and keep the history coherent); it overwrites the numbers outright. Doing so clears the list of
+ * trades that could be undone - their "before" figures no longer describe the holding. (The ledger
+ * entries they posted stay, but are then ordinary entries, no longer tied to a trade.)
  */
 export async function editHolding(
 	key: CryptoKey,
@@ -613,12 +770,14 @@ export async function editHolding(
 		if (!Number.isInteger(edit.avgPrice) || edit.avgPrice < 0) {
 			throw new Error('The average price cannot be negative.');
 		}
+		const numbersChanged = edit.units !== holding.units || edit.avgPrice !== holding.avgPrice;
 		return InvestmentHoldingRepository.update(key, holdingId, {
 			name,
 			type: edit.type,
 			units: edit.units,
 			avgPrice: edit.avgPrice,
-			costBasis: costBasisFor(edit.units, edit.avgPrice)
+			costBasis: costBasisFor(edit.units, edit.avgPrice),
+			...(numbersChanged ? { trades: [] } : {})
 		});
 	}
 	if (!Number.isInteger(edit.costBasis) || edit.costBasis < 0) {
@@ -627,7 +786,8 @@ export async function editHolding(
 	return InvestmentHoldingRepository.update(key, holdingId, {
 		name,
 		type: edit.type,
-		costBasis: edit.costBasis
+		costBasis: edit.costBasis,
+		...(edit.costBasis !== holding.costBasis ? { trades: [] } : {})
 	});
 }
 

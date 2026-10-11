@@ -14,11 +14,21 @@ import {
 } from './ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { useSession } from '../context/SessionContext';
-import { InvestmentValuationRepository } from '../data/dexie/wealthRepository';
-import { editHolding } from '../domain/wealth/wealthEngine';
+import { AccountRepository } from '../data/dexie/accountRepository';
+import {
+	InvestmentHoldingRepository,
+	InvestmentValuationRepository
+} from '../data/dexie/wealthRepository';
+import { editHolding, undoLatestTrade } from '../domain/wealth/wealthEngine';
 import { INVESTMENT_TYPE_LABELS } from '../domain/wealth/investmentTypeLabels';
 import { formatMinorUnits, isNonNegativeMoney, parseMoneyOrZero } from '../domain/shared/money';
-import type { InvestmentHolding, InvestmentType, InvestmentValuation } from '../domain/entities';
+import type {
+	Account,
+	InvestmentHolding,
+	InvestmentTrade,
+	InvestmentType,
+	InvestmentValuation
+} from '../domain/entities';
 
 function formatMoney(paise: number): string {
 	return (paise / 100).toLocaleString(undefined, {
@@ -56,6 +66,8 @@ export function HoldingEditDialog({
 	const [costBasis, setCostBasis] = useState(formatMinorUnits(holding.costBasis));
 	const [saving, setSaving] = useState(false);
 	const [history, setHistory] = useState<InvestmentValuation[]>([]);
+	const [trades, setTrades] = useState<InvestmentTrade[]>([]);
+	const [accounts, setAccounts] = useState<Account[]>([]);
 
 	async function loadHistory() {
 		try {
@@ -65,10 +77,53 @@ export function HoldingEditDialog({
 		}
 	}
 
+	// The holding handed to this dialog is a snapshot from when it opened; the trades are read fresh.
+	async function loadTrades() {
+		try {
+			const [fresh, allAccounts] = await Promise.all([
+				InvestmentHoldingRepository.getById(key, holding.id),
+				AccountRepository.list(key, true)
+			]);
+			setTrades(fresh?.trades ?? []);
+			setAccounts(allAccounts);
+		} catch (err) {
+			toast.error(err instanceof Error ? err.message : 'Could not load the trades.');
+		}
+	}
+
 	useEffect(() => {
 		void loadHistory();
+		void loadTrades();
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, []);
+
+	function accountName(id: string | null): string {
+		return id ? (accounts.find((a) => a.id === id)?.name ?? 'an account') : 'no account';
+	}
+
+	async function undoTrade(trade: InvestmentTrade) {
+		const verb = trade.kind === 'buy' ? 'purchase' : 'sale';
+		const money =
+			trade.transactionId && trade.amount !== null
+				? ` and ${formatMoney(trade.amount)} ${trade.kind === 'buy' ? 'goes back into' : 'is taken back out of'} ${accountName(trade.accountId)}`
+				: '';
+		if (
+			!window.confirm(
+				`Undo the ${verb} of ${trade.units.toLocaleString(undefined, { maximumFractionDigits: 4 })} units on ${trade.date}? The holding goes back to ${(trade.before.units ?? 0).toLocaleString(undefined, { maximumFractionDigits: 4 })} units${money}.`
+			)
+		) {
+			return;
+		}
+		try {
+			await undoLatestTrade(key, holding.id, trade.id);
+			toast.success(`${verb[0].toUpperCase()}${verb.slice(1)} undone`);
+			onChanged();
+			// The units and price above are now out of date; reopening shows the restored figures.
+			onOpenChange(false);
+		} catch (err) {
+			toast.error(err instanceof Error ? err.message : 'Could not undo that.');
+		}
+	}
 
 	async function removeValuation(valuation: InvestmentValuation) {
 		if (
@@ -195,6 +250,12 @@ export function HoldingEditDialog({
 							<p className="text-xs text-muted-foreground">
 								Cost basis: {formatMoney(derivedCostBasis ?? 0)} (units × average price)
 							</p>
+							{trades.length > 0 && (
+								<p className="text-xs text-muted-foreground">
+									Changing the units or price clears the list of trades below, so they can no longer
+									be undone.
+								</p>
+							)}
 						</>
 					) : (
 						<div className="flex flex-col gap-1.5">
@@ -208,6 +269,49 @@ export function HoldingEditDialog({
 							/>
 							<p className="text-xs text-muted-foreground">
 								This holding has no unit data, so its cost basis is entered directly.
+							</p>
+						</div>
+					)}
+
+					{trades.length > 0 && (
+						<div className="flex flex-col gap-1.5">
+							<p className="text-sm font-medium">Purchases and sales</p>
+							<ul className="flex max-h-40 flex-col gap-1 overflow-y-auto text-sm">
+								{[...trades].reverse().map((trade, index) => (
+									<li
+										key={trade.id}
+										className="flex items-center justify-between gap-2 rounded-md border px-2 py-1"
+									>
+										<span className="flex flex-col">
+											<span>
+												{trade.kind === 'buy' ? 'Bought' : 'Sold'}{' '}
+												{trade.units.toLocaleString(undefined, { maximumFractionDigits: 4 })} units
+												{trade.price !== null && <> @ {formatMoney(trade.price)}</>}
+											</span>
+											<span className="text-xs text-muted-foreground">
+												{trade.date} ·{' '}
+												{trade.transactionId
+													? `${trade.kind === 'buy' ? 'paid from' : 'proceeds to'} ${accountName(trade.accountId)}`
+													: 'holding only'}
+											</span>
+										</span>
+										{index === 0 && (
+											<Button
+												type="button"
+												size="sm"
+												variant="outline"
+												aria-label="Undo latest trade"
+												onClick={() => void undoTrade(trade)}
+											>
+												Undo
+											</Button>
+										)}
+									</li>
+								))}
+							</ul>
+							<p className="text-xs text-muted-foreground">
+								Only the latest can be undone, which also puts back the money in the account it was
+								recorded in.
 							</p>
 						</div>
 					)}

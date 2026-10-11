@@ -129,3 +129,22 @@ test('goals overview shows mixed statuses and a correct total (Scenario 3), and 
 	await expect(restoredCard).toBeVisible();
 	await expect(restoredCard.getByText('500.00', { exact: true })).toBeVisible();
 });
+
+test('logging a contribution says it only tracks progress, and points to Transfer for moving money', async ({
+	page
+}) => {
+	await page.goto('/');
+	await page.getByLabel('Create PIN').fill('202087');
+	await page.getByLabel('Confirm PIN').fill('202087');
+	await page.getByRole('button', { name: 'Set PIN' }).click();
+	await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible();
+	await page.getByRole('link', { name: 'Savings Goals' }).click();
+	await createGoal(page, 'Emergency Fund', '10000');
+
+	const card = page.locator('[data-slot="card"]').filter({ hasText: 'Emergency Fund' });
+	await card.getByRole('button', { name: 'Add contribution' }).click();
+	const dialog = page.getByRole('dialog');
+	await expect(dialog.getByText(/does not move money or change any account balance/)).toBeVisible();
+	await dialog.getByRole('link', { name: 'record a transfer' }).click();
+	await expect(page.getByRole('heading', { name: 'Transfer' })).toBeVisible();
+});

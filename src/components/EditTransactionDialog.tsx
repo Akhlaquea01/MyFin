@@ -222,7 +222,7 @@ export function EditTransactionDialog({
 						{kind === 'transfer'
 							? 'This is one side of a transfer. Changes apply to both sides together.'
 							: kind === 'loan'
-								? 'This entry belongs to a loan or liability record.'
+								? 'This entry belongs to a loan, liability or investment record.'
 								: 'Changes update the account balance and reports straight away.'}
 					</DialogDescription>
 				</DialogHeader>
@@ -232,12 +232,19 @@ export function EditTransactionDialog({
 				{kind === 'loan' && link && (
 					<div className="flex flex-col gap-3 text-sm">
 						<p>
-							{link.kind === 'liability-payment'
-								? "A payment toward a loan or card is tracked on the Liabilities page, and its amount and date can't be edited here without the balance owed no longer matching your accounts."
-								: "Money lent, borrowed or paid back is tracked on the People page, and its amount and date can't be edited here without the loan's balance no longer matching your accounts."}
+							{link.kind === 'investment-trade'
+								? "A purchase or sale of units is tracked on the Investments page, and its amount and date can't be edited here without the holding no longer matching your accounts."
+								: link.kind === 'liability-payment'
+									? "A payment toward a loan or card is tracked on the Liabilities page, and its amount and date can't be edited here without the balance owed no longer matching your accounts."
+									: "Money lent, borrowed or paid back is tracked on the People page, and its amount and date can't be edited here without the loan's balance no longer matching your accounts."}
 						</p>
 						<p className="text-muted-foreground">
-							{link.kind === 'liability-payment' ? (
+							{link.kind === 'investment-trade' ? (
+								<>
+									To fix it, open Investments, choose <strong>Edit</strong> on the holding and use{' '}
+									<strong>Undo</strong> on its latest trade, then record it again.
+								</>
+							) : link.kind === 'liability-payment' ? (
 								<>
 									To fix it, open Liabilities and use <strong>Undo</strong> on the payment, then
 									record it again.

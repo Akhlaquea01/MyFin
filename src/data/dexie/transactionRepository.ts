@@ -4,12 +4,14 @@ import {
 	type TransactionSplitRow,
 	type PersonLoanRow,
 	type PersonLoanRepaymentRow,
-	type LiabilityRow
+	type LiabilityRow,
+	type InvestmentHoldingRow
 } from './db';
 import { encryptRow, getDecrypted, decryptRows } from './encryptedTable';
 import { deletedAtIndex, nullableIdIndex, NOT_DELETED } from './indexable';
 import { AttachmentRepository } from './attachmentRepository';
 import { TagRepository } from './tagRepository';
+import { linkedTransactionNotice } from '../../domain/transactions/linkedTransactionNotice';
 import {
 	normalizeTagText,
 	transactionMatchesFreeText
@@ -21,13 +23,15 @@ import type {
 	TransactionSource,
 	PersonLoan,
 	LoanRepayment,
-	Liability
+	Liability,
+	InvestmentHolding
 } from '../../domain/entities';
 
 /** What a linked ledger entry belongs to; `getLoanLink` returns null for an ordinary entry. */
 export type TransactionLink =
 	| { kind: 'loan' | 'repayment'; loanId: string }
-	| { kind: 'liability-payment'; liabilityId: string };
+	| { kind: 'liability-payment'; liabilityId: string }
+	| { kind: 'investment-trade'; holdingId: string };
 
 export interface NewTransactionInput {
 	id?: string;
@@ -265,9 +269,7 @@ export const TransactionRepository = {
 		const link = await this.getLoanLink(key, id);
 		if (link) {
 			throw new Error(
-				`This transaction is linked to a ${
-					link.kind === 'liability-payment' ? 'liability payment' : 'person loan or repayment'
-				} and cannot be permanently deleted.`
+				`This transaction is linked to a ${linkedTransactionNotice(link).subject} and cannot be permanently deleted.`
 			);
 		}
 
@@ -311,15 +313,18 @@ export const TransactionRepository = {
 	 * never on a list render.
 	 */
 	async getLoanLink(key: CryptoKey, id: string): Promise<TransactionLink | null> {
-		const [loanRows, repaymentRows, liabilityRows] = await Promise.all([
+		const [loanRows, repaymentRows, liabilityRows, holdingRows] = await Promise.all([
 			db.personLoans.toArray(),
 			db.personLoanRepayments.toArray(),
-			db.liabilities.toArray()
+			db.liabilities.toArray(),
+			db.investmentHoldings.toArray()
 		]);
-		const [loans, repayments, liabilities] = await Promise.all([
+		const [loans, repayments, liabilities, holdings] = await Promise.all([
 			decryptRows<PersonLoanRow, PersonLoan>(key, loanRows),
 			decryptRows<PersonLoanRepaymentRow, LoanRepayment>(key, repaymentRows),
-			decryptRows<LiabilityRow, Liability>(key, liabilityRows)
+			decryptRows<LiabilityRow, Liability>(key, liabilityRows),
+			// Deleted holdings included: their trades' ledger entries are still theirs.
+			decryptRows<InvestmentHoldingRow, InvestmentHolding>(key, holdingRows)
 		]);
 		const loan = loans.find((l) => l.transactionId === id);
 		if (loan) return { kind: 'loan', loanId: loan.id };
@@ -327,6 +332,8 @@ export const TransactionRepository = {
 		if (repayment) return { kind: 'repayment', loanId: repayment.loanId };
 		const liability = liabilities.find((l) => l.payments?.some((p) => p.transactionId === id));
 		if (liability) return { kind: 'liability-payment', liabilityId: liability.id };
+		const holding = holdings.find((h) => h.trades?.some((t) => t.transactionId === id));
+		if (holding) return { kind: 'investment-trade', holdingId: holding.id };
 		return null;
 	},
 

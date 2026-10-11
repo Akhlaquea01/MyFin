@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -13,6 +14,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
 import {
 	Dialog,
 	DialogContent,
+	DialogDescription,
 	DialogFooter,
 	DialogHeader,
 	DialogTitle,
@@ -126,7 +128,9 @@ export function SavingsGoalsPage() {
 	}
 
 	async function deleteGoal(goal: SavingsGoal) {
-		const confirmed = window.confirm(`Remove the ${goal.name} goal? You can undo this right after.`);
+		const confirmed = window.confirm(
+			`Remove the ${goal.name} goal? You can undo this right after.`
+		);
 		if (!confirmed) return;
 		try {
 			await SavingsGoalRepository.softDelete(key, goal.id);
@@ -335,6 +339,14 @@ function GoalCard({
 					<DialogContent>
 						<DialogHeader>
 							<DialogTitle>Log a contribution</DialogTitle>
+							<DialogDescription>
+								This tracks your progress toward the goal only — it does not move money or change
+								any account balance. To move the money itself, for example into a savings account,{' '}
+								<Link to="/transactions/transfer" className="underline underline-offset-2">
+									record a transfer
+								</Link>
+								.
+							</DialogDescription>
 						</DialogHeader>
 						<form
 							className="flex flex-col gap-4"
