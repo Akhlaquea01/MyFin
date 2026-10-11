@@ -3,6 +3,7 @@ import { Bell } from 'lucide-react';
 import { Button } from './ui/button';
 import { useSession } from '../context/SessionContext';
 import { NotificationPreferenceRepository } from '../data/dexie/notificationRepository';
+import { getNotifyPermission, requestNotifyPermission, type NotifyPermission } from '../lib/notify';
 
 // FR-001: request notification permission, with an explanation, before first attempting to
 // show one. Shown once (mirrors BiometricEnrollmentPrompt.tsx's structure) — dismissing
@@ -13,22 +14,24 @@ export function NotificationPermissionPrompt() {
 	const [permissionPromptDismissed, setPermissionPromptDismissed] = useState(true);
 	const [dismissedThisSession, setDismissedThisSession] = useState(false);
 	const [requesting, setRequesting] = useState(false);
+	// Asked of the browser or, in the Android app, of the system (which can only answer
+	// asynchronously) — see lib/notify.ts.
+	const [permission, setPermission] = useState<NotifyPermission>('unsupported');
 
 	useEffect(() => {
-		void NotificationPreferenceRepository.get(getEncryptionKey()).then((pref) => {
+		void Promise.all([
+			NotificationPreferenceRepository.get(getEncryptionKey()),
+			getNotifyPermission()
+		]).then(([pref, current]) => {
 			setPermissionPromptDismissed(pref.permissionPromptDismissed);
+			setPermission(current);
 			setLoaded(true);
 		});
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, []);
 
-	const supported = typeof Notification !== 'undefined';
 	const visible =
-		loaded &&
-		!dismissedThisSession &&
-		supported &&
-		Notification.permission === 'default' &&
-		!permissionPromptDismissed;
+		loaded && !dismissedThisSession && permission === 'default' && !permissionPromptDismissed;
 	if (!visible) return null;
 
 	async function persistDismissed() {
@@ -41,7 +44,7 @@ export function NotificationPermissionPrompt() {
 	async function handleEnable() {
 		setRequesting(true);
 		try {
-			await Notification.requestPermission();
+			await requestNotifyPermission();
 		} finally {
 			setRequesting(false);
 		}

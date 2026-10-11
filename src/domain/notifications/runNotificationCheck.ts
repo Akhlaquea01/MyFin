@@ -16,27 +16,21 @@ import {
 import { computePendingBalance, findOverduePersonLoans } from '../personLoans/loanProgress';
 import type { NotificationCandidate } from './types';
 import { buildCategoryLabels } from '../categories/categoryHierarchy';
+import { getNotifyPermission, showNotification } from '../../lib/notify';
 
 /** Matches RecurringUpcomingPage's own lookahead horizon, so this check sees the same
  *  expected events that page would generate on its own next load. */
 const RECURRING_LOOKAHEAD_DAYS = 60;
 
-function isNotificationSupported(): boolean {
-	return typeof Notification !== 'undefined';
-}
-
 /**
- * Dispatches a real browser Notification and, only on success, logs it as notified
- * (research.md §2) — a candidate suppressed by missing/denied permission stays eligible on
- * the next check rather than being silently marked "handled."
+ * Shows a real notification — a browser Notification, or an Android one inside the APK (see
+ * lib/notify.ts) — and, only on success, logs it as notified (research.md §2). A candidate
+ * suppressed by missing/denied permission stays eligible on the next check rather than being
+ * silently marked "handled."
  */
 async function dispatchAndLog(key: CryptoKey, candidate: NotificationCandidate): Promise<boolean> {
-	if (!isNotificationSupported() || Notification.permission !== 'granted') return false;
-	try {
-		new Notification(candidate.title, { body: candidate.body, tag: candidate.key });
-	} catch {
-		return false;
-	}
+	if ((await getNotifyPermission()) !== 'granted') return false;
+	if (!(await showNotification(candidate.title, candidate.body, candidate.key))) return false;
 	await NotifiedItemRepository.create(key, { key: candidate.key });
 	return true;
 }

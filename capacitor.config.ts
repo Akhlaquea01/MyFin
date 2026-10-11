@@ -16,7 +16,13 @@ const config: CapacitorConfig = {
 	appName: 'MyFin',
 	webDir: 'dist',
 	// Same as the PWA manifest's background_color, so there is no white flash on launch.
-	backgroundColor: '#0b0f19'
+	backgroundColor: '#0b0f19',
+	plugins: {
+		LocalNotifications: {
+			// The status-bar icon of bill/budget reminders: android/app/src/main/res/drawable/ic_stat_myfin.xml
+			smallIcon: 'ic_stat_myfin'
+		}
+	}
 };
 
 export default config;

@@ -21,6 +21,7 @@ import { StorageWarningBanner } from './components/StorageWarningBanner';
 import { UpdateAvailableBanner } from './components/UpdateAvailableBanner';
 import { BiometricEnrollmentPrompt } from './components/BiometricEnrollmentPrompt';
 import { NotificationPermissionPrompt } from './components/NotificationPermissionPrompt';
+import { NativeShareBridge } from './components/NativeShareBridge';
 import { AppShell } from './components/AppShell';
 import { DashboardPage } from './pages/DashboardPage';
 import { AccountsPage } from './pages/AccountsPage';
@@ -206,6 +207,7 @@ function Gate() {
 						/>
 					)}
 					<NotificationPermissionPrompt />
+					<NativeShareBridge />
 					<QuickTourOverlay />
 					<Routes>
 						<Route element={<AppShell />}>

@@ -2,6 +2,8 @@
 // hand-off (research.md §2) — not domain logic, so it lives here rather than src/domain/,
 // matching the existing convention set by src/lib/webauthn.ts and src/lib/singleInstance.ts.
 
+import type { NativeSharePayload } from './native/nativeShare';
+
 const SHARE_TARGET_CACHE = 'share-target-buffer';
 
 /**
@@ -25,6 +27,34 @@ export function parseSharedText(fields: {
 export interface SharedPayload {
 	sharedText: string | null;
 	file: File | null;
+}
+
+/** Where a share goes: a file to the new-transaction screen, text to Quick Add. */
+export interface ShareDestination {
+	to: '/transactions/new' | '/quick-add';
+	state: { sharedFile: File } | { sharedText: string };
+}
+
+/**
+ * Picks the screen for a share. A file takes priority over text (spec 008, FR-004) — a share
+ * carrying both (an image with a caption) still goes to the richer destination. `null` when the
+ * share carried nothing usable.
+ */
+export function resolveShareDestination(payload: SharedPayload): ShareDestination | null {
+	if (payload.file) return { to: '/transactions/new', state: { sharedFile: payload.file } };
+	if (payload.sharedText) return { to: '/quick-add', state: { sharedText: payload.sharedText } };
+	return null;
+}
+
+/** Turns what the Android app handed over into the same shape the web share path produces. */
+export function sharedPayloadFromNative(native: NativeSharePayload): SharedPayload {
+	const sharedText = parseSharedText({ text: native.text, title: native.subject });
+	let file: File | null = null;
+	if (native.image) {
+		const bytes = Uint8Array.from(atob(native.image.base64), (c) => c.charCodeAt(0));
+		file = new File([bytes], native.image.name, { type: native.image.mimeType });
+	}
+	return { sharedText, file };
 }
 
 /**
