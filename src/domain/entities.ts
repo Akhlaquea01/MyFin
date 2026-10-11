@@ -416,6 +416,28 @@ export interface AutoBackupSettings {
 	lastBackupStatus?: 'success' | 'failed';
 }
 
+/**
+ * How the user mapped the columns of one kind of import file, remembered so the next file with the
+ * same layout is filled in instead of asked for again. Recognised by `signature` — the file's
+ * header names, normalized — never by file name. The destination account is deliberately NOT part
+ * of it: which account a file belongs to is a per-file decision (two accounts at one bank export
+ * identical layouts), and a remembered wrong account would silently misfile a whole statement.
+ * Device-local: not part of backups or templates.
+ */
+export interface ImportMappingPreset extends Timestamped {
+	id: ID;
+	/** Order-independent, normalized digest of the file's header names. */
+	signature: string;
+	dateColumn: string;
+	dateFormat: string;
+	amountSignConvention: 'negative-is-expense' | 'separate-debit-credit-columns';
+	amountColumn: string | null;
+	debitColumn: string | null;
+	creditColumn: string | null;
+	descriptionColumn: string | null;
+	accountColumn: string | null;
+}
+
 /** User-defined filter views for Transactions list. */
 export interface SavedFilterView extends Timestamped {
 	id: ID;

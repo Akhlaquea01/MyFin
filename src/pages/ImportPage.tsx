@@ -23,6 +23,7 @@ import {
 } from '../components/ui/table';
 import { useSession } from '../context/SessionContext';
 import { AccountRepository } from '../data/dexie/accountRepository';
+import { ImportMappingRepository } from '../data/dexie/importMappingRepository';
 import {
 	parseCsv,
 	parseXlsx,
@@ -39,7 +40,12 @@ import {
 import { findCardMatches, type CardMatch } from '../domain/parser/cardIdentifierMatcher';
 import { detectCardPayment } from '../domain/parser/cardPaymentDetector';
 import { buildReconciliationPrompt } from '../domain/io/reconciliationPrompt';
-import type { Account } from '../domain/entities';
+import {
+	headerSignature,
+	presetFromMapping,
+	resolvePreset
+} from '../domain/io/importMappingPresets';
+import type { Account, ImportMappingPreset } from '../domain/entities';
 
 const NONE = '__none__';
 
@@ -65,6 +71,11 @@ export function ImportPage() {
 	const [result, setResult] = useState<ImportResult | null>(null);
 	const [cardMatchReason, setCardMatchReason] = useState<CardMatch | null>(null);
 	const [cardDisambiguation, setCardDisambiguation] = useState<CardMatch[] | null>(null);
+	// A mapping remembered from an earlier import of this same file layout, when one filled in the
+	// form — shown so the user knows where the choices came from, and can discard it.
+	const [appliedPreset, setAppliedPreset] = useState<ImportMappingPreset | null>(null);
+	const [rememberMapping, setRememberMapping] = useState(true);
+	const [mappingRemembered, setMappingRemembered] = useState(false);
 	const fileInputRef = useRef<HTMLInputElement>(null);
 
 	useEffect(() => {
@@ -129,6 +140,7 @@ export function ImportPage() {
 		if (!file) return;
 		setResult(null);
 		setProgress(null);
+		setMappingRemembered(false);
 		// Checked before any parsing runs: parseCsv/parseXlsx read the whole file synchronously
 		// or into memory, so the row-count check below is too late to stop an oversized file
 		// from hanging the tab.
@@ -151,18 +163,58 @@ export function ImportPage() {
 				);
 				return;
 			}
+			// No column is GUESSED: a wrong guess would misfile every amount as the wrong sign or
+			// category. What is filled in is what the user themselves chose for a file with exactly
+			// these headers last time — and it is shown as such, with a way to discard it.
+			const remembered = await findRememberedMapping(parsedFile);
 			setParsed(parsedFile);
+			setAppliedPreset(remembered?.preset ?? null);
+			applyMapping(remembered?.mapping ?? null);
 		} catch (err) {
 			toast.error(err instanceof Error ? err.message : 'Could not read that file.');
 			return;
 		}
-		// No column is pre-guessed: a wrong guess here would misfile every amount as the
-		// wrong sign or category, so the user always picks each mapping explicitly (same
-		// reasoning as the New Transaction form's account field).
-		setDateColumn('');
-		setAmountColumn('');
-		setDescriptionColumn(NONE);
-		setAccountColumn(NONE);
+	}
+
+	/** The mapping remembered for a file with these headers, if it still fits the file. */
+	async function findRememberedMapping(file: ParsedFile) {
+		try {
+			const preset = await ImportMappingRepository.findBySignature(
+				key,
+				headerSignature(file.headers)
+			);
+			const mapping = preset ? resolvePreset(preset, file.headers) : null;
+			return preset && mapping ? { preset, mapping } : null;
+		} catch {
+			// A remembered mapping is a convenience; never let it stop a file from opening.
+			return null;
+		}
+	}
+
+	/** Fills the column choices from a remembered mapping, or blanks them for the user to pick. */
+	function applyMapping(mapping: ReturnType<typeof resolvePreset>) {
+		setDateColumn(mapping?.dateColumn ?? '');
+		setAmountColumn(mapping?.amountColumn ?? '');
+		setDescriptionColumn(mapping?.descriptionColumn ?? NONE);
+		setAccountColumn(mapping?.accountColumn ?? NONE);
+		setDebitColumn(mapping?.debitColumn ?? '');
+		setCreditColumn(mapping?.creditColumn ?? '');
+		if (mapping) {
+			setDateFormat(mapping.dateFormat);
+			setSignConvention(mapping.amountSignConvention);
+		}
+	}
+
+	async function forgetRememberedMapping() {
+		if (!appliedPreset) return;
+		try {
+			await ImportMappingRepository.delete(appliedPreset.id);
+			setAppliedPreset(null);
+			applyMapping(null);
+			toast.success('Forgot the saved column mapping for this file layout.');
+		} catch (err) {
+			toast.error(err instanceof Error ? err.message : 'Could not forget the saved mapping.');
+		}
 	}
 
 	async function handleImport() {
@@ -194,6 +246,14 @@ export function ImportPage() {
 			);
 			setResult(importResult);
 			toast.success(`Imported ${importResult.createdCount} transaction(s)`);
+			if (rememberMapping && importResult.createdCount > 0) {
+				try {
+					await ImportMappingRepository.save(key, presetFromMapping(parsed.headers, mapping));
+					setMappingRemembered(true);
+				} catch {
+					// The import itself succeeded; failing to remember its columns is not worth an error.
+				}
+			}
 		} catch (err) {
 			toast.error(err instanceof Error ? err.message : 'Could not import file.');
 		} finally {
@@ -279,6 +339,22 @@ export function ImportPage() {
 											</Button>
 										))}
 									</div>
+								</div>
+							)}
+							{appliedPreset && (
+								<div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-sky-500/40 bg-sky-500/5 p-2">
+									<p className="text-xs text-muted-foreground">
+										Columns and date format were filled in from the last time you imported a file
+										with these headers. Check them against the preview; change anything that is off.
+									</p>
+									<Button
+										type="button"
+										size="sm"
+										variant="outline"
+										onClick={() => void forgetRememberedMapping()}
+									>
+										Forget saved mapping
+									</Button>
 								</div>
 							)}
 							<div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -503,6 +579,15 @@ export function ImportPage() {
 								</div>
 							)}
 
+							<label className="flex items-center gap-2 text-xs text-muted-foreground">
+								<input
+									type="checkbox"
+									checked={rememberMapping}
+									onChange={(e) => setRememberMapping(e.target.checked)}
+								/>
+								Remember these columns for files with the same headers (the account is not
+								remembered)
+							</label>
 							<Button type="button" disabled={!canImport || importing} onClick={handleImport}>
 								{importing
 									? progress
@@ -522,6 +607,11 @@ export function ImportPage() {
 							Created <strong>{result.createdCount}</strong> unreviewed transaction
 							{result.createdCount === 1 ? '' : 's'}.
 						</p>
+						{mappingRemembered && (
+							<p className="text-xs text-muted-foreground">
+								Column mapping remembered — the next file with these headers is filled in for you.
+							</p>
+						)}
 						{result.flaggedDuplicates.length > 0 && (
 							<p className="text-sm text-amber-600 dark:text-amber-400">
 								{result.flaggedDuplicates.length} flagged as possible duplicates.

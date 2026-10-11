@@ -201,6 +201,7 @@ Enterprise-grade CSV and Excel file importer capable of ingesting statements fro
 
 ### Key Capabilities
 - **Multi-Account Column Mapping**: Visual column mapping interface with automatic header recognition (fuzzy matching dates, descriptions, credits/debits, balances, account names).
+- **Remembered Column Mapping**: After an import, the date/amount/description/account columns, the amount convention (single signed column or separate debit/credit) and the date format are remembered for files with the same headers (compared ignoring case, spacing and column order). The next such file arrives already mapped, with a note saying so and a "Forget saved mapping" button; a file with an added, removed or renamed column is treated as a new layout and asked about again, never half-guessed. The destination account is deliberately not remembered, and "Remember these columns" can be unticked per import. Stored encrypted and device-local (not in backups); cleared by "Clear everything".
 - **Per-Row Account Resolution**: Routes transactions to existing accounts based on file columns or allows mapping unknown accounts to new ledger accounts on the fly.
 - **Intelligent Duplicate Detection**: Scopes duplicate detection by account, transaction date, amount, and reference index to prevent double entries.
 - **Review Queue**: Imported transactions land in an unreviewed queue allowing batch verification before permanent inclusion.

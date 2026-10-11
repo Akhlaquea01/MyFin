@@ -6,6 +6,7 @@ import { TransactionRepository } from '../../src/data/dexie/transactionRepositor
 import { UserProfileRepository } from '../../src/data/dexie/userProfileRepository';
 import { SessionKeyRepository } from '../../src/data/dexie/sessionKeyRepository';
 import { AutoBackupSettingsRepository } from '../../src/data/dexie/autoBackupSettingsRepository';
+import { ImportMappingRepository } from '../../src/data/dexie/importMappingRepository';
 import { clearAllTables } from '../../src/data/dexie/clearAllTables';
 import { resetAllData } from '../../src/data/io/resetService';
 import {
@@ -79,7 +80,7 @@ describe('clearAllTables / resetAllData', () => {
 		expect(await UserProfileRepository.get()).toBeUndefined();
 	});
 
-	describe('device-local backup settings', () => {
+	describe('device-local settings', () => {
 		async function seedLocalSettings() {
 			await AutoBackupSettingsRepository.update({
 				enabled: true,
@@ -95,9 +96,20 @@ describe('clearAllTables / resetAllData', () => {
 				createdAt: Date.now(),
 				updatedAt: Date.now()
 			} as never);
+			await ImportMappingRepository.save(key, {
+				signature: '["amount","date"]',
+				dateColumn: 'Date',
+				dateFormat: 'YYYY-MM-DD',
+				amountSignConvention: 'negative-is-expense',
+				amountColumn: 'Amount',
+				debitColumn: null,
+				creditColumn: null,
+				descriptionColumn: null,
+				accountColumn: null
+			});
 		}
 
-		it('a full reset also clears the scheduled-backup configuration and the backup log', async () => {
+		it('a full reset also clears the scheduled-backup configuration, the backup log and remembered import mappings', async () => {
 			await seedLocalSettings();
 			expect((await AutoBackupSettingsRepository.get()).enabled).toBe(true);
 			expect(await db.backupRecords.count()).toBe(1);
@@ -110,6 +122,7 @@ describe('clearAllTables / resetAllData', () => {
 			expect(settings.lastBackupAt).toBeUndefined();
 			expect(await db.autoBackupSettings.count()).toBe(0);
 			expect(await db.backupRecords.count()).toBe(0);
+			expect(await db.importMappings.count()).toBe(0);
 		});
 
 		it('clearAllTables on its own — what a backup restore uses — leaves them alone', async () => {
@@ -119,6 +132,7 @@ describe('clearAllTables / resetAllData', () => {
 
 			expect((await AutoBackupSettingsRepository.get()).enabled).toBe(true);
 			expect(await db.backupRecords.count()).toBe(1);
+			expect(await db.importMappings.count()).toBe(1);
 		});
 	});
 });

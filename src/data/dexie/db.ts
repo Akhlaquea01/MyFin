@@ -173,6 +173,9 @@ export interface SavedFilterViewRow extends EncryptedRow {
 	createdAt: number;
 }
 
+// Looked up by decrypting the handful of rows (one per bank layout) — no structural column.
+export type ImportMappingRow = EncryptedRow;
+
 /**
  * Holds the derived encryption key across a page reload so the app doesn't have to force a
  * fresh PIN/biometric entry on every refresh (spec 009). `key` is stored as a *non-extractable*
@@ -218,6 +221,7 @@ class MyFinDatabase extends Dexie {
 	personLoans!: EntityTable<PersonLoanRow, 'id'>;
 	personLoanRepayments!: EntityTable<PersonLoanRepaymentRow, 'id'>;
 	savedFilterViews!: EntityTable<SavedFilterViewRow, 'id'>;
+	importMappings!: EntityTable<ImportMappingRow, 'id'>;
 	// Unencrypted by design — see research.md #11 "Exception — UserProfile".
 	userProfile!: EntityTable<UserProfile, 'id'>;
 	sessionKeys!: EntityTable<SessionKeyRow, 'id'>;
@@ -313,6 +317,11 @@ class MyFinDatabase extends Dexie {
 		// value like the rest of `userProfile`'s fields (research.md R7).
 		this.version(12).stores({
 			autoBackupSettings: 'id'
+		});
+		// v13: remembered import column mappings, one per file layout. Encrypted (header names
+		// describe the user's bank) and device-local like the backup settings. Additive-only.
+		this.version(13).stores({
+			importMappings: 'id'
 		});
 	}
 }
