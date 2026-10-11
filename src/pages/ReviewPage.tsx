@@ -59,10 +59,14 @@ import type {
 	Category,
 	Merchant,
 	RecurringFrequency,
+	Tag,
 	Transaction,
 	TransactionSplit
 } from '../domain/entities';
 import { categoryOptions } from '../domain/categories/categoryHierarchy';
+
+/** How many waiting entries are loaded, decrypted and drawn at a time. */
+const PAGE_SIZE = 50;
 
 function formatMoney(paise: number): string {
 	return (paise / 100).toLocaleString(undefined, {
@@ -82,7 +86,14 @@ export function ReviewPage() {
 	const [accounts, setAccounts] = useState<Account[]>([]);
 	const [merchants, setMerchants] = useState<Merchant[]>([]);
 	const [categories, setCategories] = useState<Category[]>([]);
+	const [tags, setTags] = useState<Tag[]>([]);
 	const [items, setItems] = useState<Transaction[]>([]);
+	// Waiting entries NOT on the page — they load on "Show more". Kept as the count behind the page
+	// rather than a grand total, so taking an entry off the page cannot leave the two disagreeing.
+	const [hidden, setHidden] = useState(0);
+	const [pageLimit, setPageLimit] = useState(PAGE_SIZE);
+	const [loadingMore, setLoadingMore] = useState(false);
+	const total = items.length + hidden;
 	const [firstSplit, setFirstSplit] = useState<Record<string, TransactionSplit | undefined>>({});
 	const [categoryChoice, setCategoryChoice] = useState<Record<string, string>>({});
 	const [tagsInput, setTagsInput] = useState<Record<string, string>>({});
@@ -96,45 +107,64 @@ export function ReviewPage() {
 	const [convertTarget, setConvertTarget] = useState<Transaction | null>(null);
 	const [working, setWorking] = useState(false);
 
+	/**
+	 * Loads the newest `limit` waiting entries with their splits and tags — one query each for ALL
+	 * of them, not one per row. `keepEdits` leaves the category/tags already chosen on rows that were
+	 * on screen alone, so "Show more" does not throw away what the user has typed so far.
+	 */
+	async function loadQueue(limit: number, allTags: Tag[], keepEdits: boolean) {
+		const [unreviewed, waiting] = await Promise.all([
+			TransactionRepository.listUnreviewed(key, { limit }),
+			TransactionRepository.countUnreviewed()
+		]);
+		const ids = unreviewed.map((tx) => tx.id);
+		const [splitsByTx, tagIdsByTx] = await Promise.all([
+			TransactionRepository.splitsByTransaction(key, ids),
+			TransactionTagRepository.getTagIdsByTransaction(ids)
+		]);
+
+		const tagNames = new Map(allTags.map((t) => [t.id, t.name]));
+		const nextFirstSplit: Record<string, TransactionSplit | undefined> = {};
+		const nextCategoryChoice: Record<string, string> = {};
+		const nextTagsInput: Record<string, string> = {};
+		for (const tx of unreviewed) {
+			const first = splitsByTx.get(tx.id)?.[0];
+			nextFirstSplit[tx.id] = first;
+			nextCategoryChoice[tx.id] = first?.categoryId ?? UNCATEGORIZED_CATEGORY_ID;
+			nextTagsInput[tx.id] = (tagIdsByTx.get(tx.id) ?? [])
+				.map((id) => tagNames.get(id))
+				.filter((name): name is string => Boolean(name))
+				.join(', ');
+		}
+		const keepOnScreen = <T,>(next: Record<string, T>, prev: Record<string, T>) =>
+			keepEdits
+				? { ...next, ...Object.fromEntries(Object.entries(prev).filter(([id]) => id in next)) }
+				: next;
+
+		setItems(unreviewed);
+		setHidden(Math.max(0, waiting - unreviewed.length));
+		setPageLimit(limit);
+		setFirstSplit(nextFirstSplit);
+		setCategoryChoice((prev) => keepOnScreen(nextCategoryChoice, prev));
+		setTagsInput((prev) => keepOnScreen(nextTagsInput, prev));
+	}
+
 	async function refresh() {
 		setLoading(true);
 		try {
-			const [accts, allMerchants, allCategories, allTags, unreviewed, allRules] = await Promise.all(
-				[
-					AccountRepository.list(key),
-					MerchantRepository.list(key),
-					CategoryRepository.list(key),
-					TagRepository.list(key),
-					TransactionRepository.listUnreviewed(key),
-					CategorizationRuleRepository.list(key)
-				]
-			);
+			const [accts, allMerchants, allCategories, allTags, allRules] = await Promise.all([
+				AccountRepository.list(key),
+				MerchantRepository.list(key),
+				CategoryRepository.list(key),
+				TagRepository.list(key),
+				CategorizationRuleRepository.list(key)
+			]);
 			setAccounts(accts);
 			setRules(allRules);
 			setMerchants(allMerchants);
 			setCategories(allCategories);
-			setItems(unreviewed);
-
-			const nextFirstSplit: Record<string, TransactionSplit | undefined> = {};
-			const nextCategoryChoice: Record<string, string> = {};
-			const nextTagsInput: Record<string, string> = {};
-			await Promise.all(
-				unreviewed.map(async (tx) => {
-					const [splits, tagIds] = await Promise.all([
-						TransactionRepository.getSplits(key, tx.id),
-						TransactionTagRepository.getTagIds(tx.id)
-					]);
-					nextFirstSplit[tx.id] = splits[0];
-					nextCategoryChoice[tx.id] = splits[0]?.categoryId ?? UNCATEGORIZED_CATEGORY_ID;
-					nextTagsInput[tx.id] = tagIds
-						.map((id) => allTags.find((t) => t.id === id)?.name)
-						.filter((name): name is string => Boolean(name))
-						.join(', ');
-				})
-			);
-			setFirstSplit(nextFirstSplit);
-			setCategoryChoice(nextCategoryChoice);
-			setTagsInput(nextTagsInput);
+			setTags(allTags);
+			await loadQueue(pageLimit, allTags, false);
 		} catch (err) {
 			toast.error(err instanceof Error ? err.message : 'Could not load this page.');
 		} finally {
@@ -142,10 +172,35 @@ export function ReviewPage() {
 		}
 	}
 
+	async function showMore() {
+		setLoadingMore(true);
+		try {
+			// Counted from what is on screen, not from `pageLimit`: confirming and discarding shrink
+			// the list without shrinking the limit.
+			await loadQueue(items.length + PAGE_SIZE, tags, true);
+		} catch (err) {
+			toast.error(err instanceof Error ? err.message : 'Could not load more entries.');
+		} finally {
+			setLoadingMore(false);
+		}
+	}
+
 	useEffect(() => {
 		void refresh();
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, []);
+
+	// Triage can empty the page while more entries are still waiting behind it: bring the next ones
+	// in rather than announcing "Nothing to review" over a queue that is not empty.
+	useEffect(() => {
+		if (!loading && !loadingMore && items.length === 0 && hidden > 0) void refresh();
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [loading, loadingMore, items.length, hidden]);
+
+	/** Takes an entry off the page after it was confirmed or discarded. */
+	function removeFromPage(id: string) {
+		setItems((prev) => prev.filter((t) => t.id !== id));
+	}
 
 	function accountName(id: string): string {
 		return accounts.find((a) => a.id === id)?.name ?? id;
@@ -221,7 +276,7 @@ export function ReviewPage() {
 			toast.success('Confirmed');
 		}
 		// Local patch: remove the now-confirmed transaction from the queue
-		setItems((prev) => prev.filter((t) => t.id !== tx.id));
+		removeFromPage(tx.id);
 	}
 
 	/** Re-runs rules and learned suggestions over entries that are still uncategorized — a rule
@@ -243,23 +298,43 @@ export function ReviewPage() {
 		}
 	}
 
-	/** Confirms every entry that already has a category, leaving the uncategorized ones to review. */
+	/**
+	 * Confirms every entry in the queue that already has a category, leaving the uncategorized ones
+	 * to review. It reaches past the page on screen: entries on it are confirmed as currently chosen
+	 * on their rows; the ones not shown are confirmed exactly as they are filed, which is why the
+	 * prompt says how many of those there are.
+	 */
 	async function confirmAllCategorized() {
-		const ready = items.filter(
+		const shownReady = items.filter(
 			(tx) => (categoryChoice[tx.id] ?? UNCATEGORIZED_CATEGORY_ID) !== UNCATEGORIZED_CATEGORY_ID
 		);
-		if (ready.length === 0) return;
+		const shownIds = new Set(items.map((tx) => tx.id));
+		const unseenReady = (await TransactionRepository.categorizedUnreviewedIds()).filter(
+			(id) => !shownIds.has(id)
+		);
+		const count = shownReady.length + unseenReady.length;
+		if (count === 0) {
+			toast.info('Nothing to confirm yet — no waiting entry has a category.');
+			return;
+		}
+		const noun = count === 1 ? 'entry' : 'entries';
+		const scope =
+			unseenReady.length > 0
+				? `, including ${unseenReady.length} not shown on this page, exactly as filed`
+				: ' as shown';
 		if (
 			!window.confirm(
-				`Confirm ${ready.length} categorized ${ready.length === 1 ? 'entry' : 'entries'} as shown? Anything still "Uncategorized" stays in the queue.`
+				`Confirm ${count} categorized ${noun}${scope}? Anything still "Uncategorized" stays in the queue.`
 			)
 		) {
 			return;
 		}
 		setWorking(true);
 		try {
-			for (const tx of ready) await confirmOne(tx);
-			toast.success(`Confirmed ${ready.length} ${ready.length === 1 ? 'entry' : 'entries'}`);
+			for (const tx of shownReady) await confirmOne(tx);
+			// No splits or tags passed: the entry keeps whatever category and tags it already has.
+			for (const id of unseenReady) await TransactionEngine.confirmTransaction(key, id);
+			toast.success(`Confirmed ${count} ${noun}`);
 		} catch (err) {
 			toast.error(err instanceof Error ? err.message : 'Could not confirm every entry.');
 		} finally {
@@ -312,7 +387,7 @@ export function ReviewPage() {
 			}
 		});
 		// Local patch: remove the discarded transaction from the queue
-		setItems((prev) => prev.filter((t) => t.id !== tx.id));
+		removeFromPage(tx.id);
 	}
 
 	return (
@@ -339,24 +414,30 @@ export function ReviewPage() {
 					<Button
 						variant="outline"
 						size="sm"
+						// Entries behind "Show more" may be categorized too, so only a fully loaded queue
+						// can be ruled out from here.
 						disabled={
 							working ||
-							!items.some(
-								(tx) =>
-									(categoryChoice[tx.id] ?? UNCATEGORIZED_CATEGORY_ID) !== UNCATEGORIZED_CATEGORY_ID
-							)
+							(hidden === 0 &&
+								!items.some(
+									(tx) =>
+										(categoryChoice[tx.id] ?? UNCATEGORIZED_CATEGORY_ID) !==
+										UNCATEGORIZED_CATEGORY_ID
+								))
 						}
 						onClick={() => void confirmAllCategorized()}
 					>
 						<CheckCheck /> Confirm all categorized
 					</Button>
 					<span className="text-xs text-muted-foreground">
-						{items.length} waiting · nothing counts in reports until it is confirmed
+						{total} waiting
+						{hidden > 0 ? ` (showing the newest ${items.length})` : ''} · nothing counts in reports
+						until it is confirmed
 					</span>
 				</div>
 			)}
 
-			{loading ? (
+			{loading || (items.length === 0 && hidden > 0) ? (
 				<p className="text-sm text-muted-foreground">Loading…</p>
 			) : items.length === 0 ? (
 				<Card className="border-dashed">
@@ -521,6 +602,18 @@ export function ReviewPage() {
 							</CardContent>
 						</Card>
 					))}
+					{hidden > 0 && (
+						<Button
+							variant="outline"
+							className="self-center"
+							disabled={loadingMore || working}
+							onClick={() => void showMore()}
+						>
+							{loadingMore
+								? 'Loading…'
+								: `Show ${Math.min(PAGE_SIZE, hidden)} more (${hidden} not shown)`}
+						</Button>
+					)}
 				</div>
 			)}
 			{convertTarget && (

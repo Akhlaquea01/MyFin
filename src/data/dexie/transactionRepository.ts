@@ -539,13 +539,44 @@ export const TransactionRepository = {
 		return counts;
 	},
 
-	async listUnreviewed(key: CryptoKey): Promise<Transaction[]> {
+	/**
+	 * The Review Queue, newest first. `limit` takes the first N AFTER ordering on the plain `date`
+	 * column, so a page of the queue decrypts only that page — a big import can leave thousands of
+	 * entries waiting, and the page used to decrypt and render every one of them at once. Ties on
+	 * date fall back to id so the order (and so "Show more") is stable between loads.
+	 */
+	async listUnreviewed(key: CryptoKey, options: { limit?: number } = {}): Promise<Transaction[]> {
 		const rows = await db.transactions
 			.where('reviewStatus')
 			.equals('unreviewed')
 			.filter((row) => row.deletedAt === NOT_DELETED)
 			.toArray();
-		return decryptRows<TransactionRow, Transaction>(key, rows);
+		rows.sort((a, b) => b.date.localeCompare(a.date) || a.id.localeCompare(b.id));
+		const page = options.limit === undefined ? rows : rows.slice(0, Math.max(0, options.limit));
+		return decryptRows<TransactionRow, Transaction>(key, page);
+	},
+
+	/**
+	 * Ids of the Review Queue entries that already carry a category — every split of the entry is
+	 * something other than the "Uncategorized" placeholder. Read off the indexed `categoryId`
+	 * column, so nothing is decrypted: this is what lets "Confirm all categorized" reach past the
+	 * page of the queue that happens to be on screen.
+	 */
+	async categorizedUnreviewedIds(): Promise<string[]> {
+		const ids = (await db.transactions
+			.where('reviewStatus')
+			.equals('unreviewed')
+			.filter((row) => row.deletedAt === NOT_DELETED)
+			.primaryKeys()) as string[];
+		if (ids.length === 0) return [];
+		const splitRows = await db.transactionSplits.where('transactionId').anyOf(ids).toArray();
+		const hasCategory = new Set<string>();
+		const hasPlaceholder = new Set<string>();
+		for (const row of splitRows) {
+			if (row.categoryId === UNCATEGORIZED_CATEGORY_ID) hasPlaceholder.add(row.transactionId);
+			else hasCategory.add(row.transactionId);
+		}
+		return ids.filter((id) => hasCategory.has(id) && !hasPlaceholder.has(id));
 	},
 
 	/**

@@ -204,6 +204,8 @@ Enterprise-grade CSV and Excel file importer capable of ingesting statements fro
 - **Per-Row Account Resolution**: Routes transactions to existing accounts based on file columns or allows mapping unknown accounts to new ledger accounts on the fly.
 - **Intelligent Duplicate Detection**: Scopes duplicate detection by account, transaction date, amount, and reference index to prevent double entries.
 - **Review Queue**: Imported transactions land in an unreviewed queue allowing batch verification before permanent inclusion.
+- **Long Queues, a Page at a Time**: After a big import the queue loads newest-first in slices of 50 ("Show N more" brings in the rest, keeping what you have typed on the rows already open), so only what is on screen is decrypted and drawn; splits and tags come in one query each rather than one per row. "Confirm all categorized" reaches the whole queue — the prompt says how many entries it covers beyond the page on screen, and those are confirmed exactly as filed.
+- **Cheaper Keyword Rules**: The rule dialog's live preview reads the uncategorized entries once per dialog instead of on every keystroke, and applying rules to the queue picks its candidates off indexed columns before decrypting anything.
 
 ### Domain Engine & Architecture
 - **Engine**: [`src/data/io/importService.ts`](file:///e:/MyFin/src/data/io/importService.ts), [`src/data/io/bulkTextImportService.ts`](file:///e:/MyFin/src/data/io/bulkTextImportService.ts)
