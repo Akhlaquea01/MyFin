@@ -10,7 +10,10 @@ import { encryptRow, getDecrypted, decryptRows } from './encryptedTable';
 import { deletedAtIndex, nullableIdIndex, NOT_DELETED } from './indexable';
 import { AttachmentRepository } from './attachmentRepository';
 import { TagRepository } from './tagRepository';
-import { normalizeTagText, transactionMatchesFreeText } from '../../domain/transactions/tagFilterEngine';
+import {
+	normalizeTagText,
+	transactionMatchesFreeText
+} from '../../domain/transactions/tagFilterEngine';
 import type {
 	Transaction,
 	TransactionSplit,
@@ -383,7 +386,10 @@ export const TransactionRepository = {
 			await db.transactions.bulkPut(transactionRows);
 			for (const replacement of splitRowsByTx) {
 				if (!replacement) continue;
-				await db.transactionSplits.where('transactionId').equals(replacement.transactionId).delete();
+				await db.transactionSplits
+					.where('transactionId')
+					.equals(replacement.transactionId)
+					.delete();
 				await db.transactionSplits.bulkPut(replacement.rows);
 			}
 		});
@@ -496,8 +502,15 @@ export const TransactionRepository = {
 	 * Live transactions whose first split is still the "Uncategorized" placeholder. Walks the
 	 * indexed `categoryId` column on the splits table to find them, then loads only those parents —
 	 * so the cost follows the number of uncategorized entries, not the size of the ledger.
+	 *
+	 * `unreviewedOnly` narrows to the Review Queue on the indexed `reviewStatus` column BEFORE
+	 * anything is decrypted. It used to decrypt every uncategorized entry in the ledger — including
+	 * thousands of old, confirmed ones — only to throw all but the queue's away.
 	 */
-	async listUncategorized(key: CryptoKey): Promise<Transaction[]> {
+	async listUncategorized(
+		key: CryptoKey,
+		options: { unreviewedOnly?: boolean } = {}
+	): Promise<Transaction[]> {
 		const splitRows = await db.transactionSplits
 			.where('categoryId')
 			.equals(UNCATEGORIZED_CATEGORY_ID)
@@ -505,9 +518,25 @@ export const TransactionRepository = {
 		const ids = [...new Set(splitRows.map((row) => row.transactionId))];
 		if (ids.length === 0) return [];
 		const rows = (await db.transactions.bulkGet(ids)).filter(
-			(row): row is TransactionRow => !!row && row.deletedAt === NOT_DELETED
+			(row): row is TransactionRow =>
+				!!row &&
+				row.deletedAt === NOT_DELETED &&
+				(!options.unreviewedOnly || row.reviewStatus === 'unreviewed')
 		);
 		return decryptRows<TransactionRow, Transaction>(key, rows);
+	},
+
+	/**
+	 * How many splits each of `transactionIds` has — counted straight off the indexed `transactionId`
+	 * column, so nothing is decrypted. For when only "is this entry split?" matters, not what the
+	 * splits say.
+	 */
+	async splitCountsByTransaction(transactionIds: string[]): Promise<Map<string, number>> {
+		const counts = new Map<string, number>();
+		if (transactionIds.length === 0) return counts;
+		const rows = await db.transactionSplits.where('transactionId').anyOf(transactionIds).toArray();
+		for (const row of rows) counts.set(row.transactionId, (counts.get(row.transactionId) ?? 0) + 1);
+		return counts;
 	},
 
 	async listUnreviewed(key: CryptoKey): Promise<Transaction[]> {
@@ -648,5 +677,3 @@ export const TransactionSplitRepository = {
 		return decryptRows<TransactionSplitRow, TransactionSplit>(key, rows);
 	}
 };
-
-

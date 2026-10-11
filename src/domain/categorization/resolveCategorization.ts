@@ -1,5 +1,5 @@
 import { pickBestRule, deriveSuggestion, MIN_STREAK } from './categorizationEngine';
-import { pickKeywordRule, keywordRuleMatches } from './keywordMatching';
+import { normalizeMatchText, pickKeywordRule, textMatchesKeyword } from './keywordMatching';
 import { CategorizationRuleRepository } from '../../data/dexie/categorizationRuleRepository';
 import { CategoryRepository } from '../../data/dexie/categoryRepository';
 import { MerchantRepository } from '../../data/dexie/merchantRepository';
@@ -251,19 +251,19 @@ export interface ApplyAutoCategorizationOptions {
  *
  *  Only entries with exactly ONE split qualify. An entry split across categories can still carry a
  *  stray "Uncategorized" part, and filing it would replace all of its splits with a single new one
- *  — silently throwing away the categories the user had assigned to the other parts. */
-async function uncategorizedCandidates(key: CryptoKey) {
-	const candidates = (await TransactionRepository.listUncategorized(key)).filter(
+ *  — silently throwing away the categories the user had assigned to the other parts. The split
+ *  count comes off the indexed column, so no split is decrypted just to be counted. */
+async function uncategorizedCandidates(key: CryptoKey, options: { unreviewedOnly?: boolean } = {}) {
+	const candidates = (await TransactionRepository.listUncategorized(key, options)).filter(
 		(tx) => tx.type !== 'transfer' && (tx.merchantId !== null || !!tx.notes)
 	);
-	const splitsByTx = await TransactionRepository.splitsByTransaction(
-		key,
+	const splitCounts = await TransactionRepository.splitCountsByTransaction(
 		candidates.map((tx) => tx.id)
 	);
 	// Newest first, with a deterministic tie-break: storage order is by random split id, which
 	// would make the preview's "for example" lines change from one open to the next.
 	return candidates
-		.filter((tx) => (splitsByTx.get(tx.id)?.length ?? 0) === 1)
+		.filter((tx) => splitCounts.get(tx.id) === 1)
 		.sort(
 			(a, b) =>
 				b.date.localeCompare(a.date) || b.createdAt - a.createdAt || a.id.localeCompare(b.id)
@@ -285,11 +285,9 @@ export async function applyAutoCategorization(
 	key: CryptoKey,
 	options: ApplyAutoCategorizationOptions = {}
 ): Promise<{ updated: number }> {
-	const candidates = (await uncategorizedCandidates(key)).filter(
-		(tx) =>
-			(!options.merchantId || tx.merchantId === options.merchantId) &&
-			(!options.unreviewedOnly || tx.reviewStatus === 'unreviewed')
-	);
+	const candidates = (
+		await uncategorizedCandidates(key, { unreviewedOnly: options.unreviewedOnly })
+	).filter((tx) => !options.merchantId || tx.merchantId === options.merchantId);
 	if (candidates.length === 0) return { updated: 0 };
 
 	const resolver = await createCategorizationResolver(key);
@@ -325,32 +323,67 @@ export interface KeywordPreview {
 	samples: string[];
 }
 
+export interface KeywordPreviewer {
+	preview(keyword: string, sampleLimit?: number): Promise<KeywordPreview>;
+}
+
+/**
+ * A previewer for the rule dialog: it loads and decrypts the uncategorized entries (and the
+ * merchant names) ONCE, on the first keystroke, normalizes each entry's text once, and then every
+ * further keystroke is just a string comparison over what is already in memory. The preview used to
+ * re-read and re-decrypt the whole uncategorized set on every (debounced) keystroke — seconds of
+ * work, repeated, on a ledger with a large import waiting to be categorized. Its lifetime is one
+ * dialog: it deliberately never refreshes, since nothing it reads changes while the dialog is open.
+ */
+export function createKeywordPreviewer(key: CryptoKey): KeywordPreviewer {
+	let loaded: Promise<{ label: string; normalized: string }[]> | null = null;
+	const load = () =>
+		(loaded ??= (async () => {
+			const candidates = await uncategorizedCandidates(key);
+			if (candidates.length === 0) return [];
+			const merchantNames = new Map(
+				(await MerchantRepository.list(key)).map((m) => [m.id, m.name])
+			);
+			return candidates.map((tx) => {
+				const name = tx.merchantId ? (merchantNames.get(tx.merchantId) ?? '') : '';
+				return {
+					label: tx.notes || name,
+					normalized: normalizeMatchText([tx.notes, name].filter(Boolean).join(' '))
+				};
+			});
+		})());
+
+	return {
+		async preview(keyword, sampleLimit = 4) {
+			const entries = await load();
+			const wanted = normalizeMatchText(keyword);
+			let count = 0;
+			const samples: string[] = [];
+			for (const entry of entries) {
+				if (!textMatchesKeyword(entry.normalized, wanted)) continue;
+				count++;
+				if (samples.length < sampleLimit && entry.label && !samples.includes(entry.label)) {
+					samples.push(entry.label);
+				}
+			}
+			return { count, samples };
+		}
+	};
+}
+
 /**
  * What a keyword WOULD match among entries still uncategorized — shown while the rule is being
  * written, so an over-broad keyword ("pay", "upi") is visible before it is saved rather than
  * after it has filed half the ledger. Looks only at uncategorized entries: those are the only
  * ones a rule can change, and keeping to them keeps this cheap on a large ledger. Ignores
  * precedence — it answers "what contains this text", not "what would this rule win".
+ *
+ * One-off form; a dialog that previews repeatedly should hold a `createKeywordPreviewer`.
  */
 export async function previewKeywordRule(
 	key: CryptoKey,
 	keyword: string,
 	sampleLimit = 4
 ): Promise<KeywordPreview> {
-	const candidates = await uncategorizedCandidates(key);
-	if (candidates.length === 0) return { count: 0, samples: [] };
-	const merchantNames = new Map((await MerchantRepository.list(key)).map((m) => [m.id, m.name]));
-
-	let count = 0;
-	const samples: string[] = [];
-	for (const tx of candidates) {
-		const name = tx.merchantId ? (merchantNames.get(tx.merchantId) ?? '') : '';
-		if (!keywordRuleMatches({ keyword }, [tx.notes, name].filter(Boolean).join(' '))) continue;
-		count++;
-		if (samples.length < sampleLimit) {
-			const label = tx.notes || name;
-			if (label && !samples.includes(label)) samples.push(label);
-		}
-	}
-	return { count, samples };
+	return createKeywordPreviewer(key).preview(keyword, sampleLimit);
 }

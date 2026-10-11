@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -37,7 +37,7 @@ import { MerchantCategorySignalRepository } from '../data/dexie/merchantCategory
 import {
 	applyAutoCategorization,
 	listSuggestions as listCategorizationSuggestions,
-	previewKeywordRule,
+	createKeywordPreviewer,
 	setMerchantRule,
 	type KeywordPreview
 } from '../domain/categorization/resolveCategorization';
@@ -108,6 +108,9 @@ export function CategorizationRulesPage() {
 	const keywordValue = form.watch('keyword');
 	// What the keyword being typed would catch among entries that are still uncategorized.
 	const [preview, setPreview] = useState<KeywordPreview | null>(null);
+	// One previewer per open dialog: it reads and decrypts the uncategorized entries once, on the
+	// first keystroke, and every later keystroke is answered from memory.
+	const previewerRef = useRef<ReturnType<typeof createKeywordPreviewer> | null>(null);
 
 	async function refresh() {
 		setLoading(true);
@@ -145,14 +148,16 @@ export function CategorizationRulesPage() {
 	}, [selectedMerchantId]);
 
 	useEffect(() => {
+		if (!dialogOpen) previewerRef.current = null; // the next open starts fresh
 		if (!dialogOpen || matchBy !== 'keyword' || !validateKeyword(keywordValue).ok) {
 			setPreview(null);
 			return;
 		}
 		let cancelled = false;
-		// Debounced: the preview decrypts every uncategorized entry, and the user is still typing.
+		// Debounced: the user is still typing.
 		const handle = setTimeout(() => {
-			previewKeywordRule(key, keywordValue)
+			(previewerRef.current ??= createKeywordPreviewer(key))
+				.preview(keywordValue)
 				.then((result) => {
 					if (!cancelled) setPreview(result);
 				})
