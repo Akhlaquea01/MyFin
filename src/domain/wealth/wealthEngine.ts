@@ -457,8 +457,61 @@ function costBasisFor(units: number, avgPrice: number): number {
 }
 
 /**
+ * What a change to a holding's recorded value did, in enough detail to put it back: the value
+ * written today is either a NEW valuation (to be deleted again) or a replacement of today's existing
+ * one (to be set back to what it was).
+ */
+export interface RecordedValueChange {
+	id: string;
+	created: boolean;
+	previousValue: number;
+}
+
+/**
+ * Moves a holding's RECORDED value along with a change in its units. The recorded value is the
+ * whole holding's worth, not a price per unit, so buying or selling units without touching it left
+ * it describing a holding that no longer existed: sell everything and the old value kept counting
+ * toward net worth; buy more and the portfolio's gain quietly shrank by the amount just spent.
+ *
+ * `next` maps the latest recorded value to what it should become. Nothing is done for a holding that
+ * has no recorded value — it is valued at its cost basis, which follows its units by itself.
+ * Returns what changed (for undo), or null if nothing did.
+ */
+async function adjustRecordedValue(
+	key: CryptoKey,
+	holdingId: string,
+	next: (latestValue: number) => number
+): Promise<RecordedValueChange | null> {
+	const [latest] = await InvestmentValuationRepository.listForHolding(key, holdingId);
+	if (!latest) return null;
+	const value = Math.max(0, Math.round(next(latest.value)));
+	// The adjustment is dated today, the moment the units changed — unless the latest value is
+	// somehow dated later, in which case that is the one that counts and the one to adjust.
+	const today = todayLocalISO();
+	const date = latest.date > today ? latest.date : today;
+	if (latest.date === date) {
+		await InvestmentValuationRepository.update(key, latest.id, { value });
+		return { id: latest.id, created: false, previousValue: latest.value };
+	}
+	const created = await InvestmentValuationRepository.create(key, { holdingId, date, value });
+	return { id: created.id, created: true, previousValue: latest.value };
+}
+
+/** Undoes `adjustRecordedValue`. A value the user has since deleted by hand is simply gone. */
+async function revertRecordedValue(key: CryptoKey, change: RecordedValueChange): Promise<void> {
+	try {
+		if (change.created) await InvestmentValuationRepository.delete(change.id);
+		else
+			await InvestmentValuationRepository.update(key, change.id, { value: change.previousValue });
+	} catch (err) {
+		if (!(err instanceof Error && /not found/.test(err.message))) throw err;
+	}
+}
+
+/**
  * Records a purchase of additional units for an existing holding, recalculating the
- * weighted-average price and cost basis (spec 016, FR-017, contracts/wealth-engine.md).
+ * weighted-average price and cost basis (spec 016, FR-017, contracts/wealth-engine.md). A recorded
+ * value goes up by what the units cost, so the extra money put in is not reported as a loss.
  */
 export async function recordPurchase(
 	key: CryptoKey,
@@ -479,18 +532,26 @@ export async function recordPurchase(
 		(existingUnits * existingAvgPrice + purchase.units * purchase.price) / newUnits
 	);
 	const newCostBasis = costBasisFor(newUnits, newAvgPrice);
+	const spent = Math.round(purchase.units * purchase.price);
 
-	return InvestmentHoldingRepository.update(key, holdingId, {
-		units: newUnits,
-		avgPrice: newAvgPrice,
-		costBasis: newCostBasis
-	});
+	const valueChange = await adjustRecordedValue(key, holdingId, (value) => value + spent);
+	try {
+		return await InvestmentHoldingRepository.update(key, holdingId, {
+			units: newUnits,
+			avgPrice: newAvgPrice,
+			costBasis: newCostBasis
+		});
+	} catch (err) {
+		if (valueChange) await revertRecordedValue(key, valueChange);
+		throw err;
+	}
 }
 
 /**
  * Records a sale (decrease) of units for an existing holding. Average price is unchanged;
  * costBasis is recalculated as remaining units × avgPrice (spec 016, FR-019/020,
- * contracts/wealth-engine.md).
+ * contracts/wealth-engine.md). A recorded value shrinks in proportion to the units that remain —
+ * to nothing when they are all sold.
  */
 export async function recordSale(
 	key: CryptoKey,
@@ -511,10 +572,18 @@ export async function recordSale(
 	const avgPrice = holding.avgPrice ?? 0;
 	const newCostBasis = costBasisFor(newUnits, avgPrice);
 
-	return InvestmentHoldingRepository.update(key, holdingId, {
-		units: newUnits,
-		costBasis: newCostBasis
-	});
+	const valueChange = await adjustRecordedValue(key, holdingId, (value) =>
+		existingUnits > 0 ? (value * newUnits) / existingUnits : 0
+	);
+	try {
+		return await InvestmentHoldingRepository.update(key, holdingId, {
+			units: newUnits,
+			costBasis: newCostBasis
+		});
+	} catch (err) {
+		if (valueChange) await revertRecordedValue(key, valueChange);
+		throw err;
+	}
 }
 
 /** What can be corrected on a holding. A holding tracked in units is corrected through its units and

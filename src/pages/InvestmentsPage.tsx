@@ -537,7 +537,8 @@ export function InvestmentsPage() {
 					<form className="flex flex-col gap-4" onSubmit={purchaseForm.handleSubmit(onPurchase)}>
 						<p className="text-sm text-muted-foreground">
 							Units and average price are recalculated as a unit-weighted average across the
-							existing and new purchase.
+							existing and new purchase. If you have recorded a value for this holding, it goes up
+							by what this purchase costs.
 						</p>
 						<div className="grid grid-cols-2 gap-3">
 							<div className="flex flex-col gap-1.5">
@@ -584,7 +585,8 @@ export function InvestmentsPage() {
 					<form className="flex flex-col gap-4" onSubmit={saleForm.handleSubmit(onSale)}>
 						<p className="text-sm text-muted-foreground">
 							Currently held: {saleTarget ? formatUnits(saleTarget.units ?? 0) : 0} units. Average
-							price stays unchanged; cost basis is recalculated for the remaining units.
+							price stays unchanged; cost basis is recalculated for the remaining units, and a
+							recorded value shrinks in proportion (to nothing if you sell them all).
 						</p>
 						<div className="flex flex-col gap-1.5">
 							<Label htmlFor="sale-units">Units sold</Label>
