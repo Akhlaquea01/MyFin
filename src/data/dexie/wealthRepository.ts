@@ -175,6 +175,11 @@ export const LiabilityRepository = {
 		return liability;
 	},
 
+	async getById(key: CryptoKey, id: string): Promise<Liability | undefined> {
+		const liability = await getDecrypted<LiabilityRow, Liability>(db.liabilities, key, id);
+		return liability && liability.deletedAt === null ? liability : undefined;
+	},
+
 	async update(key: CryptoKey, id: string, changes: Partial<Liability>): Promise<Liability> {
 		const existing = await getDecrypted<LiabilityRow, Liability>(db.liabilities, key, id);
 		if (!existing) throw new Error(`Liability ${id} not found`);

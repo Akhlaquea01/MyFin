@@ -63,6 +63,7 @@ import { ConvertToTransferDialog } from '../components/ConvertToTransferDialog';
 import { TransactionEngine } from '../domain/transactions/transactionEngine';
 import { filterTagOptions, type TagOption } from '../domain/transactions/tagFilterEngine';
 import { formatTransactionLabel } from '../domain/transactions/transactionLabel';
+import { linkedTransactionNotice } from '../domain/transactions/linkedTransactionNotice';
 import { validateAttachmentFile, compressImage } from '../lib/imageAttachment';
 import type {
 	Account,
@@ -290,10 +291,9 @@ export function TransactionsPage() {
 		try {
 			// The ledger movement behind a person loan/repayment is not an ordinary entry: deleting it
 			// here left the loan still "pending" for money that had been taken back out of the account.
-			if (await TransactionRepository.getLoanLink(key, tx.id)) {
-				toast.error(
-					'This entry records a loan or repayment, so it is managed from the People page. Use "Remove loan" or "Undo" there.'
-				);
+			const link = await TransactionRepository.getLoanLink(key, tx.id);
+			if (link) {
+				toast.error(linkedTransactionNotice(link).message);
 				return;
 			}
 		} catch {
@@ -703,7 +703,7 @@ export function TransactionsPage() {
 										<TableCell className="text-muted-foreground">
 											{accountName(tx.accountId)}
 											{tx.transferPairId && counterpartAccounts[tx.id] && (
-												<span className="ml-1 whitespace-nowrap text-xs">
+												<span className="ml-1 text-xs whitespace-nowrap">
 													{tx.amount < 0 ? 'to' : 'from'} {accountName(counterpartAccounts[tx.id])}
 												</span>
 											)}

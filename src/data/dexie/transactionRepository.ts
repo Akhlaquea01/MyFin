@@ -3,7 +3,8 @@ import {
 	type TransactionRow,
 	type TransactionSplitRow,
 	type PersonLoanRow,
-	type PersonLoanRepaymentRow
+	type PersonLoanRepaymentRow,
+	type LiabilityRow
 } from './db';
 import { encryptRow, getDecrypted, decryptRows } from './encryptedTable';
 import { deletedAtIndex, nullableIdIndex, NOT_DELETED } from './indexable';
@@ -16,8 +17,14 @@ import type {
 	TransactionType,
 	TransactionSource,
 	PersonLoan,
-	LoanRepayment
+	LoanRepayment,
+	Liability
 } from '../../domain/entities';
+
+/** What a linked ledger entry belongs to; `getLoanLink` returns null for an ordinary entry. */
+export type TransactionLink =
+	| { kind: 'loan' | 'repayment'; loanId: string }
+	| { kind: 'liability-payment'; liabilityId: string };
 
 export interface NewTransactionInput {
 	id?: string;
@@ -252,9 +259,12 @@ export const TransactionRepository = {
 		// A transaction can be the sole anchor for a PersonLoan's principal movement or a
 		// LoanRepayment's movement (spec 010) — `transactionId` is never null on either, and
 		// neither has its own purge flow to cascade to.
-		if (await this.getLoanLink(key, id)) {
+		const link = await this.getLoanLink(key, id);
+		if (link) {
 			throw new Error(
-				'This transaction is linked to a person loan or repayment and cannot be permanently deleted.'
+				`This transaction is linked to a ${
+					link.kind === 'liability-payment' ? 'liability payment' : 'person loan or repayment'
+				} and cannot be permanently deleted.`
 			);
 		}
 
@@ -286,32 +296,34 @@ export const TransactionRepository = {
 	},
 
 	/**
-	 * Whether `id` is the ledger movement behind a person loan's principal or one of its
-	 * repayments (spec 010). Such a transaction is not an ordinary entry: deleting, editing or
-	 * re-typing it directly would leave the loan's pending balance disagreeing with the ledger, so
-	 * every caller that mutates a transaction on the user's behalf must check this first and send
-	 * them to People instead.
+	 * Whether `id` is a ledger entry that is the other half of a record elsewhere: the movement
+	 * behind a person loan's principal (spec 010), one of its repayments, or a payment made toward a
+	 * liability. Such a transaction is not an ordinary entry: deleting, editing or re-typing it
+	 * directly would leave the loan's/liability's balance disagreeing with the ledger, so every
+	 * caller that mutates a transaction on the user's behalf must check this first and send them to
+	 * the page that owns it (People or Liabilities) instead — see `linkedTransactionNotice`.
 	 *
-	 * Not a structurally indexed field on either table, so this is a full decrypt-scan of the
-	 * (small) loan tables — acceptable because it only runs on a deliberate, user-initiated
-	 * mutation, never on a list render.
+	 * Not a structurally indexed field on any of those tables, so this is a full decrypt-scan of the
+	 * (small) tables — acceptable because it only runs on a deliberate, user-initiated mutation,
+	 * never on a list render.
 	 */
-	async getLoanLink(
-		key: CryptoKey,
-		id: string
-	): Promise<{ kind: 'loan' | 'repayment'; loanId: string } | null> {
-		const [loanRows, repaymentRows] = await Promise.all([
+	async getLoanLink(key: CryptoKey, id: string): Promise<TransactionLink | null> {
+		const [loanRows, repaymentRows, liabilityRows] = await Promise.all([
 			db.personLoans.toArray(),
-			db.personLoanRepayments.toArray()
+			db.personLoanRepayments.toArray(),
+			db.liabilities.toArray()
 		]);
-		const [loans, repayments] = await Promise.all([
+		const [loans, repayments, liabilities] = await Promise.all([
 			decryptRows<PersonLoanRow, PersonLoan>(key, loanRows),
-			decryptRows<PersonLoanRepaymentRow, LoanRepayment>(key, repaymentRows)
+			decryptRows<PersonLoanRepaymentRow, LoanRepayment>(key, repaymentRows),
+			decryptRows<LiabilityRow, Liability>(key, liabilityRows)
 		]);
 		const loan = loans.find((l) => l.transactionId === id);
 		if (loan) return { kind: 'loan', loanId: loan.id };
 		const repayment = repayments.find((r) => r.transactionId === id);
 		if (repayment) return { kind: 'repayment', loanId: repayment.loanId };
+		const liability = liabilities.find((l) => l.payments?.some((p) => p.transactionId === id));
+		if (liability) return { kind: 'liability-payment', liabilityId: liability.id };
 		return null;
 	},
 

@@ -189,6 +189,18 @@ export interface InvestmentValuation extends Timestamped {
 
 export type LiabilityType = 'loan' | 'credit_card';
 
+/** One payment made toward a liability from a tracked account. Kept ON the liability (not in a table
+ *  of its own) so it needs no schema migration and travels with backups; `transactionId` is the
+ *  ledger entry it posted, which is what keeps the two from drifting apart — see
+ *  `TransactionRepository.getLoanLink`. */
+export interface LiabilityPayment {
+	id: ID;
+	amount: number;
+	date: ISODateString;
+	accountId: ID;
+	transactionId: ID;
+}
+
 export interface Liability extends Timestamped, SoftDeletable {
 	id: ID;
 	name: string;
@@ -209,6 +221,9 @@ export interface Liability extends Timestamped, SoftDeletable {
 	 *  findLikelyDuplicateAccounts is NOT the same real card (spec 017, FR-010) — suppresses the
 	 *  warning on later views without changing what counts in net worth. */
 	duplicateWarningDismissed: boolean;
+	/** Payments recorded through "Record payment" (newest last). Absent on every liability that
+	 *  predates the feature, and on one that has never been paid from an account. */
+	payments?: LiabilityPayment[];
 }
 
 export interface NetWorthSnapshot extends Timestamped {

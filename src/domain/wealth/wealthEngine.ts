@@ -11,12 +11,15 @@ import {
 	LoanRepaymentRepository
 } from '../../data/dexie/personLoanRepository';
 import { computePendingBalance } from '../personLoans/loanProgress';
+import { TransactionEngine } from '../transactions/transactionEngine';
 import { todayLocalISO } from '../shared/dateMath';
+import { formatMinorUnits } from '../shared/money';
 import type {
 	Account,
 	InvestmentHolding,
 	InvestmentType,
 	Liability,
+	LiabilityPayment,
 	NetWorthSnapshot
 } from '../../domain/entities';
 
@@ -264,6 +267,115 @@ export async function linkLiabilityToAccount(
 		throw new Error('Can only link a liability to a credit card account.');
 	}
 	return LiabilityRepository.update(key, liabilityId, { linkedAccountId: accountId });
+}
+
+/**
+ * Records a payment toward a liability (a loan EMI, or a card tracked only as a liability) from one
+ * of the user's accounts: ONE action that posts the money leaving the account AND brings the
+ * balance owed down by the same amount. Until now a liability was a static number — paying an EMI
+ * from the bank left the loan's balance untouched, and the only way to keep it right was to delete
+ * and re-add the liability by hand.
+ *
+ * Net worth is unchanged by a payment (cash and debt fall together), which is exactly why both
+ * halves have to move in one step. The ledger entry is an ordinary expense — so cash-flow, the
+ * forecast and the financial-health score all see the outflow — linked to the payment record so it
+ * cannot be edited or deleted on its own and leave the two disagreeing.
+ *
+ * A card that is already tracked as an account (`linkedAccountId`) is refused: that account is the
+ * single source of truth for its debt, and it is paid with "Pay bill" on the Accounts page.
+ */
+export async function recordLiabilityPayment(
+	key: CryptoKey,
+	input: {
+		liabilityId: string;
+		amount: number;
+		date: string;
+		accountId: string;
+		categoryId?: string | null;
+	}
+): Promise<{ liability: Liability; payment: LiabilityPayment }> {
+	if (input.amount <= 0) throw new Error('Payment amount must be greater than zero.');
+	const liability = await LiabilityRepository.getById(key, input.liabilityId);
+	if (!liability) throw new Error('Liability not found.');
+	if (liability.linkedAccountId) {
+		throw new Error(
+			'This card is tracked as an account, so pay it with "Pay bill" on the Accounts page.'
+		);
+	}
+	if (input.amount > liability.outstandingBalance) {
+		throw new Error(
+			`That is more than the ${formatMinorUnits(liability.outstandingBalance)} still owed. Enter the amount actually paid, or at most the balance.`
+		);
+	}
+	const account = await AccountRepository.getById(key, input.accountId);
+	if (!account || account.deletedAt !== null) throw new Error('Account not found.');
+	if (account.type === 'credit_card') {
+		throw new Error('Pay from a bank, cash or wallet account, not from a credit card.');
+	}
+
+	const transaction = await TransactionEngine.recordTransaction(
+		key,
+		{
+			accountId: input.accountId,
+			date: input.date,
+			amount: -input.amount,
+			type: 'expense',
+			notes: `Payment to ${liability.name}`,
+			source: 'manual',
+			reviewStatus: 'confirmed'
+		},
+		input.categoryId ? [{ categoryId: input.categoryId, amount: -input.amount }] : []
+	);
+
+	const payment: LiabilityPayment = {
+		id: crypto.randomUUID(),
+		amount: input.amount,
+		date: input.date,
+		accountId: input.accountId,
+		transactionId: transaction.id
+	};
+	try {
+		const updated = await LiabilityRepository.update(key, liability.id, {
+			outstandingBalance: liability.outstandingBalance - input.amount,
+			payments: [...(liability.payments ?? []), payment]
+		});
+		return { liability: updated, payment };
+	} catch (err) {
+		// Never leave money taken out of the account with the debt unchanged.
+		await TransactionEngine.deleteTransaction(key, transaction.id).catch(() => undefined);
+		throw err;
+	}
+}
+
+/**
+ * Reverses a payment recorded with `recordLiabilityPayment`: the amount is owed again and the
+ * ledger entry moves to Trash, returning the money to the account. The way to correct a payment
+ * recorded with the wrong amount, date or account (its ledger entry is deliberately not editable).
+ */
+export async function undoLiabilityPayment(
+	key: CryptoKey,
+	liabilityId: string,
+	paymentId: string
+): Promise<Liability> {
+	const liability = await LiabilityRepository.getById(key, liabilityId);
+	if (!liability) throw new Error('Liability not found.');
+	const payment = liability.payments?.find((p) => p.id === paymentId);
+	if (!payment) throw new Error('Payment not found.');
+
+	// Ledger first, then the balance — and put the entry back if the second step fails, so the money
+	// and the debt are never left moved by only one half.
+	await TransactionEngine.deleteTransaction(key, payment.transactionId);
+	let updated: Liability;
+	try {
+		updated = await LiabilityRepository.update(key, liabilityId, {
+			outstandingBalance: liability.outstandingBalance + payment.amount,
+			payments: (liability.payments ?? []).filter((p) => p.id !== paymentId)
+		});
+	} catch (err) {
+		await TransactionEngine.restoreTransaction(key, payment.transactionId).catch(() => undefined);
+		throw err;
+	}
+	return updated;
 }
 
 /** Records that the user confirmed a flagged pair are NOT the same card (FR-010) — the warning

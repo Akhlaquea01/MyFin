@@ -19,10 +19,12 @@ import { useSession } from '../context/SessionContext';
 import {
 	TransactionRepository,
 	UNCATEGORIZED_CATEGORY_ID,
-	type SplitInput
+	type SplitInput,
+	type TransactionLink
 } from '../data/dexie/transactionRepository';
 import { TagRepository, TransactionTagRepository } from '../data/dexie/tagRepository';
 import { TransactionEngine } from '../domain/transactions/transactionEngine';
+import { linkedTransactionNotice } from '../domain/transactions/linkedTransactionNotice';
 import { resolveMerchant } from '../domain/parser/merchantResolver';
 import { recordConfirmation } from '../domain/categorization/resolveCategorization';
 import { formatMinorUnits, isPositiveMoney, parseMoneyOrZero } from '../domain/shared/money';
@@ -69,6 +71,7 @@ export function EditTransactionDialog({
 	const key = getEncryptionKey();
 
 	const [kind, setKind] = useState<Kind>('loading');
+	const [link, setLink] = useState<TransactionLink | null>(null);
 	const [originalSplits, setOriginalSplits] = useState<TransactionSplit[]>([]);
 	const [originalTagNames, setOriginalTagNames] = useState('');
 	const [saving, setSaving] = useState(false);
@@ -107,6 +110,7 @@ export function EditTransactionDialog({
 				setOriginalTagNames(names);
 				setTagsText(names);
 				setCategoryId(splits[0]?.categoryId ?? UNCATEGORIZED_CATEGORY_ID);
+				setLink(loanLink);
 				if (loanLink) setKind('loan');
 				else if (transaction.type === 'transfer' && transaction.transferPairId) setKind('transfer');
 				else setKind('regular');
@@ -217,26 +221,38 @@ export function EditTransactionDialog({
 						{kind === 'transfer'
 							? 'This is one side of a transfer. Changes apply to both sides together.'
 							: kind === 'loan'
-								? 'This entry records a loan or repayment.'
+								? 'This entry belongs to a loan or liability record.'
 								: 'Changes update the account balance and reports straight away.'}
 					</DialogDescription>
 				</DialogHeader>
 
 				{kind === 'loading' && <p className="text-sm text-muted-foreground">Loading…</p>}
 
-				{kind === 'loan' && (
+				{kind === 'loan' && link && (
 					<div className="flex flex-col gap-3 text-sm">
 						<p>
-							Money lent, borrowed or paid back is tracked on the People page, and its amount and
-							date can't be edited here without the loan's balance no longer matching your accounts.
+							{link.kind === 'liability-payment'
+								? "A payment toward a loan or card is tracked on the Liabilities page, and its amount and date can't be edited here without the balance owed no longer matching your accounts."
+								: "Money lent, borrowed or paid back is tracked on the People page, and its amount and date can't be edited here without the loan's balance no longer matching your accounts."}
 						</p>
 						<p className="text-muted-foreground">
-							To fix it, open People and use <strong>Remove loan</strong> (or <strong>Undo</strong>{' '}
-							on a repayment), then record it again.
+							{link.kind === 'liability-payment' ? (
+								<>
+									To fix it, open Liabilities and use <strong>Undo</strong> on the payment, then
+									record it again.
+								</>
+							) : (
+								<>
+									To fix it, open People and use <strong>Remove loan</strong> (or{' '}
+									<strong>Undo</strong> on a repayment), then record it again.
+								</>
+							)}
 						</p>
 						<DialogFooter>
 							<Button asChild>
-								<Link to="/people">Go to People</Link>
+								<Link to={linkedTransactionNotice(link).to}>
+									{linkedTransactionNotice(link).linkLabel}
+								</Link>
 							</Button>
 						</DialogFooter>
 					</div>

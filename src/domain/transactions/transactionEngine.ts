@@ -13,6 +13,7 @@ import {
 	type CategorizationResolver
 } from '../categorization/resolveCategorization';
 import { addDaysISO } from '../shared/dateMath';
+import { linkedTransactionNotice } from './linkedTransactionNotice';
 import type { Transaction } from '../../domain/entities';
 
 /**
@@ -268,9 +269,12 @@ export const TransactionEngine = {
 		const tx = await TransactionRepository.getById(key, txId);
 		if (!tx || tx.deletedAt !== null) throw new Error('Transaction not found.');
 		if (tx.transferPairId) throw new Error('This transaction is already part of a transfer.');
-		if (tx.type === 'transfer' || (await TransactionRepository.getLoanLink(key, txId))) {
+		const link = await TransactionRepository.getLoanLink(key, txId);
+		if (tx.type === 'transfer' || link) {
 			throw new Error(
-				'This transaction records a loan or repayment. Manage it from the People page instead.'
+				link
+					? linkedTransactionNotice(link).message
+					: 'This entry records a loan or repayment, so it is managed from the People page.'
 			);
 		}
 
@@ -293,7 +297,7 @@ export const TransactionEngine = {
 				);
 			}
 			if (await TransactionRepository.getLoanLink(key, other.id)) {
-				throw new Error('The matching transaction records a loan or repayment.');
+				throw new Error('The matching transaction belongs to a loan or liability record.');
 			}
 			counterpart = {
 				...other,
