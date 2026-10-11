@@ -5,9 +5,14 @@ import { CategoryRepository } from '../../src/data/dexie/categoryRepository';
 import { TransactionRepository } from '../../src/data/dexie/transactionRepository';
 import { UserProfileRepository } from '../../src/data/dexie/userProfileRepository';
 import { SessionKeyRepository } from '../../src/data/dexie/sessionKeyRepository';
+import { AutoBackupSettingsRepository } from '../../src/data/dexie/autoBackupSettingsRepository';
 import { clearAllTables } from '../../src/data/dexie/clearAllTables';
 import { resetAllData } from '../../src/data/io/resetService';
-import { deriveEncryptionKey, hashPin, randomSaltBase64 } from '../../src/data/crypto/cryptoService';
+import {
+	deriveEncryptionKey,
+	hashPin,
+	randomSaltBase64
+} from '../../src/data/crypto/cryptoService';
 
 // spec 016, FR-013/014: Clear All Data must wipe every table, including the PIN/security vault
 // (userProfile, sessionKeys) — not just financial data — per the feature's clarification that
@@ -72,5 +77,48 @@ describe('clearAllTables / resetAllData', () => {
 
 		expect(await AccountRepository.list(key, true)).toHaveLength(0);
 		expect(await UserProfileRepository.get()).toBeUndefined();
+	});
+
+	describe('device-local backup settings', () => {
+		async function seedLocalSettings() {
+			await AutoBackupSettingsRepository.update({
+				enabled: true,
+				intervalDays: 7,
+				lastBackupAt: '2026-06-01T00:00:00.000Z',
+				lastBackupStatus: 'success'
+			});
+			await db.backupRecords.put({
+				id: 'record-1',
+				schemaVersion: '1.4',
+				sizeBytes: 123,
+				checksum: 'abc',
+				createdAt: Date.now(),
+				updatedAt: Date.now()
+			} as never);
+		}
+
+		it('a full reset also clears the scheduled-backup configuration and the backup log', async () => {
+			await seedLocalSettings();
+			expect((await AutoBackupSettingsRepository.get()).enabled).toBe(true);
+			expect(await db.backupRecords.count()).toBe(1);
+
+			await resetAllData();
+
+			// Back to defaults: nothing left that could back up the next user's data to the old folder.
+			const settings = await AutoBackupSettingsRepository.get();
+			expect(settings.enabled).toBe(false);
+			expect(settings.lastBackupAt).toBeUndefined();
+			expect(await db.autoBackupSettings.count()).toBe(0);
+			expect(await db.backupRecords.count()).toBe(0);
+		});
+
+		it('clearAllTables on its own — what a backup restore uses — leaves them alone', async () => {
+			await seedLocalSettings();
+
+			await clearAllTables();
+
+			expect((await AutoBackupSettingsRepository.get()).enabled).toBe(true);
+			expect(await db.backupRecords.count()).toBe(1);
+		});
 	});
 });

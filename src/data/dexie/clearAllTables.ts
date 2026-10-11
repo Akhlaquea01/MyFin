@@ -7,8 +7,21 @@ import { db } from './db';
  * definition of "every table that must be cleared" (contracts/reset-service.md).
  *
  * Atomic: either every table is cleared or (on error) none are.
+ *
+ * `includeLocalSettings` also clears the two tables that describe THIS device rather than the
+ * user's data — the scheduled-backup configuration (which holds a handle to a folder on this
+ * machine) and the backup log. A full reset must clear them: left behind, the next unlock after
+ * "Clear everything" could write an encrypted backup of the freshly created data into the old
+ * folder, from a configuration the user believed was gone. A backup RESTORE deliberately does not
+ * (the default): restoring data onto a device does not change which folder that device backs up
+ * to, and a restore's own transaction does not include those tables.
  */
-export async function clearAllTables(): Promise<void> {
+export async function clearAllTables(
+	options: { includeLocalSettings?: boolean } = {}
+): Promise<void> {
+	const localSettings = options.includeLocalSettings
+		? [db.autoBackupSettings, db.backupRecords]
+		: [];
 	await db.transaction(
 		'rw',
 		[
@@ -41,10 +54,12 @@ export async function clearAllTables(): Promise<void> {
 			db.personLoanRepayments,
 			db.savedFilterViews,
 			db.userProfile,
-			db.sessionKeys
+			db.sessionKeys,
+			...localSettings
 		],
 		async () => {
 			await Promise.all([
+				...localSettings.map((table) => table.clear()),
 				db.accounts.clear(),
 				db.categories.clear(),
 				db.merchants.clear(),

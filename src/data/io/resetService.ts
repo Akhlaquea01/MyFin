@@ -5,8 +5,10 @@ import { clearAllTables } from '../dexie/clearAllTables';
  * No re-seeding, no default data insertion — the caller (BackupSettingsPage) is responsible
  * for the post-clear reload, which routes to onboarding via App.tsx's existing gate.
  *
+ * Also clears this device's scheduled-backup configuration and backup log — see `clearAllTables`.
+ *
  * Does not require a CryptoKey — it clears tables, not decrypt/re-encrypt data.
  */
 export async function resetAllData(): Promise<void> {
-	await clearAllTables();
+	await clearAllTables({ includeLocalSettings: true });
 }
