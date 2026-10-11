@@ -86,13 +86,16 @@ jobs:
         run: chmod +x android/gradlew
 
       # APK versionCode = run number, so each build is newer than the last and installs over it.
-      - name: Build the debug APK
+      # testDebugUnitTest runs the JVM tests of the pure-Java native code (message sealing and
+      # filtering) in the same Gradle run, so a broken sealer fails the build instead of shipping
+      # an APK whose captured messages can never be opened.
+      - name: Test and build the debug APK
         working-directory: android
         env:
           RUN_NUMBER: ${{ github.run_number }}
         run: |
           VERSION_NAME="$(node -p "require('../package.json').version")"
-          ./gradlew assembleDebug --no-daemon --stacktrace \
+          ./gradlew testDebugUnitTest assembleDebug --no-daemon --stacktrace \
             -PappVersionCode="${RUN_NUMBER}" \
             -PappVersionName="${VERSION_NAME}"
 

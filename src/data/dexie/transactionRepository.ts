@@ -17,6 +17,7 @@ import {
 	transactionMatchesFreeText
 } from '../../domain/transactions/tagFilterEngine';
 import type {
+	CaptureInfo,
 	Transaction,
 	TransactionSplit,
 	TransactionType,
@@ -49,6 +50,8 @@ export interface NewTransactionInput {
 	reviewStatus?: 'confirmed' | 'unreviewed';
 	transferPairId?: string | null;
 	duplicateOfId?: string | null;
+	/** Where an automatically captured entry came from; absent for everything else. */
+	capture?: CaptureInfo | null;
 }
 
 export interface SplitInput {
@@ -122,6 +125,9 @@ export const TransactionRepository = {
 			source: input.source ?? 'manual',
 			reviewStatus: input.reviewStatus ?? 'confirmed',
 			duplicateOfId: input.duplicateOfId ?? null,
+			// Only written when there is something to write, so every entry that is not a capture
+			// keeps exactly the shape it always had.
+			...(input.capture ? { capture: input.capture } : {}),
 			createdAt: now,
 			updatedAt: now,
 			deletedAt: null

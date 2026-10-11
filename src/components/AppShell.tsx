@@ -11,6 +11,8 @@ import {
 	HeartPulse,
 	Inbox,
 	Info,
+	ShieldCheck,
+	Smartphone,
 	Landmark,
 	LayoutDashboard,
 	LineChart,
@@ -35,6 +37,7 @@ import { PageErrorBoundary } from './PageErrorBoundary';
 import { CommandPalette } from './CommandPalette';
 import { useQuickTour } from '../hooks/useQuickTour';
 import { useSession } from '../context/SessionContext';
+import { isNativeApp } from '../lib/native/platform';
 import { TransactionRepository } from '../data/dexie/transactionRepository';
 import { MerchantRepository } from '../data/dexie/merchantRepository';
 import { AccountRepository } from '../data/dexie/accountRepository';
@@ -75,6 +78,9 @@ const NAV_ITEMS = [
 	{ to: '/import', label: 'Import', icon: Upload },
 	{ to: '/export', label: 'Export', icon: Download },
 	{ to: '/backup', label: 'Backup', icon: DatabaseBackup, dataTour: 'settings-nav' },
+	{ to: '/security', label: 'Security', icon: ShieldCheck },
+	// Reading bank SMS and payment notifications only exists in the Android app.
+	{ to: '/auto-capture', label: 'Auto-capture', icon: Smartphone, nativeOnly: true },
 	{ to: '/notification-settings', label: 'Notifications', icon: Bell },
 	{ to: '/categorization-rules', label: 'Auto-Categorize', icon: Wand2 },
 	{ to: '/categories', label: 'Categories', icon: Tags, dataTour: 'categories-nav' },
@@ -85,26 +91,28 @@ const NAV_ITEMS = [
 function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
 	return (
 		<nav className="flex flex-col gap-1">
-			{NAV_ITEMS.map(({ to, label, icon: Icon, end, dataTour }) => (
-				<NavLink
-					key={to}
-					to={to}
-					end={end}
-					onClick={onNavigate}
-					data-tour={dataTour}
-					className={({ isActive }) =>
-						cn(
-							'flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
-							isActive
-								? 'bg-primary/10 text-primary'
-								: 'text-muted-foreground hover:bg-muted hover:text-foreground'
-						)
-					}
-				>
-					<Icon className="size-4" />
-					{label}
-				</NavLink>
-			))}
+			{NAV_ITEMS.filter((item) => !item.nativeOnly || isNativeApp()).map(
+				({ to, label, icon: Icon, end, dataTour }) => (
+					<NavLink
+						key={to}
+						to={to}
+						end={end}
+						onClick={onNavigate}
+						data-tour={dataTour}
+						className={({ isActive }) =>
+							cn(
+								'flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
+								isActive
+									? 'bg-primary/10 text-primary'
+									: 'text-muted-foreground hover:bg-muted hover:text-foreground'
+							)
+						}
+					>
+						<Icon className="size-4" />
+						{label}
+					</NavLink>
+				)
+			)}
 		</nav>
 	);
 }

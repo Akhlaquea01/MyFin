@@ -6,7 +6,14 @@ import { Label } from './ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { UserProfileRepository } from '../data/dexie/userProfileRepository';
 import { verifyPin, deriveEncryptionKey } from '../data/crypto/cryptoService';
-import { unlockPinWithBiometric, isWebAuthnSupported } from '../lib/webauthn';
+import {
+	describeBiometricReason,
+	disableBiometric,
+	isBiometricEnrolled,
+	unlockWithBiometric
+} from '../lib/biometric';
+import { isNativeApp } from '../lib/native/platform';
+import { useAppActive } from '../hooks/useAppActive';
 import { nextLockoutMs, unlockGate, formatRemaining } from '../domain/auth/pinPolicy';
 import { useSession } from '../context/SessionContext';
 import type { UserProfile } from '../domain/entities';
@@ -21,6 +28,10 @@ export function LockScreen({ onunlock }: { onunlock: (pin: string) => void }) {
 	const [error, setError] = useState<string | null>(null);
 	const [submitting, setSubmitting] = useState(false);
 	const [biometricAvailable, setBiometricAvailable] = useState(false);
+	const { isActive, activationCount } = useAppActive();
+	// The activation count the fingerprint prompt was last offered for, so it opens once per
+	// return to the app and never loops after the user cancels it.
+	const autoPromptedForRef = useRef<number | null>(null);
 	// True only until the initial profile fetch settles (success or failure) — distinct from
 	// `profile === null`, which also describes the (should-be-unreachable) case of no profile
 	// existing at all.
@@ -36,10 +47,11 @@ export function LockScreen({ onunlock }: { onunlock: (pin: string) => void }) {
 		setLoading(true);
 		setLoadError(false);
 		UserProfileRepository.get()
-			.then((p) => {
+			.then(async (p) => {
+				const enrolled = await isBiometricEnrolled(p);
 				if (cancelled) return;
 				setProfile(p ?? null);
-				setBiometricAvailable(isWebAuthnSupported() && !!p?.webauthn);
+				setBiometricAvailable(enrolled);
 			})
 			.catch(() => {
 				if (!cancelled) setLoadError(true);
@@ -143,23 +155,51 @@ export function LockScreen({ onunlock }: { onunlock: (pin: string) => void }) {
 		}
 	}
 
-	async function handleBiometric() {
-		if (!profile?.webauthn) return;
+	async function handleBiometric(auto = false) {
+		if (!profile) return;
 		setError(null);
 		setSubmitting(true);
 		try {
-			const recoveredPin = await unlockPinWithBiometric(profile.webauthn);
-			if (!recoveredPin) {
-				setError('Biometric unlock failed. Please enter your PIN.');
+			const result = await unlockWithBiometric(profile);
+			if (!result.ok) {
+				// A stale or invalidated enrollment can never work again; drop it so the user is
+				// not offered a button that fails every time. This is not a wrong-PIN attempt, so
+				// the failed-attempt counter is deliberately left alone.
+				if (result.clearEnrollment) {
+					setProfile(await disableBiometric());
+					setBiometricAvailable(false);
+				}
+				// Dismissing a prompt that opened by itself is a choice, not an error.
+				const quiet = auto && (result.reason === 'cancelled' || result.reason === 'not-ready');
+				if (!quiet) setError(describeBiometricReason(result.reason));
 				return;
 			}
-			await unlockWithPin(recoveredPin, profile);
+			await unlockWithPin(result.pin, profile);
 		} catch {
 			setError('Could not unlock. Please try again.');
 		} finally {
 			setSubmitting(false);
 		}
 	}
+
+	// Offer the fingerprint prompt by itself in the Android app, once each time the app comes
+	// to the foreground. Not while a lockout is running, while another attempt is in flight, or
+	// while the app is still in the background (the prompt could not be shown there).
+	const canAutoPrompt =
+		isNativeApp() &&
+		biometricAvailable &&
+		!loading &&
+		!loadError &&
+		!!profile &&
+		gate.allowed &&
+		isActive &&
+		!submitting;
+	useEffect(() => {
+		if (!canAutoPrompt || autoPromptedForRef.current === activationCount) return;
+		autoPromptedForRef.current = activationCount;
+		void handleBiometric(true);
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [canAutoPrompt, activationCount]);
 
 	const lockoutNotice = gate.allowed
 		? null
@@ -190,7 +230,7 @@ export function LockScreen({ onunlock }: { onunlock: (pin: string) => void }) {
 								value={pin}
 								onChange={(e) => setPin(e.target.value)}
 								disabled={inputsDisabled}
-								autoFocus
+								autoFocus={!(isNativeApp() && biometricAvailable)}
 							/>
 						</div>
 						{loadError && (
@@ -238,7 +278,7 @@ export function LockScreen({ onunlock }: { onunlock: (pin: string) => void }) {
 							variant="outline"
 							className="mt-3 w-full"
 							disabled={inputsDisabled}
-							onClick={handleBiometric}
+							onClick={() => void handleBiometric()}
 						>
 							<Fingerprint /> Use biometric unlock
 						</Button>

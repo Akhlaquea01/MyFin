@@ -36,6 +36,8 @@ import {
 	type BackupPayload
 } from '../data/io/backupService';
 import { resetAllData } from '../data/io/resetService';
+import { clearNativeBiometric, isNativeBiometricAvailable } from '../lib/native/nativeBiometric';
+import { TransactionCapture, isTransactionCaptureAvailable } from '../lib/native/transactionCapture';
 import {
 	isAutoBackupSupported,
 	requestBackupFolder,
@@ -564,6 +566,14 @@ export function BackupSettingsPage() {
 								setClearing(true);
 								try {
 									await resetAllData();
+									// The fingerprint secret lives outside the database, so wiping the data would
+									// otherwise leave it behind for the next profile to trip over.
+									if (isNativeBiometricAvailable()) await clearNativeBiometric();
+									// Likewise messages already captured and queued natively: they would otherwise
+									// flow into the next profile's ledger.
+									if (isTransactionCaptureAvailable()) {
+										await TransactionCapture.clear().catch(() => {});
+									}
 									toast.success('All data cleared. Reloading…');
 									window.location.reload();
 								} catch (err) {

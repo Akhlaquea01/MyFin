@@ -50,6 +50,17 @@ function isValidCardLast4(raw: string): boolean {
 	return !raw.trim() || /^\d{4}$/.test(raw.trim());
 }
 
+// Banks print the tail of the account number in their messages ("A/c XX1234"); some print three
+// digits, so three are accepted too.
+function isValidAccountLast4(raw: string): boolean {
+	return !raw.trim() || /^\d{3,4}$/.test(raw.trim());
+}
+
+/** Account types a bank message can name by the digits of their account number. */
+function hasAccountNumber(type: 'bank' | 'cash' | 'wallet' | 'credit_card'): boolean {
+	return type === 'bank' || type === 'wallet';
+}
+
 const accountSchema = z.object({
 	name: z.string().trim().min(1, 'Account name is required.'),
 	type: z.enum(['bank', 'cash', 'wallet', 'credit_card']),
@@ -59,7 +70,9 @@ const accountSchema = z.object({
 	billingCycleDay: z.string().refine(isValidBillingCycleDay, 'Enter a day between 1 and 31.'),
 	// FR-019: optional identifiers used to auto-match imported/pasted transactions (FR-020).
 	cardLast4: z.string().refine(isValidCardLast4, 'Enter exactly 4 digits.'),
-	cardNickname: z.string()
+	cardNickname: z.string(),
+	// Used to file captured bank messages under the right account.
+	accountLast4: z.string().refine(isValidAccountLast4, 'Enter the last 3 or 4 digits.')
 });
 type AccountFormValues = z.infer<typeof accountSchema>;
 
@@ -135,7 +148,8 @@ export function AccountsPage() {
 			creditLimit: '',
 			billingCycleDay: '',
 			cardLast4: '',
-			cardNickname: ''
+			cardNickname: '',
+			accountLast4: ''
 		}
 	});
 	const formType = form.watch('type');
@@ -149,7 +163,8 @@ export function AccountsPage() {
 			creditLimit: '',
 			billingCycleDay: '',
 			cardLast4: '',
-			cardNickname: ''
+			cardNickname: '',
+			accountLast4: ''
 		}
 	});
 	const editFormType = editForm.watch('type');
@@ -178,8 +193,10 @@ export function AccountsPage() {
 				openingBalance: openingBalanceToStored(values.openingBalance, isCreditCard),
 				creditLimit: isCreditCard ? creditLimitToPaise(values.creditLimit) : null,
 				billingCycleDay: isCreditCard ? billingCycleDayToNumber(values.billingCycleDay) : null,
-				cardLast4: isCreditCard ? optionalTrimmed(values.cardLast4) : null,
-				cardNickname: isCreditCard ? optionalTrimmed(values.cardNickname) : null
+				cardLast4:
+					isCreditCard || values.type === 'bank' ? optionalTrimmed(values.cardLast4) : null,
+				cardNickname: isCreditCard ? optionalTrimmed(values.cardNickname) : null,
+				accountLast4: hasAccountNumber(values.type) ? optionalTrimmed(values.accountLast4) : null
 			});
 			form.reset({
 				name: '',
@@ -188,7 +205,8 @@ export function AccountsPage() {
 				creditLimit: '',
 				billingCycleDay: '',
 				cardLast4: '',
-				cardNickname: ''
+				cardNickname: '',
+				accountLast4: ''
 			});
 			setDialogOpen(false);
 			toast.success(`${values.name} added`);
@@ -207,7 +225,8 @@ export function AccountsPage() {
 			creditLimit: account.creditLimit !== null ? String(account.creditLimit / 100) : '',
 			billingCycleDay: account.billingCycleDay !== null ? String(account.billingCycleDay) : '',
 			cardLast4: account.cardLast4 ?? '',
-			cardNickname: account.cardNickname ?? ''
+			cardNickname: account.cardNickname ?? '',
+			accountLast4: account.accountLast4 ?? ''
 		});
 	}
 
@@ -221,8 +240,10 @@ export function AccountsPage() {
 				openingBalance: openingBalanceToStored(values.openingBalance, isCreditCard),
 				creditLimit: isCreditCard ? creditLimitToPaise(values.creditLimit) : null,
 				billingCycleDay: isCreditCard ? billingCycleDayToNumber(values.billingCycleDay) : null,
-				cardLast4: isCreditCard ? optionalTrimmed(values.cardLast4) : null,
-				cardNickname: isCreditCard ? optionalTrimmed(values.cardNickname) : null
+				cardLast4:
+					isCreditCard || values.type === 'bank' ? optionalTrimmed(values.cardLast4) : null,
+				cardNickname: isCreditCard ? optionalTrimmed(values.cardNickname) : null,
+				accountLast4: hasAccountNumber(values.type) ? optionalTrimmed(values.accountLast4) : null
 			});
 			// Opening balance feeds into currentBalance (= openingBalance + sum of transactions),
 			// so a change here must be reflected immediately, not left stale until the next
@@ -430,6 +451,46 @@ export function AccountsPage() {
 											{...form.register('cardNickname')}
 										/>
 									</div>
+								</div>
+							)}
+							{hasAccountNumber(formType) && (
+								<div className="grid grid-cols-2 gap-3">
+									<div className="flex flex-col gap-1.5">
+										<Label htmlFor="account-last4">Account number, last digits (optional)</Label>
+										<Input
+											id="account-last4"
+											inputMode="numeric"
+											maxLength={4}
+											placeholder="1234"
+											{...form.register('accountLast4')}
+										/>
+										{form.formState.errors.accountLast4 && (
+											<p className="text-sm text-destructive">
+												{form.formState.errors.accountLast4.message}
+											</p>
+										)}
+									</div>
+									{formType === 'bank' && (
+										<div className="flex flex-col gap-1.5">
+											<Label htmlFor="debit-card-last4">Debit card, last 4 digits (optional)</Label>
+											<Input
+												id="debit-card-last4"
+												inputMode="numeric"
+												maxLength={4}
+												placeholder="5678"
+												{...form.register('cardLast4')}
+											/>
+											{form.formState.errors.cardLast4 && (
+												<p className="text-sm text-destructive">
+													{form.formState.errors.cardLast4.message}
+												</p>
+											)}
+										</div>
+									)}
+									<p className="col-span-2 text-xs text-muted-foreground">
+										Bank messages name an account by its last digits. Saving them lets MyFin file
+										captured messages under the right account.
+									</p>
 								</div>
 							)}
 							<DialogFooter>
@@ -675,6 +736,44 @@ export function AccountsPage() {
 										{...editForm.register('cardNickname')}
 									/>
 								</div>
+							</div>
+						)}
+						{hasAccountNumber(editFormType) && (
+							<div className="grid grid-cols-2 gap-3">
+								<div className="flex flex-col gap-1.5">
+									<Label htmlFor="edit-account-last4">Account number, last digits (optional)</Label>
+									<Input
+										id="edit-account-last4"
+										inputMode="numeric"
+										maxLength={4}
+										placeholder="1234"
+										{...editForm.register('accountLast4')}
+									/>
+									{editForm.formState.errors.accountLast4 && (
+										<p className="text-sm text-destructive">
+											{editForm.formState.errors.accountLast4.message}
+										</p>
+									)}
+								</div>
+								{editFormType === 'bank' && (
+									<div className="flex flex-col gap-1.5">
+										<Label htmlFor="edit-debit-card-last4">
+											Debit card, last 4 digits (optional)
+										</Label>
+										<Input
+											id="edit-debit-card-last4"
+											inputMode="numeric"
+											maxLength={4}
+											placeholder="5678"
+											{...editForm.register('cardLast4')}
+										/>
+										{editForm.formState.errors.cardLast4 && (
+											<p className="text-sm text-destructive">
+												{editForm.formState.errors.cardLast4.message}
+											</p>
+										)}
+									</div>
+								)}
 							</div>
 						)}
 						<DialogFooter>

@@ -38,6 +38,10 @@ export interface Account extends Timestamped, SoftDeletable {
 	 *  `type === 'credit_card'` (spec 017, FR-019) — same two consumers and optionality as
 	 *  `cardLast4`. */
 	cardNickname?: string | null;
+	/** Last 3–4 digits of the account number, for matching captured bank messages ("A/c XX1234")
+	 *  to this account. Meaningful for any account type; a credit card is matched through
+	 *  `cardLast4` as well. Optional like `cardLast4` — absent/null means "untagged". */
+	accountLast4?: string | null;
 	/** User-configured low-balance warning threshold for cash-flow forecasting (spec 019,
 	 *  FR-008), in the smallest currency unit. Optional — absent/undefined means the default
 	 *  of 0 (forecastEngine.ts). */
@@ -72,7 +76,39 @@ export interface Tag extends Timestamped {
 }
 
 export type TransactionType = 'income' | 'expense' | 'transfer';
-export type TransactionSource = 'manual' | 'quick_add' | 'bulk_import' | 'file_import';
+export type TransactionSource =
+	| 'manual'
+	| 'quick_add'
+	| 'bulk_import'
+	| 'file_import'
+	/** A bank SMS captured by the Android app. */
+	| 'sms_capture'
+	/** A payment-app or bank-app notification captured by the Android app. */
+	| 'notification_capture';
+export type CaptureChannel = 'sms' | 'notification';
+
+/**
+ * Where an automatically captured transaction came from, kept so Review can show the original
+ * message next to the parsed values. Deliberately NOT stored in `notes`: `formatTransactionLabel`
+ * shows `notes` as the row title, which would turn the whole message into the title.
+ */
+export interface CaptureInfo {
+	channel: CaptureChannel;
+	/** SMS sender id (e.g. "VM-HDFCBK"), or the name of the app that posted the notification. */
+	sender: string;
+	receivedAt: EpochMillis;
+	/** The message as received (title and body for a notification). */
+	text: string;
+	/** Why the account may be wrong: no account number matched, or several did. Cleared once the
+	 *  user edits the entry. */
+	accountCheck?: 'default-account' | 'unmatched-tail' | null;
+	/** The account digits the message mentioned that matched nothing, to help the user pick. */
+	tailHint?: string | null;
+	/** The same payment also seen on the other channel (SMS and a payment-app notification), folded
+	 *  into this one entry rather than creating a second. */
+	alsoSeenAs?: { channel: CaptureChannel; sender: string; receivedAt: EpochMillis }[];
+}
+
 export type ReviewStatus = 'confirmed' | 'unreviewed';
 
 export interface Transaction extends Timestamped, SoftDeletable {
@@ -91,6 +127,8 @@ export interface Transaction extends Timestamped, SoftDeletable {
 	 *  "Mark as Recurring" (FR-005, spec 016). null/undefined for every transaction not
 	 *  linked this way. Not indexed — read directly off the already-decrypted object. */
 	recurringRuleId?: ID | null;
+	/** Set only on entries created by automatic capture (Android app). */
+	capture?: CaptureInfo | null;
 }
 
 export interface TransactionSplit {
@@ -428,10 +466,51 @@ export interface UserProfile {
 		prfSalt: string; // base64, fixed per-installation salt fed into the PRF eval
 		wrappedPin: { iv: string; ciphertext: string };
 	};
+	/**
+	 * Present only when fingerprint unlock is enrolled in the Android app. WebAuthn does not work
+	 * inside Android WebView, so the app uses a native plugin instead: a random secret is held
+	 * behind a biometric-bound Keystore key, and this is the PIN wrapped with that secret. The
+	 * secret never leaves native storage except through a fingerprint prompt, and the PIN never
+	 * reaches native code. A wrapped PIN that no longer opens (profile restored from a backup, key
+	 * invalidated) is dropped and the user falls back to the PIN.
+	 */
+	nativeBiometric?: {
+		wrappedPin: { iv: string; ciphertext: string };
+		enrolledAt: EpochMillis;
+	};
+	/** Automatic capture of bank SMS and payment notifications (Android app only). */
+	capture?: CaptureSettings;
 	/** Persisted Dashboard widget order/visibility (spec 019, FR-022/FR-023). Array order is
 	 *  display order. Absent, or an empty array, means "use the built-in default" — see
 	 *  `resolveDashboardLayout` in `dashboardLayout.ts`, the only place this is interpreted. */
 	dashboardLayout?: { widgetId: string; visible: boolean }[];
+}
+
+/**
+ * Settings for capturing bank SMS and payment notifications in the Android app. Lives on the
+ * profile (a plain singleton) so it needs no new table. The messages themselves are never stored
+ * here: native code seals each one with `sealing.publicKey` and queues it; only after unlock does
+ * the app open them with the private key, which is kept here encrypted with the data key.
+ */
+export interface CaptureSettings {
+	enabled: boolean;
+	sms: boolean;
+	notifications: boolean;
+	/** Where a message goes when no account number in it matches an account. */
+	defaultAccountId: ID | null;
+	sealing?: {
+		/** RSA-2048 public key, base64 X.509 SubjectPublicKeyInfo — the only thing native holds. */
+		publicKey: string;
+		/** Identifies this key pair, so items sealed to an old pair can be told apart. */
+		keyId: string;
+		/** The matching private key (base64 PKCS#8), encrypted with the PIN-derived data key. */
+		wrappedPrivateKey: { iv: string; ciphertext: string };
+	};
+	/** Messages that looked like transactions but could not be read; their text is discarded. */
+	unreadableCount?: number;
+	/** Messages the phone discarded because too many piled up while MyFin was locked. */
+	droppedCount?: number;
+	lastDrainAt?: EpochMillis;
 }
 
 export const DEFAULT_AUTO_LOCK_TIMEOUT_MS = 5 * 60 * 1000; // FR-003, spec clarification

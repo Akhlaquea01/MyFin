@@ -328,7 +328,8 @@ export async function importDataTemplate(
 				creditLimit: acc.creditLimit,
 				billingCycleDay: acc.billingCycleDay,
 				cardLast4: acc.cardLast4,
-				cardNickname: acc.cardNickname
+				cardNickname: acc.cardNickname,
+				accountLast4: acc.accountLast4
 			});
 			accountRemap.set(acc.id, created.id);
 			existingAccounts.push(created);

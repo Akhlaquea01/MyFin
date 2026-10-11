@@ -27,6 +27,7 @@ import { TransactionEngine } from '../domain/transactions/transactionEngine';
 import { linkedTransactionNotice } from '../domain/transactions/linkedTransactionNotice';
 import { resolveMerchant } from '../domain/parser/merchantResolver';
 import { recordConfirmation } from '../domain/categorization/resolveCategorization';
+import { shouldLearnFromEdit } from '../domain/transactions/editLearning';
 import { formatMinorUnits, isPositiveMoney, parseMoneyOrZero } from '../domain/shared/money';
 import type {
 	Account,
@@ -58,7 +59,9 @@ export function EditTransactionDialog({
 	merchants,
 	onOpenChange,
 	onSaved,
-	onRecordAsTransfer
+	onRecordAsTransfer,
+	initialCategoryId,
+	initialTagsText
 }: {
 	transaction: Transaction;
 	accounts: Account[];
@@ -67,6 +70,10 @@ export function EditTransactionDialog({
 	onOpenChange: (open: boolean) => void;
 	onSaved: () => void;
 	onRecordAsTransfer: (transaction: Transaction) => void;
+	/** Review keeps a category and tags the user has picked on a card but not saved yet; passing
+	 *  them in means opening Edit shows (and saving keeps) that choice rather than the stored one. */
+	initialCategoryId?: string;
+	initialTagsText?: string;
 }) {
 	const { getEncryptionKey } = useSession();
 	const key = getEncryptionKey();
@@ -109,8 +116,8 @@ export function EditTransactionDialog({
 					.filter((name): name is string => Boolean(name))
 					.join(', ');
 				setOriginalTagNames(names);
-				setTagsText(names);
-				setCategoryId(splits[0]?.categoryId ?? UNCATEGORIZED_CATEGORY_ID);
+				setTagsText(initialTagsText ?? names);
+				setCategoryId(initialCategoryId ?? splits[0]?.categoryId ?? UNCATEGORIZED_CATEGORY_ID);
 				setLink(loanLink);
 				if (loanLink) setKind('loan');
 				else if (transaction.type === 'transfer' && transaction.transferPairId) setKind('transfer');
@@ -194,8 +201,19 @@ export function EditTransactionDialog({
 					);
 				}
 
-				// Correcting a category by hand is the strongest learning signal there is.
-				if (!isSplit && categoryChanged && categoryId !== UNCATEGORIZED_CATEGORY_ID && merchantId) {
+				// Correcting a category by hand is the strongest learning signal there is — but not for an
+				// entry still waiting in Review, where Confirm records the choice (see editLearning.ts).
+				if (
+					merchantId &&
+					shouldLearnFromEdit({
+						reviewStatus: transaction.reviewStatus,
+						isSplit,
+						categoryChanged,
+						categoryId,
+						uncategorizedId: UNCATEGORIZED_CATEGORY_ID,
+						hasMerchant: true
+					})
+				) {
 					await recordConfirmation(key, merchantId, categoryId);
 				}
 			}

@@ -61,7 +61,7 @@ const CREDIT_KEYWORDS = ['credited', 'received', 'refund', 'deposited', 'credit'
 const MERCHANT_PATTERN =
 	/\b(?:at|to|from)\s+([A-Za-z0-9][A-Za-z0-9 &.'-]*?)(?=\s+(?:on|your|ref|towards|via|a\/c|acct?\b|from)|[.,]|$)/gi;
 
-function parseAmount(text: string): number | null {
+export function parseAmount(text: string): number | null {
 	// The transaction amount is the FIRST amount a message states ("... Avl Bal Rs.9,000" comes
 	// after it), whichever of the three ways it is written — so take the earliest match of any form,
 	// not the first form that happens to match anywhere.

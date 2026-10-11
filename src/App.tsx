@@ -4,6 +4,9 @@ import { Toaster } from './components/ui/sonner';
 import { TooltipProvider } from './components/ui/tooltip';
 import { SessionProvider, useSession } from './context/SessionContext';
 import { acquireSingleInstanceLock, type InstanceRole } from './lib/singleInstance';
+import { subscribeAppActive } from './lib/native/appState';
+import { isBiometricEnrolled } from './lib/biometric';
+import { syncCapturedTransactions, useCaptureSync } from './hooks/useCaptureSync';
 import { UserProfileRepository } from './data/dexie/userProfileRepository';
 import { runNotificationCheck } from './domain/notifications/runNotificationCheck';
 import { ensureDailyNetWorthSnapshot } from './domain/wealth/wealthEngine';
@@ -50,6 +53,8 @@ import { SubscriptionsPage } from './pages/SubscriptionsPage';
 import { CashFlowForecastPage } from './pages/CashFlowForecastPage';
 import { BudgetVarianceReportPage } from './pages/BudgetVarianceReportPage';
 import { AboutPage } from './pages/AboutPage';
+import { SecurityPage } from './pages/SecurityPage';
+import { AutoCapturePage } from './pages/AutoCapturePage';
 import { QuickTourProvider } from './components/ui/quick-tour/QuickTourProvider';
 import { QuickTourOverlay } from './components/ui/quick-tour/QuickTourOverlay';
 import { QUICK_TOUR_STEPS } from './components/ui/quick-tour/tour-steps';
@@ -69,6 +74,9 @@ async function afterUnlock(key: CryptoKey): Promise<void> {
 	} catch (err) {
 		console.warn('[afterUnlock] blind index maintenance failed', err);
 	}
+	// Bank messages the Android app captured while it was closed or locked. After the blind-index
+	// maintenance above: filing an entry looks its merchant up through that index. Never throws.
+	await syncCapturedTransactions(key);
 	// research.md §3 (spec 004): "app opened" is treated as "just unlocked".
 	try {
 		await runNotificationCheck(key);
@@ -88,7 +96,8 @@ async function afterUnlock(key: CryptoKey): Promise<void> {
 // then onboarded, then unlocked. Nothing below this gate can run before those resolve.
 function Gate() {
 	const session = useSession();
-	const { recordActivity, restoreSession, setOnboarded, getEncryptionKey, lock } = session;
+	const { recordActivity, restoreSession, setOnboarded, getEncryptionKey, lock, lockIfExpired } =
+		session;
 	// 'checking' is distinct from 'secondary': initialising to 'secondary' rendered
 	// BlockedScreen for a frame on every cold start, before the async lock request resolved.
 	const [role, setRole] = useState<InstanceRole | 'checking'>('checking');
@@ -101,6 +110,9 @@ function Gate() {
 	// Constitution Principle II. A boolean drives the prompt's visibility instead.
 	const transientPinRef = useRef<string | null>(null);
 	const [showEnrollPrompt, setShowEnrollPrompt] = useState(false);
+	// Keeps captured bank messages flowing while the app is open: on return to the foreground and
+	// whenever the Android side reports a new one. (The unlock itself is covered by afterUnlock.)
+	useCaptureSync(!session.isLocked, getEncryptionKey);
 
 	useEffect(() => {
 		const stopLock = acquireSingleInstanceLock(setRole);
@@ -118,6 +130,13 @@ function Gate() {
 		const onActivity = recordActivity;
 		for (const evt of activityEvents) window.addEventListener(evt, onActivity);
 
+		// The inactivity timer is throttled or frozen while the app is in the background, so on
+		// coming back, enforce the auto-lock deadline directly: away longer than the timeout
+		// means the lock screen (and the fingerprint prompt) appears; a quick switch does not.
+		const stopAppState = subscribeAppActive((active) => {
+			if (active) lockIfExpired();
+		});
+
 		// Before ever falling back to LockScreen, try to silently resume a session persisted
 		// before this reload (spec 009) — otherwise every refresh forces PIN/biometric entry
 		// even seconds after the user last unlocked, regardless of their auto-lock timeout.
@@ -134,19 +153,24 @@ function Gate() {
 
 		return () => {
 			stopLock();
+			stopAppState();
 			for (const evt of activityEvents) window.removeEventListener(evt, onActivity);
 		};
-	}, [recordActivity, restoreSession, setOnboarded, getEncryptionKey]);
+	}, [recordActivity, restoreSession, setOnboarded, getEncryptionKey, lockIfExpired]);
 
 	function handleUnlock(pin: string) {
 		transientPinRef.current = pin;
 		// Decide the enrollment prompt from freshly-read data, not from state a parallel
 		// refresh may not have written yet — reading stale state here flashed the prompt at
 		// users who had already enrolled.
-		void UserProfileRepository.get().then((p) => {
+		void UserProfileRepository.get().then(async (p) => {
 			setProfileExists(!!p);
 			setOnboarded(!!p);
-			setShowEnrollPrompt(!p?.webauthn);
+			const needsEnrollPrompt = !(await isBiometricEnrolled(p));
+			setShowEnrollPrompt(needsEnrollPrompt);
+			// With no enrollment prompt to hand it to, nothing else will ever clear the PIN, so
+			// drop it now rather than keeping it in memory for the whole session.
+			if (!needsEnrollPrompt) transientPinRef.current = null;
 			setCheckingProfile(false);
 			// spec 019, research.md R5: this is the ONLY moment the plaintext PIN exists in
 			// memory (it is never stored — Constitution Principle II), so a scheduled backup
@@ -215,6 +239,8 @@ function Gate() {
 							<Route path="notification-settings" element={<NotificationSettingsPage />} />
 							<Route path="categorization-rules" element={<CategorizationRulesPage />} />
 							<Route path="about" element={<AboutPage />} />
+							<Route path="security" element={<SecurityPage />} />
+							<Route path="auto-capture" element={<AutoCapturePage />} />
 						</Route>
 						{/* Spec 008: a pure redirect, deliberately outside AppShell — no nav shell needed
 						    for what's only ever a brief loading state before navigating onward. */}

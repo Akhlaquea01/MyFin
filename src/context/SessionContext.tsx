@@ -28,6 +28,15 @@ interface SessionContextValue {
 	restoreSession: (autoLockTimeoutMs: number) => Promise<boolean>;
 	lock: () => void;
 	recordActivity: () => void;
+	/**
+	 * Locks the session if its auto-lock deadline has already passed, and returns whether it did.
+	 * The inactivity timer cannot be trusted for this: while the app is in the background the
+	 * WebView's timers are throttled or frozen, so a session can outlive its deadline. Call this
+	 * whenever the app comes back to the foreground.
+	 */
+	lockIfExpired: () => boolean;
+	/** Applies a new auto-lock timeout to the running session straight away. */
+	setAutoLockTimeout: (timeoutMs: number) => void;
 	getEncryptionKey: () => CryptoKey;
 }
 
@@ -58,6 +67,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 	const autoLockTimeoutMsRef = useRef(DEFAULT_AUTO_LOCK_TIMEOUT_MS);
 	const inactivityTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 	const lastPersistedAtRef = useRef(0);
+	// Wall-clock moment the session must lock by, kept alongside the timer (which can be frozen
+	// while backgrounded) so `lockIfExpired` can enforce the auto-lock timeout on resume.
+	const deadlineRef = useRef(0);
 	// Mirrors `isLocked` as a ref. `recordActivity` is wired into window event listeners that
 	// are registered once, on mount, and therefore capture whatever closure existed then — a
 	// `useCallback` that closed over the `isLocked` *state* would be frozen at its mount-time
@@ -85,6 +97,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 		(key: CryptoKey, timeoutMs: number) => {
 			encryptionKeyRef.current = key;
 			autoLockTimeoutMsRef.current = timeoutMs;
+			deadlineRef.current = Date.now() + timeoutMs;
 			isLockedRef.current = false;
 			setIsOnboarded(true);
 			setIsLocked(false);
@@ -101,6 +114,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 			if (!restored) return false;
 			encryptionKeyRef.current = restored.key;
 			autoLockTimeoutMsRef.current = autoLockTimeoutMs;
+			deadlineRef.current = restored.expiresAt;
 			isLockedRef.current = false;
 			setIsOnboarded(true);
 			setIsLocked(false);
@@ -119,6 +133,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 		if (isLockedRef.current) return;
 		scheduleAutoLock();
 		const now = Date.now();
+		deadlineRef.current = now + autoLockTimeoutMsRef.current;
 		if (
 			encryptionKeyRef.current &&
 			now - lastPersistedAtRef.current > ACTIVITY_PERSIST_THROTTLE_MS
@@ -130,6 +145,25 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 			).catch(() => {});
 		}
 	}, [scheduleAutoLock]);
+
+	const setAutoLockTimeout = useCallback(
+		(timeoutMs: number) => {
+			autoLockTimeoutMsRef.current = timeoutMs;
+			if (isLockedRef.current) return;
+			deadlineRef.current = Date.now() + timeoutMs;
+			scheduleAutoLock();
+			// Let the next activity rewrite the persisted expiry instead of waiting out the throttle.
+			lastPersistedAtRef.current = 0;
+		},
+		[scheduleAutoLock]
+	);
+
+	const lockIfExpired = useCallback((): boolean => {
+		if (isLockedRef.current) return false;
+		if (Date.now() < deadlineRef.current) return false;
+		lock();
+		return true;
+	}, [lock]);
 
 	const getEncryptionKey = useCallback((): CryptoKey => {
 		if (!encryptionKeyRef.current) throw new SessionLockedError();
@@ -149,9 +183,21 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 			restoreSession,
 			lock,
 			recordActivity,
+			lockIfExpired,
+			setAutoLockTimeout,
 			getEncryptionKey
 		}),
-		[isOnboarded, isLocked, unlock, restoreSession, lock, recordActivity, getEncryptionKey]
+		[
+			isOnboarded,
+			isLocked,
+			unlock,
+			restoreSession,
+			lock,
+			recordActivity,
+			lockIfExpired,
+			setAutoLockTimeout,
+			getEncryptionKey
+		]
 	);
 
 	return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;

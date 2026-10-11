@@ -21,6 +21,7 @@ export const AccountRepository = {
 			billingCycleDay: input.billingCycleDay ?? null,
 			cardLast4: input.cardLast4 ?? null,
 			cardNickname: input.cardNickname ?? null,
+			accountLast4: input.accountLast4 ?? null,
 			isArchived: false,
 			createdAt: now,
 			updatedAt: now,

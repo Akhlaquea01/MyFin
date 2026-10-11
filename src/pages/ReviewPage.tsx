@@ -1,10 +1,11 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
 	ArrowRightLeft,
 	CheckCheck,
 	CheckCircle2,
 	Inbox,
+	Pencil,
 	Repeat,
 	Sparkles,
 	Trash2,
@@ -40,6 +41,7 @@ import {
 	type CategorizationRuleWithStatus
 } from '../data/dexie/categorizationRuleRepository';
 import { ConvertToTransferDialog } from '../components/ConvertToTransferDialog';
+import { EditTransactionDialog } from '../components/EditTransactionDialog';
 import {
 	applyAutoCategorization,
 	setMerchantRule
@@ -54,8 +56,11 @@ import {
 import { TransactionEngine } from '../domain/transactions/transactionEngine';
 import { formatTransactionLabel } from '../domain/transactions/transactionLabel';
 import { createRuleFromTransaction } from '../domain/recurring/recurringEngine';
+import { originalMessageOf } from '../domain/capture/originalMessage';
+import { REVIEW_CHANGED_EVENT } from '../data/io/captureDrain';
 import type {
 	Account,
+	CaptureInfo,
 	Category,
 	Merchant,
 	RecurringFrequency,
@@ -68,6 +73,32 @@ import { categoryOptions } from '../domain/categories/categoryHierarchy';
 /** How many waiting entries are loaded, decrypted and drawn at a time. */
 const PAGE_SIZE = 50;
 
+/** Where a captured entry came from, in one line: the sender, when it arrived, and anything the
+ *  user should know about how it was filed. */
+function describeCaptureSource(capture: CaptureInfo): string {
+	const when = new Date(capture.receivedAt).toLocaleString(undefined, {
+		day: 'numeric',
+		month: 'short',
+		hour: 'numeric',
+		minute: '2-digit'
+	});
+	const parts = [`${capture.sender} · ${when}`];
+	if (capture.accountCheck === 'unmatched-tail' && capture.tailHint) {
+		parts.push(`message mentions account ending ${capture.tailHint}`);
+	}
+	if (capture.alsoSeenAs && capture.alsoSeenAs.length > 0) {
+		parts.push(
+			'also seen as ' +
+				capture.alsoSeenAs
+					.map((s) =>
+						s.channel === 'sms' ? `SMS from ${s.sender}` : `notification from ${s.sender}`
+					)
+					.join(', ')
+		);
+	}
+	return parts.join(' · ');
+}
+
 function formatMoney(paise: number): string {
 	return (paise / 100).toLocaleString(undefined, {
 		minimumFractionDigits: 2,
@@ -76,7 +107,8 @@ function formatMoney(paise: number): string {
 }
 
 // User Story 4 (P4): review queue for unreviewed/unconfirmed transactions from Quick Add
-// and bulk import (FR-022) — nothing lands in reports until the user accepts it here.
+// and bulk import (FR-022). Entries here already count in balances and reports; confirming one
+// marks it as checked. Every field can be corrected first with the pencil (Edit).
 // Spec 006 extends this with an editable category/tag pre-fill (rule- or suggestion-based)
 // that the user can accept as-is or override before confirming.
 export function ReviewPage() {
@@ -105,7 +137,11 @@ export function ReviewPage() {
 	// Per-row "always file this merchant under the chosen category" opt-in.
 	const [rememberRule, setRememberRule] = useState<Record<string, boolean>>({});
 	const [convertTarget, setConvertTarget] = useState<Transaction | null>(null);
+	const [editTarget, setEditTarget] = useState<Transaction | null>(null);
 	const [working, setWorking] = useState(false);
+	// "Account not matched" is only a useful hint when there is more than one account to choose from.
+	const hasAccountChoice =
+		accounts.filter((a) => !a.isArchived && a.type !== 'credit_card').length >= 2;
 
 	/**
 	 * Loads the newest `limit` waiting entries with their splits and tags — one query each for ALL
@@ -190,12 +226,79 @@ export function ReviewPage() {
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, []);
 
+	/** Pulls in entries that arrived behind the page's back (captured bank messages) without
+	 *  discarding the categories and tags already chosen on the cards on screen. */
+	async function refreshQuietly() {
+		try {
+			const [accts, allMerchants, allTags] = await Promise.all([
+				AccountRepository.list(key),
+				MerchantRepository.list(key),
+				TagRepository.list(key)
+			]);
+			setAccounts(accts);
+			setMerchants(allMerchants);
+			setTags(allTags);
+			await loadQueue(Math.max(pageLimit, items.length), allTags, true);
+		} catch {
+			// The next visit loads the queue afresh.
+		}
+	}
+	const refreshQuietlyRef = useRef(refreshQuietly);
+	useEffect(() => {
+		refreshQuietlyRef.current = refreshQuietly;
+	});
+	useEffect(() => {
+		const onChanged = () => void refreshQuietlyRef.current();
+		window.addEventListener(REVIEW_CHANGED_EVENT, onChanged);
+		return () => window.removeEventListener(REVIEW_CHANGED_EVENT, onChanged);
+	}, []);
+
 	// Triage can empty the page while more entries are still waiting behind it: bring the next ones
 	// in rather than announcing "Nothing to review" over a queue that is not empty.
 	useEffect(() => {
 		if (!loading && !loadingMore && items.length === 0 && hidden > 0) void refresh();
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [loading, loadingMore, items.length, hidden]);
+
+	/**
+	 * Re-reads one entry after it was edited and patches only its card. A full `refresh()` would also
+	 * rebuild every other card's pending category/tags and throw away what was typed there. Merchants
+	 * and tags are re-listed too, because the edit may have created new ones.
+	 */
+	async function reloadRow(id: string) {
+		try {
+			const [tx, allMerchants, allTags, splitsByTx, tagIdsByTx] = await Promise.all([
+				TransactionRepository.getById(key, id),
+				MerchantRepository.list(key),
+				TagRepository.list(key),
+				TransactionRepository.splitsByTransaction(key, [id]),
+				TransactionTagRepository.getTagIdsByTransaction([id])
+			]);
+			setMerchants(allMerchants);
+			setTags(allTags);
+			if (!tx || tx.deletedAt !== null || tx.reviewStatus !== 'unreviewed') {
+				removeFromPage(id);
+				return;
+			}
+			const first = splitsByTx.get(id)?.[0];
+			const tagNames = new Map(allTags.map((t) => [t.id, t.name]));
+			setItems((prev) => prev.map((t) => (t.id === id ? tx : t)));
+			setFirstSplit((prev) => ({ ...prev, [id]: first }));
+			setCategoryChoice((prev) => ({
+				...prev,
+				[id]: first?.categoryId ?? UNCATEGORIZED_CATEGORY_ID
+			}));
+			setTagsInput((prev) => ({
+				...prev,
+				[id]: (tagIdsByTx.get(id) ?? [])
+					.map((tagId) => tagNames.get(tagId))
+					.filter((name): name is string => Boolean(name))
+					.join(', ')
+			}));
+		} catch (err) {
+			toast.error(err instanceof Error ? err.message : 'Could not reload the edited entry.');
+		}
+	}
 
 	/** Takes an entry off the page after it was confirmed or discarded. */
 	function removeFromPage(id: string) {
@@ -221,7 +324,7 @@ export function ReviewPage() {
 	/** A card whose number appears in the message — offered as the likely other side of a payment. */
 	function suggestedCardFor(tx: Transaction): string | null {
 		const matches = findCardMatches(
-			tx.notes ?? '',
+			originalMessageOf(tx),
 			accounts.filter((a) => !a.isArchived)
 		);
 		const ids = [...new Set(matches.map((m) => m.accountId))];
@@ -431,8 +534,8 @@ export function ReviewPage() {
 					</Button>
 					<span className="text-xs text-muted-foreground">
 						{total} waiting
-						{hidden > 0 ? ` (showing the newest ${items.length})` : ''} · nothing counts in reports
-						until it is confirmed
+						{hidden > 0 ? ` (showing the newest ${items.length})` : ''} · already counted in your
+						balances and reports; confirming marks an entry as checked
 					</span>
 				</div>
 			)}
@@ -470,17 +573,56 @@ export function ReviewPage() {
 													Auto: rule
 												</Badge>
 											)}
+											{tx.capture && (
+												<Badge variant="secondary" className="ml-2">
+													{tx.capture.channel === 'sms' ? 'SMS' : 'Notification'}
+												</Badge>
+											)}
+											{tx.capture?.accountCheck && hasAccountChoice && (
+												<Badge
+													variant="outline"
+													className="ml-2 border-amber-500/60 text-amber-700 dark:text-amber-400"
+												>
+													Account not matched — check
+												</Badge>
+											)}
 										</p>
 										<p className="text-xs text-muted-foreground">
 											{tx.date} · {accountName(tx.accountId)}
 										</p>
+										{tx.capture && (
+											<p className="text-xs text-muted-foreground">
+												{describeCaptureSource(tx.capture)}
+											</p>
+										)}
 									</div>
-									<span
-										className={`font-mono text-sm ${tx.amount < 0 ? 'text-destructive' : 'text-emerald-600 dark:text-emerald-400'}`}
-									>
-										{formatMoney(tx.amount)}
-									</span>
+									<div className="flex items-center gap-1">
+										<span
+											className={`font-mono text-sm ${tx.amount < 0 ? 'text-destructive' : 'text-emerald-600 dark:text-emerald-400'}`}
+										>
+											{formatMoney(tx.amount)}
+										</span>
+										<Button
+											size="icon-sm"
+											variant="ghost"
+											aria-label="Edit transaction"
+											onClick={() => setEditTarget(tx)}
+										>
+											<Pencil />
+										</Button>
+									</div>
 								</div>
+
+								{tx.capture && (
+									<details className="text-xs">
+										<summary className="cursor-pointer text-muted-foreground">
+											Original message
+										</summary>
+										<p className="mt-1 rounded-md bg-muted/50 p-2 whitespace-pre-wrap">
+											{tx.capture.text}
+										</p>
+									</details>
+								)}
 
 								<div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
 									<div className="flex flex-col gap-1.5">
@@ -516,7 +658,7 @@ export function ReviewPage() {
 									</div>
 								</div>
 
-								{tx.type !== 'transfer' && detectCardPayment(tx.notes) && (
+								{tx.type !== 'transfer' && detectCardPayment(originalMessageOf(tx)) && (
 									<div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-sky-500/40 bg-sky-500/5 p-2">
 										<p className="text-xs text-muted-foreground">
 											Looks like a credit card payment. Confirmed as is, it counts as{' '}
@@ -615,6 +757,19 @@ export function ReviewPage() {
 						</Button>
 					)}
 				</div>
+			)}
+			{editTarget && (
+				<EditTransactionDialog
+					transaction={editTarget}
+					accounts={accounts}
+					categories={categories}
+					merchants={merchants}
+					initialCategoryId={categoryChoice[editTarget.id]}
+					initialTagsText={tagsInput[editTarget.id]}
+					onOpenChange={(open) => !open && setEditTarget(null)}
+					onSaved={() => void reloadRow(editTarget.id)}
+					onRecordAsTransfer={(tx) => setConvertTarget(tx)}
+				/>
 			)}
 			{convertTarget && (
 				<ConvertToTransferDialog

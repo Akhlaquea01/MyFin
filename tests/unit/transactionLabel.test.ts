@@ -54,4 +54,27 @@ describe('formatTransactionLabel', () => {
 		expect(formatTransactionLabel(tx, before)).toBe('Old Name');
 		expect(formatTransactionLabel(tx, after)).toBe('New Name');
 	});
+	it('describes a captured message by its source when it named no merchant', () => {
+		const capture = { channel: 'sms' as const, sender: 'VM-HDFCBK', receivedAt: 0, text: 'x' };
+		expect(formatTransactionLabel({ notes: null, merchantId: null, capture }, [])).toBe(
+			'Bank SMS · VM-HDFCBK'
+		);
+		expect(
+			formatTransactionLabel(
+				{
+					notes: null,
+					merchantId: null,
+					capture: { ...capture, channel: 'notification', sender: 'Google Pay' }
+				},
+				[]
+			)
+		).toBe('Notification · Google Pay');
+	});
+
+	it('still prefers a merchant name to the capture source', () => {
+		const capture = { channel: 'sms' as const, sender: 'VM-HDFCBK', receivedAt: 0, text: 'x' };
+		expect(
+			formatTransactionLabel({ notes: null, merchantId: 'merch-1', capture }, [merchant()])
+		).toBe('Cafe Coffee Day');
+	});
 });

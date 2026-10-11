@@ -1,31 +1,27 @@
-import { useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Fingerprint } from 'lucide-react';
 import { Button } from './ui/button';
 import {
-	isWebAuthnSupported,
-	enrollBiometric,
-	retryPrfEval,
-	type BiometricUnavailableReason,
-	type PendingBiometricEnrollment
-} from '../lib/webauthn';
+	describeBiometricReason,
+	enrollBiometricUnlock,
+	getBiometricAvailability,
+	type BiometricAvailability,
+	type BiometricReason
+} from '../lib/biometric';
+import type { PendingBiometricEnrollment } from '../lib/webauthn';
 import { UserProfileRepository } from '../data/dexie/userProfileRepository';
 
-/** One sentence per BiometricUnavailableReason (spec 009) — the whole point of moving off a
- *  single flat "unsupported" notice was so the user can tell a hardware/browser gap apart
- *  from a prompt they just dismissed and could simply retry. */
-const UNAVAILABLE_MESSAGES: Record<BiometricUnavailableReason, string> = {
-	unsupported:
-		"This browser doesn't support WebAuthn biometric unlock. You can keep using your PIN.",
-	cancelled: 'Biometric setup was cancelled.',
-	'no-prf':
-		"Your device's fingerprint sensor doesn't support the secure key derivation (PRF) this app " +
-		'requires for biometric unlock — this is a hardware/browser limitation, not a bug. You can ' +
-		'keep using your PIN.',
-	'prf-eval-failed':
-		'Your fingerprint sensor reported support for secure key derivation but the verification step ' +
-		"failed. You can retry, or keep using your PIN if it doesn't work.",
-	error: 'Something went wrong enabling biometric unlock. You can retry, or keep using your PIN.'
-};
+/** Reasons that mean "try again" is worth offering, as opposed to a hardware/browser gap. */
+const RETRYABLE: ReadonlySet<BiometricReason> = new Set([
+	'cancelled',
+	'prf-eval-failed',
+	'error',
+	'timeout',
+	'hw-unavailable',
+	'lockout',
+	'busy',
+	'not-ready'
+]);
 
 // Acceptance Scenario 4 (US1): offered once, right after the user is unlocked, on any
 // device that supports it. Declining just dismisses it — the PIN keeps working exactly
@@ -42,15 +38,36 @@ export function BiometricEnrollmentPrompt({
 }) {
 	const [dismissed, setDismissed] = useState(false);
 	const [enrolling, setEnrolling] = useState(false);
-	const [unavailableReason, setUnavailableReason] = useState<BiometricUnavailableReason | null>(
-		null
-	);
+	const [availability, setAvailability] = useState<BiometricAvailability | null>(null);
+	const [unavailableReason, setUnavailableReason] = useState<BiometricReason | null>(null);
 	// Set only after a `prf-eval-failed` result, whose credential already exists — retrying
-	// through this instead of a fresh `enrollBiometric` avoids minting another one.
+	// through this instead of a fresh `enrollBiometricUnlock` avoids minting another one.
 	const [pendingRetry, setPendingRetry] = useState<PendingBiometricEnrollment | null>(null);
 
-	const visible = !dismissed && isWebAuthnSupported();
-	if (!visible) return null;
+	const checkAvailability = useCallback(async () => {
+		setAvailability(await getBiometricAvailability());
+	}, []);
+
+	useEffect(() => {
+		void checkAvailability();
+	}, [checkAvailability]);
+
+	// Hardware or a browser that can never do this: there is nothing to offer, and since nothing
+	// else will clear the PIN the parent is holding for enrollment, hand it back now.
+	const hopeless =
+		availability !== null &&
+		!availability.available &&
+		(availability.provider === 'none' ||
+			availability.reason === 'no-hardware' ||
+			availability.reason === 'unsupported');
+	useEffect(() => {
+		if (hopeless && !dismissed) {
+			setDismissed(true);
+			onDone();
+		}
+	}, [hopeless, dismissed, onDone]);
+
+	if (dismissed || availability === null) return null;
 
 	async function handleEnable() {
 		const pin = getPin();
@@ -64,14 +81,14 @@ export function BiometricEnrollmentPrompt({
 		setEnrolling(true);
 		setUnavailableReason(null);
 		try {
-			const result = pendingRetry ? await retryPrfEval(pendingRetry, pin) : await enrollBiometric(pin);
+			const result = await enrollBiometricUnlock(pin, pendingRetry);
 			if (!result.ok) {
 				setUnavailableReason(result.reason);
 				setPendingRetry(result.pending ?? null);
 				return;
 			}
 			setPendingRetry(null);
-			await UserProfileRepository.update({ biometricEnabled: true, webauthn: result.enrollment });
+			await UserProfileRepository.update(result.profilePatch);
 			setDismissed(true);
 			onDone();
 		} finally {
@@ -84,20 +101,25 @@ export function BiometricEnrollmentPrompt({
 		onDone();
 	}
 
-	const canRetry =
-		unavailableReason === 'cancelled' ||
-		unavailableReason === 'prf-eval-failed' ||
-		unavailableReason === 'error';
+	// Not offering enrollment at all (e.g. no fingerprint added on the phone yet) is different from
+	// an enrollment that failed: say why, and let the user re-check after fixing it.
+	const blockedReason = !availability.available ? (availability.reason ?? 'unsupported') : null;
+	const shownReason = unavailableReason ?? blockedReason;
 
 	return (
 		<div className="border-b bg-muted/40 px-4 py-3">
-			{unavailableReason ? (
+			{shownReason ? (
 				<div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
-					<p>{UNAVAILABLE_MESSAGES[unavailableReason]}</p>
+					<p>{describeBiometricReason(shownReason)}</p>
 					<div className="ml-auto flex gap-2">
-						{canRetry && (
+						{unavailableReason && RETRYABLE.has(unavailableReason) && (
 							<Button size="sm" variant="outline" disabled={enrolling} onClick={handleEnable}>
 								{enrolling ? 'Retrying…' : 'Retry'}
+							</Button>
+						)}
+						{!unavailableReason && blockedReason && (
+							<Button size="sm" variant="outline" onClick={() => void checkAvailability()}>
+								Check again
 							</Button>
 						)}
 						<Button variant="link" size="sm" className="h-auto p-0" onClick={handleSkip}>
