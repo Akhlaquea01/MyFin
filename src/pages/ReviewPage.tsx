@@ -1,6 +1,15 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { CheckCircle2, Inbox, Repeat, Trash2, Upload } from 'lucide-react';
+import {
+	ArrowRightLeft,
+	CheckCheck,
+	CheckCircle2,
+	Inbox,
+	Repeat,
+	Sparkles,
+	Trash2,
+	Upload
+} from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
@@ -26,6 +35,17 @@ import { AccountRepository } from '../data/dexie/accountRepository';
 import { MerchantRepository } from '../data/dexie/merchantRepository';
 import { CategoryRepository } from '../data/dexie/categoryRepository';
 import { TagRepository, TransactionTagRepository } from '../data/dexie/tagRepository';
+import {
+	CategorizationRuleRepository,
+	type CategorizationRuleWithStatus
+} from '../data/dexie/categorizationRuleRepository';
+import { ConvertToTransferDialog } from '../components/ConvertToTransferDialog';
+import {
+	applyAutoCategorization,
+	setMerchantRule
+} from '../domain/categorization/resolveCategorization';
+import { detectCardPayment } from '../domain/parser/cardPaymentDetector';
+import { findCardMatches } from '../domain/parser/cardIdentifierMatcher';
 import {
 	TransactionRepository,
 	UNCATEGORIZED_CATEGORY_ID,
@@ -69,18 +89,27 @@ export function ReviewPage() {
 	const [recurringTarget, setRecurringTarget] = useState<Transaction | null>(null);
 	const [recurringFrequency, setRecurringFrequency] = useState<RecurringFrequency>('monthly');
 	const [recurringDay, setRecurringDay] = useState('1');
+	const [rules, setRules] = useState<CategorizationRuleWithStatus[]>([]);
+	// Per-row "always file this merchant under the chosen category" opt-in.
+	const [rememberRule, setRememberRule] = useState<Record<string, boolean>>({});
+	const [convertTarget, setConvertTarget] = useState<Transaction | null>(null);
+	const [working, setWorking] = useState(false);
 
 	async function refresh() {
 		setLoading(true);
 		try {
-			const [accts, allMerchants, allCategories, allTags, unreviewed] = await Promise.all([
-				AccountRepository.list(key),
-				MerchantRepository.list(key),
-				CategoryRepository.list(key),
-				TagRepository.list(key),
-				TransactionRepository.listUnreviewed(key)
-			]);
+			const [accts, allMerchants, allCategories, allTags, unreviewed, allRules] = await Promise.all(
+				[
+					AccountRepository.list(key),
+					MerchantRepository.list(key),
+					CategoryRepository.list(key),
+					TagRepository.list(key),
+					TransactionRepository.listUnreviewed(key),
+					CategorizationRuleRepository.list(key)
+				]
+			);
 			setAccounts(accts);
+			setRules(allRules);
 			setMerchants(allMerchants);
 			setCategories(allCategories);
 			setItems(unreviewed);
@@ -121,23 +150,121 @@ export function ReviewPage() {
 		return accounts.find((a) => a.id === id)?.name ?? id;
 	}
 
-	async function accept(tx: Transaction) {
-		const categoryId = categoryChoice[tx.id] ?? UNCATEGORIZED_CATEGORY_ID;
-		const splits: SplitInput[] = [{ categoryId, amount: tx.amount }];
+	function merchantName(id: string | null): string | null {
+		return id ? (merchants.find((m) => m.id === id)?.name ?? null) : null;
+	}
+
+	/** The live merchant-wide rule for a merchant, if any. */
+	function ruleFor(merchantId: string | null): CategorizationRuleWithStatus | undefined {
+		if (!merchantId) return undefined;
+		return rules.find(
+			(r) => r.merchantId === merchantId && r.merchantAliasId === null && !r.isInvalid
+		);
+	}
+
+	/** A card whose number appears in the message — offered as the likely other side of a payment. */
+	function suggestedCardFor(tx: Transaction): string | null {
+		const matches = findCardMatches(
+			tx.notes ?? '',
+			accounts.filter((a) => !a.isArchived)
+		);
+		const ids = [...new Set(matches.map((m) => m.accountId))];
+		return ids.length === 1 ? ids[0] : null;
+	}
+
+	function parseTagIds(tx: Transaction): Promise<string[]> {
 		const tagNames = (tagsInput[tx.id] ?? '')
 			.split(',')
 			.map((t) => t.trim())
 			.filter(Boolean);
-		const tagIds =
-			tagNames.length > 0
-				? (await Promise.all(tagNames.map((name) => TagRepository.getOrCreate(key, name)))).map(
-						(t) => t.id
-					)
-				: [];
+		return Promise.all(tagNames.map((name) => TagRepository.getOrCreate(key, name))).then((tags) =>
+			tags.map((t) => t.id)
+		);
+	}
+
+	/** Confirms one entry using the category/tags currently chosen on its row. */
+	async function confirmOne(tx: Transaction): Promise<void> {
+		const categoryId = categoryChoice[tx.id] ?? UNCATEGORIZED_CATEGORY_ID;
+		const splits: SplitInput[] = [{ categoryId, amount: tx.amount }];
+		const tagIds = await parseTagIds(tx);
 		await TransactionEngine.confirmTransaction(key, tx.id, splits, tagIds);
-		toast.success('Confirmed');
+	}
+
+	async function accept(tx: Transaction) {
+		const categoryId = categoryChoice[tx.id] ?? UNCATEGORIZED_CATEGORY_ID;
+		await confirmOne(tx);
+
+		// "Always file this merchant here": turns the choice just made into a rule, and applies it
+		// to everything else still waiting, so the user is not asked the same question again for
+		// every remaining row from the same merchant.
+		if (rememberRule[tx.id] && tx.merchantId && categoryId !== UNCATEGORIZED_CATEGORY_ID) {
+			try {
+				await setMerchantRule(key, tx.merchantId, categoryId, await parseTagIds(tx));
+				const { updated } = await applyAutoCategorization(key, {
+					merchantId: tx.merchantId,
+					unreviewedOnly: true
+				});
+				toast.success(
+					updated > 0
+						? `Confirmed. Rule saved — ${updated} more waiting ${updated === 1 ? 'entry was' : 'entries were'} categorized.`
+						: 'Confirmed. Rule saved for next time.'
+				);
+				await refresh();
+				return;
+			} catch (err) {
+				toast.error(
+					`Confirmed, but the rule wasn't saved: ${err instanceof Error ? err.message : 'unknown error'}`
+				);
+			}
+		} else {
+			toast.success('Confirmed');
+		}
 		// Local patch: remove the now-confirmed transaction from the queue
 		setItems((prev) => prev.filter((t) => t.id !== tx.id));
+	}
+
+	/** Re-runs rules and learned suggestions over entries that are still uncategorized — a rule
+	 *  made after an entry arrived used to leave that entry untouched. */
+	async function categorizeQueue() {
+		setWorking(true);
+		try {
+			const { updated } = await applyAutoCategorization(key, { unreviewedOnly: true });
+			toast.success(
+				updated > 0
+					? `Categorized ${updated} ${updated === 1 ? 'entry' : 'entries'} using your rules and suggestions.`
+					: 'Nothing to categorize — no rule or suggestion applies to the uncategorized entries.'
+			);
+			await refresh();
+		} catch (err) {
+			toast.error(err instanceof Error ? err.message : 'Could not categorize the queue.');
+		} finally {
+			setWorking(false);
+		}
+	}
+
+	/** Confirms every entry that already has a category, leaving the uncategorized ones to review. */
+	async function confirmAllCategorized() {
+		const ready = items.filter(
+			(tx) => (categoryChoice[tx.id] ?? UNCATEGORIZED_CATEGORY_ID) !== UNCATEGORIZED_CATEGORY_ID
+		);
+		if (ready.length === 0) return;
+		if (
+			!window.confirm(
+				`Confirm ${ready.length} categorized ${ready.length === 1 ? 'entry' : 'entries'} as shown? Anything still "Uncategorized" stays in the queue.`
+			)
+		) {
+			return;
+		}
+		setWorking(true);
+		try {
+			for (const tx of ready) await confirmOne(tx);
+			toast.success(`Confirmed ${ready.length} ${ready.length === 1 ? 'entry' : 'entries'}`);
+		} catch (err) {
+			toast.error(err instanceof Error ? err.message : 'Could not confirm every entry.');
+		} finally {
+			setWorking(false);
+			await refresh();
+		}
 	}
 
 	function openRecurringDialog(tx: Transaction) {
@@ -198,6 +325,36 @@ export function ReviewPage() {
 				</Button>
 			</div>
 
+			{!loading && items.length > 0 && (
+				<div className="mb-4 flex flex-wrap items-center gap-2">
+					<Button
+						variant="outline"
+						size="sm"
+						disabled={working}
+						onClick={() => void categorizeQueue()}
+					>
+						<Sparkles /> Apply rules to queue
+					</Button>
+					<Button
+						variant="outline"
+						size="sm"
+						disabled={
+							working ||
+							!items.some(
+								(tx) =>
+									(categoryChoice[tx.id] ?? UNCATEGORIZED_CATEGORY_ID) !== UNCATEGORIZED_CATEGORY_ID
+							)
+						}
+						onClick={() => void confirmAllCategorized()}
+					>
+						<CheckCheck /> Confirm all categorized
+					</Button>
+					<span className="text-xs text-muted-foreground">
+						{items.length} waiting · nothing counts in reports until it is confirmed
+					</span>
+				</div>
+			)}
+
 			{loading ? (
 				<p className="text-sm text-muted-foreground">Loading…</p>
 			) : items.length === 0 ? (
@@ -224,6 +381,11 @@ export function ReviewPage() {
 											{firstSplit[tx.id]?.categorizationSource === 'suggestion' && (
 												<Badge variant="secondary" className="ml-2">
 													Suggested
+												</Badge>
+											)}
+											{firstSplit[tx.id]?.categorizationSource === 'rule' && (
+												<Badge variant="outline" className="ml-2">
+													Auto: rule
 												</Badge>
 											)}
 										</p>
@@ -272,7 +434,52 @@ export function ReviewPage() {
 									</div>
 								</div>
 
+								{tx.type !== 'transfer' && detectCardPayment(tx.notes) && (
+									<div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-sky-500/40 bg-sky-500/5 p-2">
+										<p className="text-xs text-muted-foreground">
+											Looks like a credit card payment. Confirmed as is, it counts as{' '}
+											{tx.amount < 0 ? 'spending' : 'income'} and the card's balance won't change.
+										</p>
+										<Button
+											size="sm"
+											variant="outline"
+											aria-label="Record as transfer"
+											onClick={() => setConvertTarget(tx)}
+										>
+											<ArrowRightLeft /> Record as transfer
+										</Button>
+									</div>
+								)}
+
+								{tx.merchantId &&
+									(categoryChoice[tx.id] ?? UNCATEGORIZED_CATEGORY_ID) !==
+										UNCATEGORIZED_CATEGORY_ID &&
+									ruleFor(tx.merchantId)?.categoryId !== categoryChoice[tx.id] && (
+										<label className="flex items-center gap-2 text-xs text-muted-foreground">
+											<input
+												type="checkbox"
+												checked={!!rememberRule[tx.id]}
+												onChange={(e) =>
+													setRememberRule((prev) => ({ ...prev, [tx.id]: e.target.checked }))
+												}
+											/>
+											{ruleFor(tx.merchantId)
+												? `Update my rule for ${merchantName(tx.merchantId) ?? 'this merchant'} to this choice`
+												: `Remember this choice for ${merchantName(tx.merchantId) ?? 'this merchant'} (creates a rule)`}
+										</label>
+									)}
+
 								<div className="flex items-center justify-end gap-2">
+									{!tx.recurringRuleId && tx.type !== 'transfer' && (
+										<Button
+											size="sm"
+											variant="ghost"
+											aria-label="Mark as transfer"
+											onClick={() => setConvertTarget(tx)}
+										>
+											<ArrowRightLeft /> Transfer
+										</Button>
+									)}
 									{tx.recurringRuleId ? (
 										<Badge variant="secondary" className="gap-1">
 											<Repeat className="size-3" /> Already recurring
@@ -314,6 +521,19 @@ export function ReviewPage() {
 						</Card>
 					))}
 				</div>
+			)}
+			{convertTarget && (
+				<ConvertToTransferDialog
+					transaction={convertTarget}
+					accounts={accounts.filter((a) => !a.isArchived)}
+					merchants={merchants}
+					suggestedAccountId={suggestedCardFor(convertTarget)}
+					onOpenChange={(open) => !open && setConvertTarget(null)}
+					onConverted={() => {
+						setConvertTarget(null);
+						void refresh();
+					}}
+				/>
 			)}
 			<Dialog open={!!recurringTarget} onOpenChange={(open) => !open && setRecurringTarget(null)}>
 				<DialogContent>

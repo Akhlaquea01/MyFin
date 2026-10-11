@@ -5,6 +5,30 @@
  * specs/003-savings-goals/research.md §2).
  */
 
+/**
+ * Today's date as "YYYY-MM-DD" in the user's *local* calendar. This is deliberately NOT UTC:
+ * `new Date().toISOString().slice(0, 10)` is the UTC date, which in India (UTC+5:30) is still
+ * "yesterday" for the first 5½ hours of every day — so a transaction entered at 8 AM defaulted to
+ * the previous date, landing in the wrong month on the 1st. Every `<input type="date">` and
+ * every record stamped "now" should use this instead.
+ */
+export function todayLocalISO(now: Date = new Date()): string {
+	const year = now.getFullYear();
+	const month = String(now.getMonth() + 1).padStart(2, '0');
+	const day = String(now.getDate()).padStart(2, '0');
+	return `${year}-${month}-${day}`;
+}
+
+/** `iso` shifted by `deltaDays` whole days (negative = earlier). Calendar arithmetic only — no
+ *  timezone is involved, so it cannot drift across a DST change. Returns `iso` unchanged if it
+ *  is not a valid date. */
+export function addDaysISO(iso: string, deltaDays: number): string {
+	const parsed = new Date(`${iso}T00:00:00Z`);
+	if (Number.isNaN(parsed.getTime())) return iso;
+	parsed.setUTCDate(parsed.getUTCDate() + deltaDays);
+	return parsed.toISOString().slice(0, 10);
+}
+
 /** First-of-month ISO date, `monthsToAdd` months after `date`. */
 export function addMonthsISO(date: Date, monthsToAdd: number): string {
 	const d = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + monthsToAdd, 1));

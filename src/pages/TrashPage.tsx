@@ -18,7 +18,10 @@ import { NOT_DELETED } from '../data/dexie/indexable';
 import { AccountRepository } from '../data/dexie/accountRepository';
 import { SavingsGoalRepository } from '../data/dexie/savingsGoalRepository';
 import { TransactionRepository } from '../data/dexie/transactionRepository';
-import { CategorizationRuleRepository } from '../data/dexie/categorizationRuleRepository';
+import {
+	CategorizationRuleRepository,
+	isKeywordRule
+} from '../data/dexie/categorizationRuleRepository';
 import { MerchantRepository } from '../data/dexie/merchantRepository';
 import { CategoryRepository } from '../data/dexie/categoryRepository';
 import {
@@ -140,7 +143,13 @@ export function TrashPage() {
 	}
 
 	async function restoreRule(rule: CategorizationRule) {
-		await CategorizationRuleRepository.restore(key, rule.id);
+		try {
+			await CategorizationRuleRepository.restore(key, rule.id);
+		} catch (err) {
+			// e.g. another live rule now covers the same merchant + scope.
+			toast.error(err instanceof Error ? err.message : 'Could not restore this rule.');
+			return;
+		}
 		await refresh();
 	}
 
@@ -267,7 +276,10 @@ export function TrashPage() {
 										className="flex items-center justify-between rounded-lg border px-4 py-2"
 									>
 										<span className="text-sm">
-											{merchantName(rule.merchantId)} → {categoryName(rule.categoryId)}
+											{isKeywordRule(rule)
+												? `Description contains "${rule.keyword}"`
+												: merchantName(rule.merchantId)}{' '}
+											→ {categoryName(rule.categoryId)}
 										</span>
 										<Button variant="link" size="sm" onClick={() => restoreRule(rule)}>
 											Restore

@@ -2,6 +2,7 @@ import { db, type PersonRow, type PersonLoanRow, type PersonLoanRepaymentRow } f
 import { putEncrypted, getDecrypted, decryptRows } from './encryptedTable';
 import { deletedAtIndex, NOT_DELETED } from './indexable';
 import { TransactionEngine } from '../../domain/transactions/transactionEngine';
+import { TransactionRepository } from './transactionRepository';
 import {
 	computePendingBalance,
 	validateRepaymentAmount,
@@ -241,6 +242,25 @@ export const PersonLoanRepository = {
 		});
 	},
 
+	/**
+	 * Removes a mis-recorded loan completely: its repayments, the ledger movement behind its
+	 * principal, and the loan itself all go to Trash together, so the account balance returns to
+	 * exactly what it was before the loan was recorded. There was no way to do this from the UI —
+	 * a loan entered with the wrong amount, date or account could only be "written off", which
+	 * leaves the bogus money movement in the ledger forever.
+	 */
+	async remove(key: CryptoKey, id: string): Promise<void> {
+		const loan = await getDecrypted<PersonLoanRow, PersonLoan>(db.personLoans, key, id);
+		if (!loan) return;
+		for (const repayment of await LoanRepaymentRepository.listForLoan(key, id)) {
+			await LoanRepaymentRepository.softDelete(key, repayment.id);
+		}
+		await TransactionEngine.deleteTransaction(key, loan.transactionId);
+		await this.softDelete(key, id);
+	},
+
+	/** Restores the loan AND the ledger movement behind its principal (repayments are restored
+	 *  individually, since each can be undone on its own). */
 	async restore(key: CryptoKey, id: string): Promise<void> {
 		const existing = await getDecrypted<PersonLoanRow, PersonLoan>(db.personLoans, key, id);
 		if (!existing) return;
@@ -251,6 +271,10 @@ export const PersonLoanRepository = {
 			direction: updated.direction,
 			deletedAt: deletedAtIndex(updated.deletedAt)
 		});
+		const movement = await TransactionRepository.getById(key, existing.transactionId);
+		if (movement && movement.deletedAt !== null) {
+			await TransactionEngine.restoreTransaction(key, existing.transactionId);
+		}
 	},
 
 	async getById(key: CryptoKey, id: string): Promise<PersonLoan | undefined> {
@@ -327,6 +351,28 @@ export const LoanRepaymentRepository = {
 			deletedAt: NOT_DELETED
 		});
 		return repayment;
+	},
+
+	/**
+	 * Clears whatever is still owed on a loan in one step: records a repayment for the full
+	 * pending balance. The "I paid him back" / "she paid me back" button — without it the user had
+	 * to read the remaining balance off the screen and type it back in, and a single digit out
+	 * either left a stray remainder open or was rejected as an overpayment.
+	 */
+	async settle(
+		key: CryptoKey,
+		input: { loanId: string; date: string; accountId: string }
+	): Promise<LoanRepayment> {
+		const loan = await PersonLoanRepository.getById(key, input.loanId);
+		if (!loan) throw new Error(`PersonLoan ${input.loanId} not found`);
+		const repayments = await this.listForLoan(key, input.loanId);
+		const pendingBalance = computePendingBalance({
+			principalAmount: loan.principalAmount,
+			writeOffAmount: loan.writeOffAmount,
+			repayments
+		});
+		if (pendingBalance <= 0) throw new Error('This loan is already settled.');
+		return this.create(key, { ...input, amount: pendingBalance });
 	},
 
 	/** Persists a LoanRepayment whose linked Transaction has already been created elsewhere

@@ -26,6 +26,7 @@ import type {
 	FinancialHealthScore
 } from '../domain/analytics/financialHealthEngine';
 import { toast } from 'sonner';
+import { todayLocalISO } from '../domain/shared/dateMath';
 
 Chart.register(
 	LineController,
@@ -49,8 +50,10 @@ function formatAdherence(percent: number | null): string {
 
 function defaultRange(): DateRange {
 	const now = new Date();
-	const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 5, 1));
-	return { from: start.toISOString().slice(0, 10), to: now.toISOString().slice(0, 10) };
+	// Local calendar dates (see DateRangeSelector): the UTC date excluded today's entries early in
+	// the day for anyone ahead of UTC.
+	const start = new Date(now.getFullYear(), now.getMonth() - 5, 1);
+	return { from: todayLocalISO(start), to: todayLocalISO(now) };
 }
 
 function MetricCard({ label, value }: { label: string; value: string }) {

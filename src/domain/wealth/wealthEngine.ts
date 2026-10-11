@@ -11,6 +11,7 @@ import {
 	LoanRepaymentRepository
 } from '../../data/dexie/personLoanRepository';
 import { computePendingBalance } from '../personLoans/loanProgress';
+import { todayLocalISO } from '../shared/dateMath';
 import type {
 	Account,
 	InvestmentHolding,
@@ -277,7 +278,7 @@ export async function dismissDuplicateWarning(
 /** Records today's net worth as a history point (FR-034's "history over time"). */
 export async function recordNetWorthSnapshot(
 	key: CryptoKey,
-	date: string = new Date().toISOString().slice(0, 10)
+	date: string = todayLocalISO()
 ): Promise<NetWorthSnapshot> {
 	const breakdown = await computeNetWorth(key);
 	return NetWorthSnapshotRepository.create(key, {

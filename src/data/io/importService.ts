@@ -2,8 +2,10 @@ import Papa from 'papaparse';
 import ExcelJS from 'exceljs';
 import { TransactionRepository } from '../dexie/transactionRepository';
 import { TransactionEngine } from '../../domain/transactions/transactionEngine';
+import { createCategorizationResolver } from '../../domain/categorization/resolveCategorization';
 import { resolveMerchant, normalizeMerchantText } from '../../domain/parser/merchantResolver';
 import { findCardMatches } from '../../domain/parser/cardIdentifierMatcher';
+import { detectCardPayment } from '../../domain/parser/cardPaymentDetector';
 import { parseMoneyToMinorUnits } from '../../domain/shared/money';
 import type { Account } from '../../domain/entities';
 
@@ -298,6 +300,9 @@ export async function importRows(
 		return index;
 	}
 	const touchedAccountIds = new Set<string>();
+	// One resolver for the whole file: keyword rules are loaded once and per-merchant lookups cached,
+	// instead of re-queried for each of up to MAX_IMPORT_ROWS rows.
+	const categorizer = await createCategorizationResolver(key);
 	// FR-024: tracked so `perAccountSummary` also appears when routing came from card-identifier
 	// matching, not just from an explicit `accountColumn` mapping.
 	let usedCardMatching = false;
@@ -338,7 +343,11 @@ export async function importRows(
 			let cardMatchedAccountId: string | null = null;
 			if (mapping.descriptionColumn) {
 				const cellText = row[mapping.descriptionColumn] ?? '';
-				const rowMatches = findCardMatches(cellText, accounts);
+				// A line like "CREDIT CARD PAYMENT XX1234" on a BANK statement names the card but is not a
+				// card transaction: routing it to the card recorded the payment as an expense ON the card
+				// (the debt went up) and left the bank balance untouched. It stays on the account the file
+				// belongs to; Review then offers "Record as transfer" with the card suggested.
+				const rowMatches = detectCardPayment(cellText) ? [] : findCardMatches(cellText, accounts);
 				const distinctIds = [...new Set(rowMatches.map((m) => m.accountId))];
 				if (distinctIds.length === 1) cardMatchedAccountId = distinctIds[0];
 			}
@@ -394,7 +403,7 @@ export async function importRows(
 			[],
 			// Recalculated once below instead of once per row: the recalculation is O(account
 			// size), so doing it per row made an N-row import cost ~N^2/2 decryptions.
-			{ deferBalance: true }
+			{ deferBalance: true, categorizer }
 		);
 		duplicateIndex.set(duplicateKey(dateIso, amount.amountPaise), created.id);
 		touchedAccountIds.add(txAccountId);

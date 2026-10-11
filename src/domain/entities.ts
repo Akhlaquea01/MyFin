@@ -278,10 +278,18 @@ export interface Attachment extends Timestamped {
  *  specific" case); when `null`, it matches any alias resolving to `merchantId`. */
 export interface CategorizationRule extends Timestamped, SoftDeletable {
 	id: ID;
+	/** The merchant this rule is about — or, for a keyword rule, the sentinel
+	 *  `KEYWORD_RULE_MERCHANT_ID` (categorizationRuleRepository.ts), so keyword rules need no extra
+	 *  index and no schema migration: they are simply the rules "belonging" to that one pseudo-merchant. */
 	merchantId: ID;
 	merchantAliasId: ID | null;
 	categoryId: ID;
 	tagIds: ID[];
+	/** Set only on a keyword rule: text that, when it appears in a transaction's description (or
+	 *  merchant name), files it under `categoryId`. Stored as the user typed it; compared after
+	 *  normalization (keywordMatching.ts). Absent/null on every merchant rule — including every row
+	 *  that predates this field. */
+	keyword?: string | null;
 }
 
 /** Internal, per-merchant learning signal (spec 006, Story 2) — a capped FIFO of the most

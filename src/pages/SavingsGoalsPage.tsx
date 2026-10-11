@@ -26,6 +26,7 @@ import {
 import { computeGoalProgress } from '../domain/savingsGoals/goalProgress';
 import type { SavingsGoal, GoalContribution } from '../domain/entities';
 import { isPositiveMoney, isNonZeroMoney, parseMoneyOrZero } from '../domain/shared/money';
+import { todayLocalISO } from '../domain/shared/dateMath';
 
 const goalSchema = z.object({
 	name: z.string().trim().min(1, 'Name is required.'),
@@ -48,7 +49,7 @@ function formatMoney(paise: number): string {
 }
 
 function todayISO(): string {
-	return new Date().toISOString().slice(0, 10);
+	return todayLocalISO();
 }
 
 function formatDate(iso: string): string {

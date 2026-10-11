@@ -1,12 +1,18 @@
 import { AccountRepository } from '../../data/dexie/accountRepository';
 import {
 	TransactionRepository,
+	UNCATEGORIZED_CATEGORY_ID,
 	type NewTransactionInput,
 	type SplitInput
 } from '../../data/dexie/transactionRepository';
 import { TransactionTagRepository } from '../../data/dexie/tagRepository';
 import { matchTransaction } from '../recurring/recurringEngine';
-import { resolveCategorization, recordConfirmation } from '../categorization/resolveCategorization';
+import {
+	createCategorizationResolver,
+	recordConfirmation,
+	type CategorizationResolver
+} from '../categorization/resolveCategorization';
+import { addDaysISO } from '../shared/dateMath';
 import type { Transaction } from '../../domain/entities';
 
 /**
@@ -33,6 +39,13 @@ export interface RecordOptions {
 	 * calling `recalculateAccountBalance` before the user sees a balance.
 	 */
 	deferBalance?: boolean;
+	/**
+	 * A categorization resolver to reuse across a bulk import. Building one loads the keyword rules,
+	 * and it caches every per-merchant lookup, so an import that shares ONE resolver across its rows
+	 * pays for each rule and merchant once rather than once per row. Omitted by one-off callers,
+	 * which get a fresh resolver (and so always see the latest rules).
+	 */
+	categorizer?: CategorizationResolver;
 }
 
 export const TransactionEngine = {
@@ -49,12 +62,16 @@ export const TransactionEngine = {
 		// import, which never pass splits of their own.
 		let resolvedSplits = splits;
 		let categorizationTagIds: string[] = [];
-		if (splits.length === 0 && input.merchantId) {
-			const result = await resolveCategorization(
-				key,
-				input.merchantId,
-				input.merchantAliasId ?? null
-			);
+		// An entry needs *something* to match on: a merchant (merchant rules, learned suggestions) or
+		// a description (keyword rules). A statement row whose description normalizes to no merchant
+		// is still categorizable by keyword.
+		if (splits.length === 0 && (input.merchantId || input.notes) && input.type !== 'transfer') {
+			const categorizer = options.categorizer ?? (await createCategorizationResolver(key));
+			const result = await categorizer.resolve({
+				merchantId: input.merchantId ?? null,
+				aliasId: input.merchantAliasId ?? null,
+				notes: input.notes ?? null
+			});
 			if (result) {
 				resolvedSplits = [
 					{
@@ -72,6 +89,21 @@ export const TransactionEngine = {
 			await TransactionTagRepository.setTags(tx.id, categorizationTagIds);
 		}
 		if (!options.deferBalance) await recalculateAccountBalance(key, tx.accountId);
+
+		// A category the user chose by hand on an already-confirmed entry is just as much a
+		// confirmation as accepting one in the Review Queue. Only Review used to feed the learning
+		// signal, so a merchant entered manually twenty times in the same category never became a
+		// suggestion. An explicit single category only: a multi-way split says nothing about what
+		// the merchant "is", and an unreviewed entry has not been confirmed yet.
+		if (
+			splits.length === 1 &&
+			input.merchantId &&
+			input.type !== 'transfer' &&
+			(input.reviewStatus ?? 'confirmed') === 'confirmed' &&
+			splits[0].categoryId !== UNCATEGORIZED_CATEGORY_ID
+		) {
+			await recordConfirmation(key, input.merchantId, splits[0].categoryId);
+		}
 
 		// Best-effort recurring-event matching (FR-030): try each split's category until
 		// one matches a pending expected event. Never blocks/fails the transaction itself.
@@ -121,16 +153,232 @@ export const TransactionEngine = {
 		return updated;
 	},
 
+	/**
+	 * Moves a transaction to Trash. A transfer is ONE movement of money recorded as two legs, so
+	 * deleting either leg deletes both, atomically: previously only the clicked leg went, leaving
+	 * the other account permanently debited (or credited) for a transfer that no longer existed —
+	 * the two balances then disagreed with each other with nothing on screen explaining why.
+	 */
 	async deleteTransaction(key: CryptoKey, id: string): Promise<void> {
 		const tx = await TransactionRepository.getById(key, id);
-		await TransactionRepository.softDelete(key, id);
-		if (tx) await recalculateAccountBalance(key, tx.accountId);
+		if (!tx) {
+			// Surfaces the repository's "not found" error exactly as before.
+			await TransactionRepository.softDelete(key, id);
+			return;
+		}
+		const pair = tx.transferPairId
+			? await TransactionRepository.getById(key, tx.transferPairId)
+			: null;
+		if (pair && pair.deletedAt === null) {
+			const now = Date.now();
+			await TransactionRepository.writeAtomic(key, [
+				{ transaction: { ...tx, deletedAt: now, updatedAt: now } },
+				{ transaction: { ...pair, deletedAt: now, updatedAt: now } }
+			]);
+			await recalculateAccountBalance(key, pair.accountId);
+		} else {
+			await TransactionRepository.softDelete(key, id);
+		}
+		await recalculateAccountBalance(key, tx.accountId);
 	},
 
+	/** Mirror of `deleteTransaction`: restoring one leg of a transfer restores both. */
 	async restoreTransaction(key: CryptoKey, id: string): Promise<void> {
-		await TransactionRepository.restore(key, id);
 		const tx = await TransactionRepository.getById(key, id);
-		if (tx) await recalculateAccountBalance(key, tx.accountId);
+		if (!tx) {
+			await TransactionRepository.restore(key, id);
+			return;
+		}
+		const pair = tx.transferPairId
+			? await TransactionRepository.getById(key, tx.transferPairId)
+			: null;
+		if (pair && pair.deletedAt !== null) {
+			const now = Date.now();
+			await TransactionRepository.writeAtomic(key, [
+				{ transaction: { ...tx, deletedAt: null, updatedAt: now } },
+				{ transaction: { ...pair, deletedAt: null, updatedAt: now } }
+			]);
+			await recalculateAccountBalance(key, pair.accountId);
+		} else {
+			await TransactionRepository.restore(key, id);
+		}
+		await recalculateAccountBalance(key, tx.accountId);
+	},
+
+	/**
+	 * Other accounts' entries that look like the opposite side of `txId` — same amount with the
+	 * sign flipped, within `windowDays` of its date, not already part of a transfer or a person
+	 * loan. This is what lets a card payment imported from the bank statement (a debit) and from
+	 * the card statement ("payment received", a credit) be recognised as ONE transfer instead of
+	 * counting as an expense plus an unrelated income.
+	 */
+	async findTransferCandidates(
+		key: CryptoKey,
+		txId: string,
+		windowDays = 3
+	): Promise<Transaction[]> {
+		const tx = await TransactionRepository.getById(key, txId);
+		if (!tx || tx.deletedAt !== null) return [];
+		const nearby = await TransactionRepository.search(key, {
+			dateFrom: addDaysISO(tx.date, -windowDays),
+			dateTo: addDaysISO(tx.date, windowDays)
+		});
+		const candidates = nearby.filter(
+			(other) =>
+				other.id !== tx.id &&
+				other.accountId !== tx.accountId &&
+				other.amount === -tx.amount &&
+				other.type !== 'transfer' &&
+				!other.transferPairId
+		);
+		const links = await Promise.all(
+			candidates.map((c) => TransactionRepository.getLoanLink(key, c.id))
+		);
+		return candidates.filter((_, index) => links[index] === null);
+	},
+
+	/**
+	 * Turns an ordinary income/expense entry into one leg of an account-to-account transfer:
+	 * either by pairing it with an existing entry on the other account (`{ transactionId }`), or by
+	 * creating the missing opposite leg there (`{ accountId }`). The fix for "I recorded the
+	 * credit-card bill payment as a plain expense": the expense stops counting as spending, the
+	 * card's balance goes down, and both ledgers agree — in one atomic write.
+	 */
+	async convertToTransfer(
+		key: CryptoKey,
+		txId: string,
+		target: { accountId: string } | { transactionId: string }
+	): Promise<[Transaction, Transaction]> {
+		const tx = await TransactionRepository.getById(key, txId);
+		if (!tx || tx.deletedAt !== null) throw new Error('Transaction not found.');
+		if (tx.transferPairId) throw new Error('This transaction is already part of a transfer.');
+		if (tx.type === 'transfer' || (await TransactionRepository.getLoanLink(key, txId))) {
+			throw new Error(
+				'This transaction records a loan or repayment. Manage it from the People page instead.'
+			);
+		}
+
+		const now = Date.now();
+		let counterpart: Transaction;
+		if ('transactionId' in target) {
+			const other = await TransactionRepository.getById(key, target.transactionId);
+			if (!other || other.deletedAt !== null) {
+				throw new Error('The matching transaction was not found.');
+			}
+			if (other.transferPairId || other.type === 'transfer') {
+				throw new Error('The matching transaction is already part of a transfer.');
+			}
+			if (other.accountId === tx.accountId) {
+				throw new Error('A transfer must be between two different accounts.');
+			}
+			if (other.amount !== -tx.amount) {
+				throw new Error(
+					'The matching transaction must be for the same amount in the opposite direction.'
+				);
+			}
+			if (await TransactionRepository.getLoanLink(key, other.id)) {
+				throw new Error('The matching transaction records a loan or repayment.');
+			}
+			counterpart = {
+				...other,
+				type: 'transfer',
+				transferPairId: tx.id,
+				reviewStatus: 'confirmed',
+				duplicateOfId: null,
+				updatedAt: now
+			};
+		} else {
+			if (target.accountId === tx.accountId) {
+				throw new Error('A transfer must be between two different accounts.');
+			}
+			const account = await AccountRepository.getById(key, target.accountId);
+			if (!account || account.deletedAt !== null) throw new Error('Account not found.');
+			counterpart = {
+				id: crypto.randomUUID(),
+				accountId: target.accountId,
+				date: tx.date,
+				amount: -tx.amount,
+				type: 'transfer',
+				transferPairId: tx.id,
+				merchantId: null,
+				notes: tx.notes,
+				source: 'manual',
+				reviewStatus: 'confirmed',
+				duplicateOfId: null,
+				createdAt: now,
+				updatedAt: now,
+				deletedAt: null
+			};
+		}
+
+		const converted: Transaction = {
+			...tx,
+			type: 'transfer',
+			transferPairId: counterpart.id,
+			reviewStatus: 'confirmed',
+			duplicateOfId: null,
+			updatedAt: now
+		};
+		// A transfer is not spending or income, so neither leg keeps a category.
+		await TransactionRepository.writeAtomic(key, [
+			{
+				transaction: converted,
+				splits: [{ categoryId: UNCATEGORIZED_CATEGORY_ID, amount: converted.amount }]
+			},
+			{
+				transaction: counterpart,
+				splits: [{ categoryId: UNCATEGORIZED_CATEGORY_ID, amount: counterpart.amount }]
+			}
+		]);
+		await recalculateAccountBalance(key, converted.accountId);
+		await recalculateAccountBalance(key, counterpart.accountId);
+		return [converted, counterpart];
+	},
+
+	/**
+	 * Edits a transfer as one movement: the date, the (positive) amount and the note are applied
+	 * to BOTH legs together, each keeping its own sign. Editing one leg alone would silently
+	 * unbalance the two accounts.
+	 */
+	async editTransferPair(
+		key: CryptoKey,
+		id: string,
+		changes: { date?: string; amount?: number; notes?: string | null }
+	): Promise<[Transaction, Transaction]> {
+		const tx = await TransactionRepository.getById(key, id);
+		if (!tx || !tx.transferPairId) throw new Error('This transaction is not part of a transfer.');
+		const pair = await TransactionRepository.getById(key, tx.transferPairId);
+		if (!pair) throw new Error('The other side of this transfer is missing.');
+		if (changes.amount !== undefined && Math.abs(changes.amount) <= 0) {
+			throw new Error('Transfer amount must be positive.');
+		}
+
+		const now = Date.now();
+		const apply = (leg: Transaction): Transaction => ({
+			...leg,
+			date: changes.date ?? leg.date,
+			notes: changes.notes !== undefined ? changes.notes : leg.notes,
+			amount:
+				changes.amount !== undefined
+					? Math.sign(leg.amount) * Math.abs(changes.amount)
+					: leg.amount,
+			updatedAt: now
+		});
+		const first = apply(tx);
+		const second = apply(pair);
+		await TransactionRepository.writeAtomic(key, [
+			{
+				transaction: first,
+				splits: [{ categoryId: UNCATEGORIZED_CATEGORY_ID, amount: first.amount }]
+			},
+			{
+				transaction: second,
+				splits: [{ categoryId: UNCATEGORIZED_CATEGORY_ID, amount: second.amount }]
+			}
+		]);
+		await recalculateAccountBalance(key, first.accountId);
+		await recalculateAccountBalance(key, second.accountId);
+		return [first, second];
 	},
 
 	/**
@@ -157,9 +405,13 @@ export const TransactionEngine = {
 		// Learning signal (spec 006, FR-003/FR-007): only the three auto-entry sources ever
 		// reach `unreviewed`/this confirm path, so this naturally scopes learning to exactly
 		// "confirmed during review" without needing to branch on `source` explicitly.
-		if (updated.merchantId) {
+		if (updated.merchantId && updated.type !== 'transfer') {
 			const [firstSplit] = await TransactionRepository.getSplits(key, id);
-			if (firstSplit) {
+			// "Uncategorized" is the absence of a decision, not a category the merchant belongs
+			// to: recording it filled the three-slot streak with a placeholder, so a user who
+			// confirmed a merchant uncategorized twice and then categorized it once could never
+			// build a streak that survived.
+			if (firstSplit && firstSplit.categoryId !== UNCATEGORIZED_CATEGORY_ID) {
 				await recordConfirmation(key, updated.merchantId, firstSplit.categoryId);
 			}
 		}

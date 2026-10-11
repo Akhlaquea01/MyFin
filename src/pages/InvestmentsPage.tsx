@@ -30,6 +30,7 @@ import {
 	InvestmentValuationRepository
 } from '../data/dexie/wealthRepository';
 import { computePortfolioSummary, recordPurchase, recordSale } from '../domain/wealth/wealthEngine';
+import { todayLocalISO } from '../domain/shared/dateMath';
 import type { InvestmentHolding, InvestmentType } from '../domain/entities';
 import { isNonNegativeMoney, isPositiveMoney, parseMoneyOrZero } from '../domain/shared/money';
 
@@ -173,7 +174,7 @@ export function InvestmentsPage() {
 		try {
 			await InvestmentValuationRepository.create(key, {
 				holdingId: valuationTarget.id,
-				date: new Date().toISOString().slice(0, 10),
+				date: todayLocalISO(),
 				value: parseMoneyOrZero(values.value)
 			});
 			valuationForm.reset();

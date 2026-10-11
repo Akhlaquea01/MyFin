@@ -61,6 +61,11 @@ export async function categoryBreakdown(
 
 	const totals = new Map<string, number>();
 	for (const tx of transactions) {
+		// A transfer (card bill payment, savings move) and a loan movement are not spending. They were
+		// counted here as "Uncategorized" spend — so every card payment inflated the Uncategorized slice
+		// of the category chart and the spending total of the Year-in-Review report — while the
+		// income/expense trend right below already excluded them, leaving the two figures disagreeing.
+		if (tx.type === 'transfer') continue;
 		for (const split of splitsByTx.get(tx.id) ?? []) {
 			if (split.amount >= 0) continue; // only expense splits count as "spending"
 			totals.set(split.categoryId, (totals.get(split.categoryId) ?? 0) - split.amount);

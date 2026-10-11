@@ -3,7 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { Controller, useFieldArray, useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { Plus, X } from 'lucide-react';
+import { Plus, Sparkles, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -14,19 +14,23 @@ import {
 	Select,
 	SelectContent,
 	SelectItem,
+	SelectSeparator,
 	SelectTrigger,
 	SelectValue
 } from '../components/ui/select';
 import { useSession } from '../context/SessionContext';
 import { AccountRepository } from '../data/dexie/accountRepository';
 import { CategoryRepository } from '../data/dexie/categoryRepository';
-import { MerchantRepository } from '../data/dexie/merchantRepository';
+import { MerchantAliasRepository } from '../data/dexie/merchantRepository';
+import { resolveMerchant } from '../domain/parser/merchantResolver';
+import { resolveCategorization } from '../domain/categorization/resolveCategorization';
 import { TagRepository, TransactionTagRepository } from '../data/dexie/tagRepository';
 import { TransactionEngine } from '../domain/transactions/transactionEngine';
 import { AttachmentRepository } from '../data/dexie/attachmentRepository';
 import { validateAttachmentFile, compressImage } from '../lib/imageAttachment';
 import type { Account, Category } from '../domain/entities';
 import { isPositiveMoney, parseMoneyOrZero } from '../domain/shared/money';
+import { todayLocalISO } from '../domain/shared/dateMath';
 
 const formSchema = z.object({
 	accountId: z.string().min(1, 'Choose an account.'),
@@ -44,6 +48,21 @@ function toPaise(rupees: number | string): number {
 	return parseMoneyOrZero(rupees);
 }
 
+// Entries in the "Type" picker that are not an expense or income at all. Recording one of these
+// as an expense or income is the single most common ledger mistake — a card bill payment entered
+// as an expense is counted as spending and never reduces the card's balance — so they sit in the
+// same picker, where the user is already looking, and hand off to the screen built for them.
+const ROUTED_TYPES = {
+	__transfer__: { path: '/transactions/transfer', state: undefined },
+	__card_bill__: { path: '/transactions/transfer', state: { mode: 'pay-bill' } },
+	__person__: { path: '/people', state: undefined }
+} as const;
+type RoutedType = keyof typeof ROUTED_TYPES;
+
+function isRoutedType(value: string): value is RoutedType {
+	return value in ROUTED_TYPES;
+}
+
 // User Story 2 (P2): transaction entry, with optional multi-category splits (FR-008, FR-009).
 export function NewTransactionPage() {
 	const { getEncryptionKey } = useSession();
@@ -58,6 +77,12 @@ export function NewTransactionPage() {
 	// "add a new transaction" flow never sets this and is otherwise unchanged.
 	const [sharedFile, setSharedFile] = useState<File | null>(null);
 	const [sharedFilePreviewUrl, setSharedFilePreviewUrl] = useState<string | null>(null);
+	// What auto-categorization will do for the typed merchant, shown before saving so the user
+	// can see (and override) it rather than discover the result afterwards.
+	const [autoCategoryHint, setAutoCategoryHint] = useState<{
+		categoryName: string;
+		source: 'rule' | 'suggestion';
+	} | null>(null);
 
 	useEffect(() => {
 		const file = (location.state as { sharedFile?: File } | null)?.sharedFile;
@@ -83,7 +108,7 @@ export function NewTransactionPage() {
 			accountId: '',
 			type: 'expense',
 			amount: '0',
-			date: new Date().toISOString().slice(0, 10),
+			date: todayLocalISO(),
 			merchantName: '',
 			notes: '',
 			tagsInput: '',
@@ -102,6 +127,46 @@ export function NewTransactionPage() {
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, []);
 
+	const merchantNameValue = form.watch('merchantName');
+	const notesValue = form.watch('notes');
+	const hasExplicitCategory = form.watch('splits').some((s) => s.categoryId);
+	useEffect(() => {
+		const name = merchantNameValue.trim();
+		const notes = notesValue.trim();
+		// A merchant OR a description is enough: a keyword rule can match either.
+		if ((!name && !notes) || hasExplicitCategory) {
+			setAutoCategoryHint(null);
+			return;
+		}
+		let cancelled = false;
+		// Debounced: this runs against encrypted IndexedDB, and the user is still typing.
+		const handle = setTimeout(() => {
+			void (async () => {
+				const alias = name ? await MerchantAliasRepository.findByAliasText(key, name) : null;
+				const result = await resolveCategorization(
+					key,
+					alias?.merchantId ?? null,
+					alias?.id ?? null,
+					{ notes, merchantName: name }
+				);
+				if (!result) return null;
+				const category = categories.find((c) => c.id === result.categoryId);
+				return category ? { categoryName: category.name, source: result.source } : null;
+			})()
+				.then((hint) => {
+					if (!cancelled) setAutoCategoryHint(hint);
+				})
+				.catch(() => {
+					if (!cancelled) setAutoCategoryHint(null);
+				});
+		}, 350);
+		return () => {
+			cancelled = true;
+			clearTimeout(handle);
+		};
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [merchantNameValue, notesValue, hasExplicitCategory, categories]);
+
 	async function onSubmit(values: FormValues) {
 		const signedTotal =
 			values.type === 'expense' ? -toPaise(values.amount) : toPaise(values.amount);
@@ -112,10 +177,16 @@ export function NewTransactionPage() {
 		}));
 
 		try {
+			// Reuse the merchant if this name (or a known alias of it) has been seen before. This used
+			// to create a brand-new Merchant row on EVERY save, so "Swiggy" typed twice produced two
+			// unrelated merchants: no rule could ever match, no category streak could ever form, and
+			// the Auto-Categorize merchant list filled with duplicates.
 			let merchantId: string | null = null;
+			let merchantAliasId: string | null = null;
 			if (values.merchantName.trim()) {
-				const merchant = await MerchantRepository.create(key, values.merchantName.trim());
-				merchantId = merchant.id;
+				const resolved = await resolveMerchant(key, values.merchantName.trim());
+				merchantId = resolved.merchantId;
+				merchantAliasId = resolved.aliasId;
 			}
 
 			const tx = await TransactionEngine.recordTransaction(
@@ -126,6 +197,7 @@ export function NewTransactionPage() {
 					amount: signedTotal,
 					type: values.type,
 					merchantId,
+					merchantAliasId,
 					notes: values.notes.trim() || null
 				},
 				splitInputs
@@ -222,13 +294,27 @@ export function NewTransactionPage() {
 									control={form.control}
 									name="type"
 									render={({ field }) => (
-										<Select value={field.value} onValueChange={field.onChange}>
+										<Select
+											value={field.value}
+											onValueChange={(value) => {
+												if (isRoutedType(value)) {
+													const route = ROUTED_TYPES[value];
+													navigate(route.path, route.state ? { state: route.state } : undefined);
+													return;
+												}
+												field.onChange(value);
+											}}
+										>
 											<SelectTrigger id="type" className="w-full">
 												<SelectValue />
 											</SelectTrigger>
 											<SelectContent>
 												<SelectItem value="expense">Expense</SelectItem>
 												<SelectItem value="income">Income</SelectItem>
+												<SelectSeparator />
+												<SelectItem value="__transfer__">Transfer between accounts…</SelectItem>
+												<SelectItem value="__card_bill__">Pay a credit card bill…</SelectItem>
+												<SelectItem value="__person__">Lend, borrow or repay someone…</SelectItem>
 											</SelectContent>
 										</Select>
 									)}
@@ -309,6 +395,16 @@ export function NewTransactionPage() {
 						<div className="flex flex-col gap-1.5">
 							<Label htmlFor="merchant">Merchant</Label>
 							<Input id="merchant" {...form.register('merchantName')} />
+							{autoCategoryHint && (
+								<p className="flex items-center gap-1 text-xs text-muted-foreground">
+									<Sparkles className="size-3" />
+									Will be filed under <strong>{autoCategoryHint.categoryName}</strong>{' '}
+									{autoCategoryHint.source === 'rule'
+										? '(your rule)'
+										: '(learned from past entries)'}{' '}
+									unless you pick a category above.
+								</p>
+							)}
 						</div>
 						<div className="flex flex-col gap-1.5">
 							<Label htmlFor="tags">Tags (comma-separated)</Label>

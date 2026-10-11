@@ -37,7 +37,9 @@ The foundational layer of MyFin providing zero-knowledge, local-first personal f
 - **Encrypted Double-Sided Ledger**: Immutable transaction history supporting income, expense, and account transfers.
 - **Split Transactions**: Allocate a single transaction across multiple categories.
 - **Hierarchical Categories**: Parent/child category tree with full CRUD, used across the ledger, budgets, and reports.
-- **Account Transfers**: Dedicated transfer flow moving money between two of the user's own accounts as a single linked pair of transactions.
+- **Account Transfers & Card Bill Payments**: One flow moves money between two of the user's own accounts as a single linked pair of transactions; the same screen, switched to "Card bill payment", pays a credit card (showing what is owed, with a one-tap "Pay full outstanding"). The New Transaction type picker, the card's own "Pay bill" button, and a recognised Quick Add message all lead there. Deleting, restoring or editing either leg acts on both, atomically.
+- **Record as Transfer**: An entry that was imported or entered as an ordinary expense/income (typically a card payment) can be converted to a transfer from the Review Queue or the Edit dialog — linking to the matching entry already on the other account (found by amount and date) or creating the missing leg — so it stops counting as spending/income and both balances agree.
+- **Edit Transactions**: Every transaction can be edited in place (account, type, amount, date, category, merchant, tags, notes). A transfer is edited as one movement; the ledger entry behind a person loan is read-only and managed from People.
 - **Liabilities & Net Worth**: Manual liability tracking (loans, credit card debt) alongside a computed net worth figure spanning accounts, liabilities, investments, and person loans, with historical snapshots.
 - **PIN & Biometric Authentication**: Onboarding PIN entry with PBKDF2 key derivation and WebAuthn biometrics unlock.
 - **Encrypted Backup & Restore**: AES-GCM encrypted single-file backup export with SHA-256 HMAC integrity verification.
@@ -136,13 +138,16 @@ Client-side encrypted image and document attachment system allowing users to sto
 Automated transaction categorization engine combining explicit user-defined matching rules with continuous merchant streak learning.
 
 ### Key Capabilities
-- **Exact & Substring Pattern Rules**: Match merchant descriptions using regex or exact normalized substring matching.
-- **Merchant Normalization**: Strips store IDs, card terminal suffixes, and location noise (e.g. `STARBUCKS #10294 NY` -> `Starbucks`).
-- **Streak Learning Engine**: When a user confirms the same category for an unrecognized merchant 3 consecutive times, the engine surfaces an automatic rule suggestion.
-- **Bulk Re-classification**: One-click application of new rules retroactively across unreviewed transactions.
+- **Merchant & Alias Rules**: A rule maps a merchant (or one specific alias of it) to a category and tags. At most one live rule exists per merchant + scope.
+- **Keyword Rules ("description contains")**: A rule can instead match *text*: any transaction whose description or merchant name has a word starting with the keyword — case- and punctuation-insensitive, so `swiggy` files `UPI-SWIGGY-88123`, `SWIGGY INSTAMART` and `Swiggy One` alike, which per-merchant rules cannot (each distinct description is its own merchant). Needs at least 3 letters/digits; the same keyword can't be added twice however it is written. The rule dialog previews which uncategorized transactions the keyword would catch before it is saved. Works on manual entry, Quick Add, file and bulk imports, including rows with no merchant at all. There is no regex matching.
+- **Precedence**: exact-alias rule → merchant rule → keyword rule (the longest matching keyword wins; an exact tie goes to the older rule) → learned suggestion. A category you chose yourself is never overridden.
+- **Merchant Normalization**: Strips reference numbers, dates and rail codes (UPI/NEFT/IMPS…) from imported descriptions so repeat sightings converge on one merchant. Manual entry now reuses an existing merchant by name instead of creating a new one every time.
+- **Streak Learning Engine**: When a user confirms the same category for a merchant 3 times in a row — in the Review Queue, or by choosing the category by hand on a new entry — the engine surfaces a suggestion. A merchant that already has a rule — or whose name a keyword rule already matches — is never offered a suggestion.
+- **Retroactive Apply**: Creating or promoting a rule (merchant or keyword) offers to file the existing, still-uncategorized transactions it matches; the Review Queue has "Apply rules to queue"; and a rule can be applied later from its row. An entry that already has a category is never overridden.
+- **Visible Provenance**: The Review Queue marks a pre-filled category as "Auto: rule" or "Suggested", and New Transaction previews what the typed merchant will be filed under.
 
 ### Domain Engine & Architecture
-- **Engine**: [`src/domain/categorization/categorizationEngine.ts`](file:///e:/MyFin/src/domain/categorization/categorizationEngine.ts), [`src/domain/parser/merchantResolver.ts`](file:///e:/MyFin/src/domain/parser/merchantResolver.ts)
+- **Engine**: [`src/domain/categorization/categorizationEngine.ts`](file:///e:/MyFin/src/domain/categorization/categorizationEngine.ts), [`keywordMatching.ts`](file:///e:/MyFin/src/domain/categorization/keywordMatching.ts), [`resolveCategorization.ts`](file:///e:/MyFin/src/domain/categorization/resolveCategorization.ts), [`src/domain/parser/merchantResolver.ts`](file:///e:/MyFin/src/domain/parser/merchantResolver.ts)
 - **Repositories**: [`categorizationRuleRepository.ts`](file:///e:/MyFin/src/data/dexie/categorizationRuleRepository.ts), [`merchantCategorySignalRepository.ts`](file:///e:/MyFin/src/data/dexie/merchantCategorySignalRepository.ts)
 - **Primary Page**: [`CategorizationRulesPage.tsx`](file:///e:/MyFin/src/pages/CategorizationRulesPage.tsx)
 
@@ -215,6 +220,8 @@ Peer-to-peer debt and loan ledger tracking money lent to or borrowed from friend
   - Initial disbursement links to a bank account (lowering bank balance for lent, increasing for borrowed).
   - Repayments log real ledger transactions updating account balances.
 - **Repayment Milestones**: Remaining balance, repayment logs, due dates, and settlement status.
+- **Settle in Full**: One click clears everything still owed (collect from a borrower, or pay back a lender) into a chosen account and date; partial repayments default to the remaining balance.
+- **Edit & Remove**: A loan's due date and notes can be edited; a mis-recorded loan can be removed (with its repayments and ledger movements, restoring the account balance) and recovered from Trash.
 
 ### Domain Engine & Architecture
 - **Engine**: [`src/domain/personLoans/loanProgress.ts`](file:///e:/MyFin/src/domain/personLoans/loanProgress.ts)

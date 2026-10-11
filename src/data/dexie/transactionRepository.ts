@@ -251,9 +251,55 @@ export const TransactionRepository = {
 
 		// A transaction can be the sole anchor for a PersonLoan's principal movement or a
 		// LoanRepayment's movement (spec 010) — `transactionId` is never null on either, and
-		// neither has its own purge flow to cascade to. Not a structurally indexed field on
-		// either table, so this is a full decrypt-scan — acceptable here since purge is a rare,
-		// explicit, user-initiated action from Trash, not a hot path.
+		// neither has its own purge flow to cascade to.
+		if (await this.getLoanLink(key, id)) {
+			throw new Error(
+				'This transaction is linked to a person loan or repayment and cannot be permanently deleted.'
+			);
+		}
+
+		// A transfer is two legs deleted together, so it is purged together: purging only one would
+		// leave the other in Trash pointing at a row that no longer exists, and restoring it would
+		// put a one-sided movement back into the ledger.
+		const ids = [id];
+		if (existing.transferPairId) {
+			const pair = await getDecrypted<TransactionRow, Transaction>(
+				db.transactions,
+				key,
+				existing.transferPairId
+			);
+			if (pair && pair.deletedAt !== null) ids.push(pair.id);
+		}
+
+		await db.transaction(
+			'rw',
+			[db.transactions, db.transactionSplits, db.transactionTags, db.attachments],
+			async () => {
+				for (const purgeId of ids) {
+					await db.transactions.delete(purgeId);
+					await db.transactionSplits.where('transactionId').equals(purgeId).delete();
+					await db.transactionTags.where('transactionId').equals(purgeId).delete();
+					await AttachmentRepository.purgeForTransaction(key, purgeId);
+				}
+			}
+		);
+	},
+
+	/**
+	 * Whether `id` is the ledger movement behind a person loan's principal or one of its
+	 * repayments (spec 010). Such a transaction is not an ordinary entry: deleting, editing or
+	 * re-typing it directly would leave the loan's pending balance disagreeing with the ledger, so
+	 * every caller that mutates a transaction on the user's behalf must check this first and send
+	 * them to People instead.
+	 *
+	 * Not a structurally indexed field on either table, so this is a full decrypt-scan of the
+	 * (small) loan tables — acceptable because it only runs on a deliberate, user-initiated
+	 * mutation, never on a list render.
+	 */
+	async getLoanLink(
+		key: CryptoKey,
+		id: string
+	): Promise<{ kind: 'loan' | 'repayment'; loanId: string } | null> {
 		const [loanRows, repaymentRows] = await Promise.all([
 			db.personLoans.toArray(),
 			db.personLoanRepayments.toArray()
@@ -262,22 +308,73 @@ export const TransactionRepository = {
 			decryptRows<PersonLoanRow, PersonLoan>(key, loanRows),
 			decryptRows<PersonLoanRepaymentRow, LoanRepayment>(key, repaymentRows)
 		]);
-		if (loans.some((l) => l.transactionId === id) || repayments.some((r) => r.transactionId === id)) {
-			throw new Error(
-				'This transaction is linked to a person loan or repayment and cannot be permanently deleted.'
-			);
+		const loan = loans.find((l) => l.transactionId === id);
+		if (loan) return { kind: 'loan', loanId: loan.id };
+		const repayment = repayments.find((r) => r.transactionId === id);
+		if (repayment) return { kind: 'repayment', loanId: repayment.loanId };
+		return null;
+	},
+
+	/**
+	 * Writes several transactions (and, where given, replaces their splits) in ONE Dexie
+	 * transaction, so either every row lands or none does. This is what keeps a transfer's two
+	 * legs consistent: previously each leg was changed by its own `update()`, so a failure
+	 * between the two calls left money moved out of one account and into nowhere.
+	 *
+	 * Creates a row that does not exist yet and updates one that does; `updatedAt` is stamped by
+	 * the caller. Split sums are validated before anything is written. All encryption happens up
+	 * front because a `db.transaction` block loses its tracked scope across an awaited
+	 * non-Dexie promise (see encryptedTable.ts).
+	 */
+	async writeAtomic(
+		key: CryptoKey,
+		items: { transaction: Transaction; splits?: SplitInput[] }[]
+	): Promise<void> {
+		for (const { transaction, splits } of items) {
+			if (!splits) continue;
+			const splitSum = splits.reduce((sum, s) => sum + s.amount, 0);
+			if (splitSum !== transaction.amount) {
+				throw new Error(
+					`Split amounts (${splitSum}) must sum to the transaction amount (${transaction.amount}).`
+				);
+			}
 		}
 
-		await db.transaction(
-			'rw',
-			[db.transactions, db.transactionSplits, db.transactionTags, db.attachments],
-			async () => {
-				await db.transactions.delete(id);
-				await db.transactionSplits.where('transactionId').equals(id).delete();
-				await db.transactionTags.where('transactionId').equals(id).delete();
-				await AttachmentRepository.purgeForTransaction(key, id);
-			}
+		const transactionRows = await Promise.all(
+			items.map(({ transaction }) =>
+				encryptRow<TransactionRow, Transaction>(key, transaction, toRow(transaction))
+			)
 		);
+		const splitRowsByTx = await Promise.all(
+			items.map(async ({ transaction, splits }) => {
+				if (!splits) return null;
+				const rows = await Promise.all(
+					splits.map((split) => {
+						const entity: TransactionSplit = {
+							id: crypto.randomUUID(),
+							transactionId: transaction.id,
+							categoryId: split.categoryId,
+							amount: split.amount,
+							categorizationSource: split.categorizationSource
+						};
+						return encryptRow<TransactionSplitRow, TransactionSplit>(key, entity, {
+							transactionId: entity.transactionId,
+							categoryId: entity.categoryId
+						});
+					})
+				);
+				return { transactionId: transaction.id, rows };
+			})
+		);
+
+		await db.transaction('rw', db.transactions, db.transactionSplits, async () => {
+			await db.transactions.bulkPut(transactionRows);
+			for (const replacement of splitRowsByTx) {
+				if (!replacement) continue;
+				await db.transactionSplits.where('transactionId').equals(replacement.transactionId).delete();
+				await db.transactionSplits.bulkPut(replacement.rows);
+			}
+		});
 	},
 
 	async getById(key: CryptoKey, id: string): Promise<Transaction | null> {
@@ -381,6 +478,24 @@ export const TransactionRepository = {
 			.toArray();
 		const candidates = await decryptRows<TransactionRow, Transaction>(key, rows);
 		return candidates.filter((tx) => tx.amount === amount);
+	},
+
+	/**
+	 * Live transactions whose first split is still the "Uncategorized" placeholder. Walks the
+	 * indexed `categoryId` column on the splits table to find them, then loads only those parents —
+	 * so the cost follows the number of uncategorized entries, not the size of the ledger.
+	 */
+	async listUncategorized(key: CryptoKey): Promise<Transaction[]> {
+		const splitRows = await db.transactionSplits
+			.where('categoryId')
+			.equals(UNCATEGORIZED_CATEGORY_ID)
+			.toArray();
+		const ids = [...new Set(splitRows.map((row) => row.transactionId))];
+		if (ids.length === 0) return [];
+		const rows = (await db.transactions.bulkGet(ids)).filter(
+			(row): row is TransactionRow => !!row && row.deletedAt === NOT_DELETED
+		);
+		return decryptRows<TransactionRow, Transaction>(key, rows);
 	},
 
 	async listUnreviewed(key: CryptoKey): Promise<Transaction[]> {

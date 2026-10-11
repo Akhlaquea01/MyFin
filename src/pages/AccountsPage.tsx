@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Controller, useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { AlertTriangle, MoreVertical, Plus, Wallet } from 'lucide-react';
+import { AlertTriangle, HandCoins, MoreVertical, Plus, Wallet } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -38,6 +38,7 @@ import { TransactionEngine } from '../domain/transactions/transactionEngine';
 import type { Account, AccountType } from '../domain/entities';
 import { isValidMoney, parseMoneyOrZero } from '../domain/shared/money';
 import { computeCardUtilization } from '../domain/wealth/wealthEngine';
+import { todayLocalISO } from '../domain/shared/dateMath';
 
 function isValidBillingCycleDay(raw: string): boolean {
 	if (!raw.trim()) return true;
@@ -66,6 +67,26 @@ const adjustBalanceSchema = z.object({
 	actualBalance: z.string().refine((v) => isValidMoney(v || '0'), 'Enter a valid amount.')
 });
 type AdjustBalanceFormValues = z.infer<typeof adjustBalanceSchema>;
+
+/**
+ * A bank/cash/wallet account's opening balance is simply what it holds. A credit card is the
+ * opposite: it is entered as what you currently OWE (a positive number, which is how every card
+ * statement states it) and stored as a negative balance, because that is what the rest of the app
+ * — utilization, net worth, "Pay bill" — reads. Entering a statement balance of 5,000 into a plain
+ * "Opening balance" field used to be stored as +5,000 of credit, silently turning the debt into
+ * an asset.
+ */
+function openingBalanceToStored(raw: string, isCreditCard: boolean): number {
+	const entered = parseMoneyOrZero(raw || '0');
+	// `entered !== 0` avoids -0, which would render as "-0.00".
+	return isCreditCard && entered !== 0 ? -entered : entered;
+}
+
+/** Inverse of `openingBalanceToStored`, for pre-filling an edit form. */
+function storedToOpeningBalanceInput(stored: number, isCreditCard: boolean): string {
+	const shown = isCreditCard ? -stored : stored;
+	return String(shown === 0 ? 0 : shown / 100);
+}
 
 function creditLimitToPaise(raw: string): number | null {
 	return raw.trim() ? parseMoneyOrZero(raw) : null;
@@ -154,7 +175,7 @@ export function AccountsPage() {
 			await AccountRepository.create(key, {
 				name: values.name,
 				type: values.type,
-				openingBalance: parseMoneyOrZero(values.openingBalance || '0'),
+				openingBalance: openingBalanceToStored(values.openingBalance, isCreditCard),
 				creditLimit: isCreditCard ? creditLimitToPaise(values.creditLimit) : null,
 				billingCycleDay: isCreditCard ? billingCycleDayToNumber(values.billingCycleDay) : null,
 				cardLast4: isCreditCard ? optionalTrimmed(values.cardLast4) : null,
@@ -182,7 +203,7 @@ export function AccountsPage() {
 		editForm.reset({
 			name: account.name,
 			type: account.type,
-			openingBalance: String(account.openingBalance / 100),
+			openingBalance: storedToOpeningBalanceInput(account.openingBalance, account.type === 'credit_card'),
 			creditLimit: account.creditLimit !== null ? String(account.creditLimit / 100) : '',
 			billingCycleDay: account.billingCycleDay !== null ? String(account.billingCycleDay) : '',
 			cardLast4: account.cardLast4 ?? '',
@@ -197,7 +218,7 @@ export function AccountsPage() {
 			await AccountRepository.update(key, editTarget.id, {
 				name: values.name,
 				type: values.type,
-				openingBalance: parseMoneyOrZero(values.openingBalance || '0'),
+				openingBalance: openingBalanceToStored(values.openingBalance, isCreditCard),
 				creditLimit: isCreditCard ? creditLimitToPaise(values.creditLimit) : null,
 				billingCycleDay: isCreditCard ? billingCycleDayToNumber(values.billingCycleDay) : null,
 				cardLast4: isCreditCard ? optionalTrimmed(values.cardLast4) : null,
@@ -217,13 +238,18 @@ export function AccountsPage() {
 
 	function openAdjustDialog(account: Account) {
 		setAdjustTarget(account);
-		adjustForm.reset({ actualBalance: String(account.currentBalance / 100) });
+		adjustForm.reset({
+			actualBalance: storedToOpeningBalanceInput(account.currentBalance, account.type === 'credit_card')
+		});
 	}
 
 	async function onAdjustSubmit(values: AdjustBalanceFormValues) {
 		if (!adjustTarget) return;
 		try {
-			const actualBalance = parseMoneyOrZero(values.actualBalance || '0');
+			const actualBalance = openingBalanceToStored(
+				values.actualBalance,
+				adjustTarget.type === 'credit_card'
+			);
 			const diff = actualBalance - adjustTarget.currentBalance;
 			if (diff === 0) {
 				setAdjustTarget(null);
@@ -235,7 +261,7 @@ export function AccountsPage() {
 			// recalculation.
 			await TransactionEngine.recordTransaction(key, {
 				accountId: adjustTarget.id,
-				date: new Date().toISOString().slice(0, 10),
+				date: todayLocalISO(),
 				amount: diff,
 				type: diff > 0 ? 'income' : 'expense',
 				notes: 'Balance adjustment'
@@ -328,13 +354,21 @@ export function AccountsPage() {
 								/>
 							</div>
 							<div className="flex flex-col gap-1.5">
-								<Label htmlFor="opening-balance">Opening balance</Label>
+								<Label htmlFor="opening-balance">
+									{formType === 'credit_card' ? 'Amount currently owed' : 'Opening balance'}
+								</Label>
 								<Input
 									id="opening-balance"
 									type="number"
 									step="0.01"
 									{...form.register('openingBalance')}
 								/>
+								{formType === 'credit_card' && (
+									<p className="text-xs text-muted-foreground">
+										What you owe on the card today, as a positive number — enter 0 if nothing is
+										outstanding.
+									</p>
+								)}
 							</div>
 							{formType === 'credit_card' && (
 								<div className="grid grid-cols-2 gap-3">
@@ -481,6 +515,20 @@ export function AccountsPage() {
 									<p className="font-mono text-2xl font-semibold">
 										{formatMoney(account.currentBalance)}
 									</p>
+									{account.type === 'credit_card' && (
+										<Button
+											size="sm"
+											variant="outline"
+											className="mt-3"
+											onClick={() =>
+												navigate('/transactions/transfer', {
+													state: { toAccountId: account.id, mode: 'pay-bill' }
+												})
+											}
+										>
+											<HandCoins /> Pay bill
+										</Button>
+									)}
 									{utilization && (
 										<div className="mt-3 flex flex-col gap-1.5">
 											{utilization.available !== null && utilization.utilizationPercent !== null ? (
@@ -551,13 +599,21 @@ export function AccountsPage() {
 							/>
 						</div>
 						<div className="flex flex-col gap-1.5">
-							<Label htmlFor="edit-opening-balance">Opening balance</Label>
+							<Label htmlFor="edit-opening-balance">
+								{editFormType === 'credit_card' ? 'Amount owed at start' : 'Opening balance'}
+							</Label>
 							<Input
 								id="edit-opening-balance"
 								type="number"
 								step="0.01"
 								{...editForm.register('openingBalance')}
 							/>
+							{editFormType === 'credit_card' && (
+								<p className="text-xs text-muted-foreground">
+									What was owed on the card before the first transaction you track here. Later
+									purchases and payments are added on top of it.
+								</p>
+							)}
 						</div>
 						{editFormType === 'credit_card' && (
 							<div className="grid grid-cols-2 gap-3">
@@ -638,12 +694,14 @@ export function AccountsPage() {
 					{adjustTarget && (
 						<form className="flex flex-col gap-4" onSubmit={adjustForm.handleSubmit(onAdjustSubmit)}>
 							<p className="text-sm text-muted-foreground">
-								{adjustTarget.name} is currently tracked at {formatMoney(adjustTarget.currentBalance)}.
-								Enter what the account actually holds and a balancing transaction will be added to
-								close the gap.
+								{adjustTarget.type === 'credit_card'
+									? `${adjustTarget.name} is currently tracked as owing ${formatMoney(-adjustTarget.currentBalance)}. Enter what the card statement says you owe and a balancing transaction will be added to close the gap.`
+									: `${adjustTarget.name} is currently tracked at ${formatMoney(adjustTarget.currentBalance)}. Enter what the account actually holds and a balancing transaction will be added to close the gap.`}
 							</p>
 							<div className="flex flex-col gap-1.5">
-								<Label htmlFor="actual-balance">Actual balance</Label>
+								<Label htmlFor="actual-balance">
+									{adjustTarget.type === 'credit_card' ? 'Amount actually owed' : 'Actual balance'}
+								</Label>
 								<Input
 									id="actual-balance"
 									type="number"

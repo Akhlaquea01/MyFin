@@ -16,6 +16,7 @@ import { useSession } from '../context/SessionContext';
 import { AccountRepository } from '../data/dexie/accountRepository';
 import { importBulkText, type ImportResult } from '../data/io/bulkTextImportService';
 import { findCardMatches, type CardMatch } from '../domain/parser/cardIdentifierMatcher';
+import { detectCardPayment } from '../domain/parser/cardPaymentDetector';
 import type { Account } from '../domain/entities';
 
 // User Story 4 (P4): bulk import of exported SMS/notification text (FR-019).
@@ -58,7 +59,14 @@ export function BulkTextImportPage() {
 
 		// FR-020/FR-022/FR-023: detect a tagged card's identifier across the whole file before
 		// asking the user to confirm anything.
-		const matches = findCardMatches(text, accounts);
+		// Lines that describe PAYING a card name it too, but they belong to the paying account's
+		// statement — letting them vote would pre-select the card as the destination for a whole
+		// bank statement.
+		const nonPaymentText = text
+			.split(/\r?\n/)
+			.filter((line) => !detectCardPayment(line))
+			.join('\n');
+		const matches = findCardMatches(nonPaymentText, accounts);
 		const distinctAccountIds = [...new Set(matches.map((m) => m.accountId))];
 		if (distinctAccountIds.length === 1) {
 			setAccountId(distinctAccountIds[0]);

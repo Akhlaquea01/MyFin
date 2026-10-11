@@ -20,7 +20,11 @@ import { BudgetRepository, BudgetItemRepository } from '../dexie/budgetRepositor
 import { ensureBudgetItemForPeriod } from '../../domain/budgets/budgetEngine';
 import type { InvestmentType } from '../../domain/entities';
 import { RecurringRepository, ExpectedEventRepository } from '../dexie/recurringRepository';
-import { CategorizationRuleRepository } from '../dexie/categorizationRuleRepository';
+import {
+	CategorizationRuleRepository,
+	isKeywordRule
+} from '../dexie/categorizationRuleRepository';
+import { normalizeMatchText } from '../../domain/categorization/keywordMatching';
 import { MerchantCategorySignalRepository } from '../dexie/merchantCategorySignalRepository';
 import { NotificationPreferenceRepository } from '../dexie/notificationRepository';
 import { DebtPlannerPreferenceRepository } from '../dexie/debtPlannerPreferenceRepository';
@@ -726,6 +730,38 @@ export async function importDataTemplate(
 	// 16. Categorization Rules
 	const existingCatRules = await CategorizationRuleRepository.list(key);
 	for (const cr of entities.categorizationRules ?? []) {
+		// A keyword rule is about text, not a merchant: its `merchantId` is the shared pseudo-merchant,
+		// which has no entry in `merchantRemap` and must not be treated as an unresolved merchant.
+		if (isKeywordRule(cr)) {
+			const keywordCategoryId = categoryRemap.get(cr.categoryId);
+			if (!keywordCategoryId || !cr.keyword) {
+				recordSkipped('categorizationRules', 'unresolved-relationship');
+				continue;
+			}
+			const wanted = normalizeMatchText(cr.keyword);
+			const duplicate = existingCatRules.find(
+				(er) => isKeywordRule(er) && normalizeMatchText(er.keyword ?? '') === wanted
+			);
+			if (duplicate) {
+				recordSkipped('categorizationRules', 'already-exists');
+				continue;
+			}
+			try {
+				await CategorizationRuleRepository.create(key, {
+					keyword: cr.keyword,
+					categoryId: keywordCategoryId,
+					tagIds: (cr.tagIds ?? [])
+						.map((tid) => tagRemap.get(tid))
+						.filter((t): t is string => Boolean(t))
+				});
+				recordCreated('categorizationRules');
+			} catch {
+				// e.g. a hand-edited file with a keyword too short to be accepted.
+				recordSkipped('categorizationRules', 'unresolved-relationship');
+			}
+			continue;
+		}
+
 		const resolvedMerchantId = merchantRemap.get(cr.merchantId);
 		const resolvedCatId = categoryRemap.get(cr.categoryId);
 		if (!resolvedMerchantId || !resolvedCatId) {

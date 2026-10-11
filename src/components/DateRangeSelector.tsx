@@ -1,5 +1,6 @@
 import { Button } from './ui/button';
 import { cn } from '../lib/utils';
+import { todayLocalISO } from '../domain/shared/dateMath';
 
 export interface DateRange {
 	from: string;
@@ -11,12 +12,13 @@ interface Preset {
 	range: () => DateRange;
 }
 
-function toISODate(d: Date): string {
-	return d.toISOString().slice(0, 10);
-}
+// Local calendar dates, not UTC: transaction dates come from `<input type="date">`, which is the
+// user's local day, so a range ending at the UTC date excluded today's entries in any timezone
+// ahead of UTC until the UTC day caught up.
+const toISODate = todayLocalISO;
 
 function monthsAgo(n: number, today: Date): Date {
-	return new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() - n, 1));
+	return new Date(today.getFullYear(), today.getMonth() - n, 1);
 }
 
 const PRESETS: Preset[] = [
@@ -24,7 +26,7 @@ const PRESETS: Preset[] = [
 		label: 'This month',
 		range: () => {
 			const now = new Date();
-			const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+			const start = new Date(now.getFullYear(), now.getMonth(), 1);
 			return { from: toISODate(start), to: toISODate(now) };
 		}
 	},
@@ -46,7 +48,7 @@ const PRESETS: Preset[] = [
 		label: 'This year',
 		range: () => {
 			const now = new Date();
-			return { from: `${now.getUTCFullYear()}-01-01`, to: toISODate(now) };
+			return { from: `${now.getFullYear()}-01-01`, to: toISODate(now) };
 		}
 	},
 	{

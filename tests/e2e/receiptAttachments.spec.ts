@@ -257,6 +257,8 @@ test('permanent purge from Trash removes the transaction and its attachments ent
 	await expect(dialog.getByAltText('Receipt attachment')).toHaveCount(1);
 	await page.keyboard.press('Escape');
 
+	// Moving a transaction to Trash asks for confirmation; Playwright dismisses an unhandled dialog.
+	page.once('dialog', (d) => void d.accept());
 	await page
 		.getByRole('row', { name: /Coffee/ })
 		.getByRole('button', { name: 'Delete' })

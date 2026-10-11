@@ -31,6 +31,7 @@ import {
 	type BudgetPerformanceItem,
 	type NetWorthTrendPoint
 } from '../domain/analytics/analyticsEngine';
+import { todayLocalISO } from '../domain/shared/dateMath';
 
 Chart.register(
 	BarController,
@@ -53,8 +54,10 @@ function formatMoney(paise: number): string {
 
 function defaultRange(): DateRange {
 	const now = new Date();
-	const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 5, 1));
-	return { from: start.toISOString().slice(0, 10), to: now.toISOString().slice(0, 10) };
+	// Local calendar dates (see DateRangeSelector): the UTC date excluded today's entries early in
+	// the day for anyone ahead of UTC.
+	const start = new Date(now.getFullYear(), now.getMonth() - 5, 1);
+	return { from: todayLocalISO(start), to: todayLocalISO(now) };
 }
 
 // User Story 8 (P8): visual breakdowns of spending, income/expense, cash flow, budget

@@ -1,9 +1,12 @@
 import { parseQuickAddText, isConfident } from '../../domain/parser/quickAddParser';
 import { resolveMerchant, normalizeMerchantText } from '../../domain/parser/merchantResolver';
 import { findCardMatches } from '../../domain/parser/cardIdentifierMatcher';
+import { detectCardPayment } from '../../domain/parser/cardPaymentDetector';
 import { TransactionRepository } from '../dexie/transactionRepository';
 import { TransactionEngine } from '../../domain/transactions/transactionEngine';
+import { createCategorizationResolver } from '../../domain/categorization/resolveCategorization';
 import type { Account } from '../../domain/entities';
+import { todayLocalISO } from '../../domain/shared/dateMath';
 
 /**
  * Caps on pasted input. All parsing and crypto runs on the main thread, and the merchant
@@ -42,7 +45,7 @@ export async function importBulkText(
 				`${MAX_TEXT_LENGTH.toLocaleString()} at a time.`
 		);
 	}
-	const today = new Date().toISOString().slice(0, 10);
+	const today = todayLocalISO();
 	const lines = fileText.split(/\r?\n/);
 	if (lines.length > MAX_TEXT_LINES) {
 		throw new Error(
@@ -72,6 +75,8 @@ export async function importBulkText(
 		return seenAmounts;
 	}
 	const touchedAccountIds = new Set<string>();
+	// One resolver for the whole paste — see importService.ts.
+	const categorizer = await createCategorizationResolver(key);
 
 	for (let i = 0; i < lines.length; i++) {
 		const line = lines[i].trim();
@@ -90,7 +95,8 @@ export async function importBulkText(
 		// FR-020/FR-021/FR-024: a single distinct match on this specific line routes it to that
 		// tagged card instead of the pre-matched/manually-chosen default; an ambiguous or
 		// unmatched line falls back to the default without blocking the rest of the import.
-		const lineMatches = findCardMatches(line, accounts);
+		// A card *payment* line names the card but belongs to the paying account — see importService.ts.
+		const lineMatches = detectCardPayment(line) ? [] : findCardMatches(line, accounts);
 		const distinctLineAccountIds = [...new Set(lineMatches.map((m) => m.accountId))];
 		const lineAccountId =
 			distinctLineAccountIds.length === 1 ? distinctLineAccountIds[0] : accountId;
@@ -121,7 +127,7 @@ export async function importBulkText(
 			},
 			[],
 			// One recalculation at the end instead of one per line — see importService.ts.
-			{ deferBalance: true }
+			{ deferBalance: true, categorizer }
 		);
 		seenAmounts.set(signedAmount, created.id);
 		touchedAccountIds.add(lineAccountId);

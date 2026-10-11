@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Sparkles } from 'lucide-react';
+import { HandCoins, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -20,8 +20,11 @@ import { TransactionEngine } from '../domain/transactions/transactionEngine';
 import { resolveMerchant } from '../domain/parser/merchantResolver';
 import { parseQuickAddText, isConfident } from '../domain/parser/quickAddParser';
 import { findCardMatches, type CardMatch } from '../domain/parser/cardIdentifierMatcher';
+import { detectCardPayment } from '../domain/parser/cardPaymentDetector';
+import type { TransferLocationState } from './TransferPage';
 import type { Account, TransactionType } from '../domain/entities';
 import { formatMinorUnits, parseMoneyToMinorUnits } from '../domain/shared/money';
+import { todayLocalISO } from '../domain/shared/dateMath';
 
 // User Story 4 (P4): paste a payment-notification-style text and get a proposed,
 // reviewable transaction (FR-018). Low-confidence text still routes here for manual
@@ -40,10 +43,12 @@ export function QuickAddPage() {
 	const [type, setType] = useState<TransactionType>('expense');
 	const [amountInput, setAmountInput] = useState('');
 	const [merchantName, setMerchantName] = useState('');
-	const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+	const [date, setDate] = useState(todayLocalISO());
 	const [submitting, setSubmitting] = useState(false);
 	const [cardMatchReason, setCardMatchReason] = useState<CardMatch | null>(null);
 	const [cardDisambiguation, setCardDisambiguation] = useState<CardMatch[] | null>(null);
+	// Set when the pasted text reads like paying a credit card bill rather than spending on one.
+	const [cardPayment, setCardPayment] = useState<{ cardAccountId: string | null } | null>(null);
 
 	// Spec 008, User Story 1 (FR-002): text shared in via the OS share sheet arrives here as
 	// router state from ShareTargetLandingPage and must parse identically to manual paste — so
@@ -79,8 +84,19 @@ export function QuickAddPage() {
 
 		setCardMatchReason(null);
 		setCardDisambiguation(null);
+		setCardPayment(null);
 		const matches = findCardMatches(text, accountsList);
 		const distinctIds = [...new Set(matches.map((m) => m.accountId))];
+
+		// "Payment of Rs.5,000 received on your card ending 1234" / "Rs.5000 debited ... towards
+		// credit card 1234" is a MOVEMENT between the user's own accounts. Pre-selecting the card
+		// and recording it as an expense (the old behaviour) put the money on the wrong side of the
+		// card — the debt went UP by the amount just paid — so the card is deliberately not
+		// pre-selected here; the transfer shortcut below handles it correctly instead.
+		if (detectCardPayment(text)) {
+			setCardPayment({ cardAccountId: distinctIds.length === 1 ? distinctIds[0] : null });
+			return;
+		}
 		if (distinctIds.length === 1) {
 			setAccountId(distinctIds[0]);
 			setCardMatchReason(matches.find((m) => m.accountId === distinctIds[0]) ?? null);
@@ -91,6 +107,19 @@ export function QuickAddPage() {
 
 	function handleParse() {
 		parseText(rawText);
+	}
+
+	/** Hands a recognised card payment to the transfer screen, with everything the message told us
+	 *  (the card, the amount) pre-filled; the paying account is left for the user to choose. */
+	function recordAsCardPayment() {
+		const parsedAmount = amountInput ? parseMoneyToMinorUnits(amountInput) : null;
+		const state: TransferLocationState = {
+			mode: 'pay-bill',
+			toAccountId: cardPayment?.cardAccountId ?? undefined,
+			lockDestination: false,
+			amount: parsedAmount && parsedAmount > 0 ? formatMinorUnits(parsedAmount) : undefined
+		};
+		navigate('/transactions/transfer', { state });
 	}
 
 	async function handleConfirm() {
@@ -114,6 +143,9 @@ export function QuickAddPage() {
 				type,
 				merchantId: resolved?.merchantId ?? null,
 				merchantAliasId: resolved?.aliasId ?? null,
+				// A recognised card payment keeps the message it came from: Review uses it to offer
+				// "Record as transfer" later, and it is the only record of what the entry was.
+				notes: cardPayment ? rawText.trim().slice(0, 200) : null,
 				source: 'quick_add',
 				reviewStatus: 'unreviewed'
 			});
@@ -153,6 +185,22 @@ export function QuickAddPage() {
 							<p className="text-sm text-amber-600 dark:text-amber-400">
 								Couldn't confidently read that message — please fill in the details below.
 							</p>
+						)}
+						{cardPayment && (
+							<div className="flex flex-col gap-2 rounded-md border border-sky-500/40 bg-sky-500/5 p-3">
+								<p className="text-sm font-medium">This looks like a credit card bill payment.</p>
+								<p className="text-xs text-muted-foreground">
+									Saved as an ordinary {type === 'income' ? 'income' : 'expense'}, it would be
+									counted as {type === 'income' ? 'earnings' : 'spending'} and the card's balance
+									would not go down. Record it as a payment instead and both accounts update
+									together.
+								</p>
+								<div>
+									<Button type="button" size="sm" onClick={recordAsCardPayment}>
+										<HandCoins /> Record as card bill payment
+									</Button>
+								</div>
+							</div>
 						)}
 						{cardMatchReason && (
 							<p className="rounded-md border border-emerald-500/40 bg-emerald-500/5 p-2 text-xs text-muted-foreground">
@@ -241,7 +289,11 @@ export function QuickAddPage() {
 							/>
 						</div>
 						<Button onClick={handleConfirm} disabled={submitting}>
-							{submitting ? 'Saving…' : 'Confirm & add to review queue'}
+							{submitting
+								? 'Saving…'
+								: cardPayment
+									? 'Add as an ordinary transaction anyway'
+									: 'Confirm & add to review queue'}
 						</Button>
 					</CardContent>
 				</Card>

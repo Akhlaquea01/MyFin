@@ -11,7 +11,8 @@ import {
 	Bookmark,
 	Save,
 	Trash2,
-	Edit2
+	Edit2,
+	Pencil
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '../components/ui/button';
@@ -49,10 +50,16 @@ import {
 } from '../components/ui/table';
 import { useSession } from '../context/SessionContext';
 import { AccountRepository } from '../data/dexie/accountRepository';
-import { TransactionRepository } from '../data/dexie/transactionRepository';
+import {
+	TransactionRepository,
+	UNCATEGORIZED_CATEGORY_ID
+} from '../data/dexie/transactionRepository';
 import { AttachmentRepository } from '../data/dexie/attachmentRepository';
 import { TagRepository } from '../data/dexie/tagRepository';
 import { MerchantRepository } from '../data/dexie/merchantRepository';
+import { CategoryRepository } from '../data/dexie/categoryRepository';
+import { EditTransactionDialog } from '../components/EditTransactionDialog';
+import { ConvertToTransferDialog } from '../components/ConvertToTransferDialog';
 import { TransactionEngine } from '../domain/transactions/transactionEngine';
 import { filterTagOptions, type TagOption } from '../domain/transactions/tagFilterEngine';
 import { formatTransactionLabel } from '../domain/transactions/transactionLabel';
@@ -60,6 +67,7 @@ import { validateAttachmentFile, compressImage } from '../lib/imageAttachment';
 import type {
 	Account,
 	Attachment,
+	Category,
 	Merchant,
 	Transaction,
 	SavedFilterView
@@ -110,7 +118,14 @@ export function TransactionsPage() {
 
 	const [accounts, setAccounts] = useState<Account[]>([]);
 	const [merchants, setMerchants] = useState<Merchant[]>([]);
+	const [categories, setCategories] = useState<Category[]>([]);
 	const [transactions, setTransactions] = useState<Transaction[]>([]);
+	const [editTx, setEditTx] = useState<Transaction | null>(null);
+	const [convertTx, setConvertTx] = useState<Transaction | null>(null);
+	// Per visible row, fetched lazily like attachment counts: the category label, and — for a
+	// transfer — the account on its other side.
+	const [categoryLabels, setCategoryLabels] = useState<Record<string, string>>({});
+	const [counterpartAccounts, setCounterpartAccounts] = useState<Record<string, string>>({});
 	const [accountFilter, setAccountFilter] = useState('');
 	const [dateFrom, setDateFrom] = useState('');
 	const [dateTo, setDateTo] = useState('');
@@ -167,6 +182,7 @@ export function TransactionsPage() {
 		try {
 			setAccounts(await AccountRepository.list(key));
 			setMerchants(await MerchantRepository.list(key));
+			setCategories(await CategoryRepository.list(key));
 			setTags(await TagRepository.listInUse(key));
 			setSavedViews(await SavedFilterViewRepository.list(key));
 			setTransactions(
@@ -223,6 +239,46 @@ export function TransactionsPage() {
 		};
 	}, [visibleIdsKey, key]);
 
+	useEffect(() => {
+		let cancelled = false;
+		const handle = setTimeout(() => {
+			const ids = visibleIdsKey ? visibleIdsKey.split(',') : [];
+			if (ids.length === 0) return;
+			void (async () => {
+				const splitsByTx = await TransactionRepository.splitsByTransaction(key, ids);
+				const labels: Record<string, string> = {};
+				for (const id of ids) {
+					const splits = splitsByTx.get(id) ?? [];
+					if (splits.length > 1) labels[id] = `Split (${splits.length})`;
+					else if (splits.length === 0 || splits[0].categoryId === UNCATEGORIZED_CATEGORY_ID)
+						labels[id] = '';
+					else labels[id] = categories.find((c) => c.id === splits[0].categoryId)?.name ?? '';
+				}
+
+				const counterparts: Record<string, string> = {};
+				const byId = new Map(transactions.map((t) => [t.id, t]));
+				for (const tx of visibleTransactions) {
+					if (!tx.transferPairId) continue;
+					const pair =
+						byId.get(tx.transferPairId) ??
+						(await TransactionRepository.getById(key, tx.transferPairId));
+					if (pair) counterparts[tx.id] = pair.accountId;
+				}
+				if (!cancelled) {
+					setCategoryLabels((prev) => ({ ...prev, ...labels }));
+					setCounterpartAccounts((prev) => ({ ...prev, ...counterparts }));
+				}
+			})().catch(() => {
+				// A missing category label is not worth interrupting the user for.
+			});
+		}, ATTACHMENT_COUNT_DEBOUNCE_MS);
+		return () => {
+			cancelled = true;
+			clearTimeout(handle);
+		};
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [visibleIdsKey, key, categories]);
+
 	function refreshAttachmentCounts() {
 		const ids = visibleTransactions.map((t) => t.id);
 		void AttachmentRepository.countsForTransactions(key, ids)
@@ -231,7 +287,23 @@ export function TransactionsPage() {
 	}
 
 	async function remove(tx: Transaction) {
-		const confirmed = window.confirm('Move this transaction to trash? You can undo this right after.');
+		try {
+			// The ledger movement behind a person loan/repayment is not an ordinary entry: deleting it
+			// here left the loan still "pending" for money that had been taken back out of the account.
+			if (await TransactionRepository.getLoanLink(key, tx.id)) {
+				toast.error(
+					'This entry records a loan or repayment, so it is managed from the People page. Use "Remove loan" or "Undo" there.'
+				);
+				return;
+			}
+		} catch {
+			// If the check itself fails, fall through to the normal confirmation rather than block.
+		}
+		const confirmed = window.confirm(
+			tx.transferPairId
+				? 'This is a transfer — both sides (the money leaving one account and arriving in the other) will move to trash. You can undo this right after.'
+				: 'Move this transaction to trash? You can undo this right after.'
+		);
 		if (!confirmed) return;
 		try {
 			await TransactionEngine.deleteTransaction(key, tx.id);
@@ -593,15 +665,16 @@ export function TransactionsPage() {
 									<TableHead>Date</TableHead>
 									<TableHead>Description</TableHead>
 									<TableHead>Account</TableHead>
+									<TableHead className="hidden md:table-cell">Category</TableHead>
 									<TableHead className="text-right">Amount</TableHead>
 									<TableHead className="w-12" />
-									<TableHead className="w-16" />
+									<TableHead className="w-28" />
 								</TableRow>
 							</TableHeader>
 							<TableBody>
 								{isVirtualized && topSpacerPx > 0 && (
 									<tr style={{ height: topSpacerPx }} aria-hidden="true">
-										<td colSpan={6} />
+										<td colSpan={7} />
 									</tr>
 								)}
 								{visibleTransactions.map((tx) => (
@@ -615,6 +688,11 @@ export function TransactionsPage() {
 												<span className="truncate" title={formatTransactionLabel(tx, merchants)}>
 													{formatTransactionLabel(tx, merchants)}
 												</span>
+												{tx.type === 'transfer' && (
+													<Badge variant="secondary" className="shrink-0">
+														{tx.transferPairId ? 'Transfer' : 'Loan'}
+													</Badge>
+												)}
 												{tx.reviewStatus === 'unreviewed' && (
 													<Badge variant="outline" className="ml-0 shrink-0">
 														Unreviewed
@@ -624,6 +702,18 @@ export function TransactionsPage() {
 										</TableCell>
 										<TableCell className="text-muted-foreground">
 											{accountName(tx.accountId)}
+											{tx.transferPairId && counterpartAccounts[tx.id] && (
+												<span className="ml-1 whitespace-nowrap text-xs">
+													{tx.amount < 0 ? 'to' : 'from'} {accountName(counterpartAccounts[tx.id])}
+												</span>
+											)}
+										</TableCell>
+										<TableCell className="hidden text-muted-foreground md:table-cell">
+											{tx.type === 'transfer'
+												? '—'
+												: (categoryLabels[tx.id] ?? '') || (
+														<span className="text-xs italic">Uncategorized</span>
+													)}
 										</TableCell>
 										<TableCell
 											className={`text-right font-mono ${tx.amount < 0 ? 'text-destructive' : 'text-emerald-600 dark:text-emerald-400'}`}
@@ -650,21 +740,67 @@ export function TransactionsPage() {
 											</Button>
 										</TableCell>
 										<TableCell>
-											<Button variant="ghost" size="sm" onClick={() => remove(tx)}>
-												Delete
-											</Button>
+											<div className="flex items-center justify-end gap-1">
+												<Button
+													variant="ghost"
+													size="icon-sm"
+													aria-label="Edit transaction"
+													onClick={() => setEditTx(tx)}
+												>
+													<Pencil className="size-4" />
+												</Button>
+												<Button variant="ghost" size="sm" onClick={() => remove(tx)}>
+													Delete
+												</Button>
+											</div>
 										</TableCell>
 									</TableRow>
 								))}
 								{isVirtualized && bottomSpacerPx > 0 && (
 									<tr style={{ height: bottomSpacerPx }} aria-hidden="true">
-										<td colSpan={6} />
+										<td colSpan={7} />
 									</tr>
 								)}
 							</TableBody>
 						</Table>
 					</div>
 				</Card>
+			)}
+
+			{editTx && (
+				<EditTransactionDialog
+					transaction={editTx}
+					accounts={accounts}
+					categories={categories}
+					merchants={merchants}
+					onOpenChange={(open) => !open && setEditTx(null)}
+					onSaved={() => {
+						setEditTx(null);
+						// Drop cached labels for the edited row so the category cell re-fetches.
+						setCategoryLabels((prev) => {
+							const next = { ...prev };
+							delete next[editTx.id];
+							return next;
+						});
+						void refresh();
+					}}
+					onRecordAsTransfer={(tx) => setConvertTx(tx)}
+				/>
+			)}
+
+			{convertTx && (
+				<ConvertToTransferDialog
+					transaction={convertTx}
+					accounts={accounts.filter((a) => !a.isArchived)}
+					merchants={merchants}
+					onOpenChange={(open) => !open && setConvertTx(null)}
+					onConverted={() => {
+						setConvertTx(null);
+						setCategoryLabels({});
+						setCounterpartAccounts({});
+						void refresh();
+					}}
+				/>
 			)}
 
 			{attachmentDialogTx && (

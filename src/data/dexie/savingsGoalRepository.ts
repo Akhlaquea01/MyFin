@@ -2,6 +2,7 @@ import { db, type SavingsGoalRow, type GoalContributionRow } from './db';
 import { putEncrypted, getDecrypted, decryptRows } from './encryptedTable';
 import { deletedAtIndex, NOT_DELETED } from './indexable';
 import type { SavingsGoal, GoalContribution } from '../../domain/entities';
+import { todayLocalISO } from '../../domain/shared/dateMath';
 
 export const SavingsGoalRepository = {
 	async create(
@@ -54,7 +55,7 @@ export const GoalContributionRepository = {
 		if (input.amount === 0) {
 			throw new Error('Contribution amount must be non-zero');
 		}
-		const today = new Date().toISOString().slice(0, 10);
+		const today = todayLocalISO();
 		if (input.date > today) {
 			throw new Error('Contribution date cannot be in the future');
 		}

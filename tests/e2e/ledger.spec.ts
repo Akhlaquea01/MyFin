@@ -78,6 +78,8 @@ test.describe('Core Ledger', () => {
 	test('deleting a transaction moves it to trash, and restoring brings the balance back', async ({
 		page
 	}) => {
+		// Deleting asks for confirmation; Playwright dismisses an unhandled dialog, which cancelled it.
+		page.on('dialog', (dialog) => void dialog.accept());
 		await onboard(page, '222284');
 
 		await goTo(page, 'Accounts', 'Accounts');

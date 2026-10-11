@@ -38,10 +38,11 @@ import {
 	isLoanOverdue
 } from '../domain/personLoans/loanProgress';
 import type { Account, LoanDirection, LoanRepayment, Person, PersonLoan } from '../domain/entities';
-import { isPositiveMoney, parseMoneyOrZero } from '../domain/shared/money';
+import { formatMinorUnits, isPositiveMoney, parseMoneyOrZero } from '../domain/shared/money';
+import { todayLocalISO } from '../domain/shared/dateMath';
 
 function todayISO(): string {
-	return new Date().toISOString().slice(0, 10);
+	return todayLocalISO();
 }
 
 function formatMoney(paise: number): string {
@@ -194,8 +195,15 @@ export function PeoplePage() {
 								<Input
 									id="loan-person"
 									placeholder="Existing or new name"
+									list="people-names"
+									autoComplete="off"
 									{...loanForm.register('personName')}
 								/>
+								<datalist id="people-names">
+									{people.map((p) => (
+										<option key={p.id} value={p.name} />
+									))}
+								</datalist>
 								{loanForm.formState.errors.personName && (
 									<p className="text-sm text-destructive">
 										{loanForm.formState.errors.personName.message}
@@ -396,6 +404,7 @@ function PersonCard({
 						<LoanRow
 							key={loan.id}
 							loan={loan}
+							personName={person.name}
 							repayments={repaymentsByLoan[loan.id] ?? []}
 							accounts={accounts}
 							onChanged={onChanged}
@@ -409,11 +418,13 @@ function PersonCard({
 
 function LoanRow({
 	loan,
+	personName,
 	repayments,
 	accounts,
 	onChanged
 }: {
 	loan: PersonLoan;
+	personName: string;
 	repayments: LoanRepayment[];
 	accounts: Account[];
 	onChanged: () => Promise<void>;
@@ -421,6 +432,12 @@ function LoanRow({
 	const { getEncryptionKey } = useSession();
 	const key = getEncryptionKey();
 	const [repayDialogOpen, setRepayDialogOpen] = useState(false);
+	const [settleDialogOpen, setSettleDialogOpen] = useState(false);
+	const [editDialogOpen, setEditDialogOpen] = useState(false);
+	const [settleAccountId, setSettleAccountId] = useState(loan.accountId);
+	const [settleDate, setSettleDate] = useState(todayISO());
+	const [editDueDate, setEditDueDate] = useState(loan.dueDate ?? '');
+	const [editNotes, setEditNotes] = useState(loan.notes ?? '');
 
 	const pendingBalance = computePendingBalance({
 		principalAmount: loan.principalAmount,
@@ -428,11 +445,46 @@ function LoanRow({
 		repayments
 	});
 	const status = deriveLoanStatus({ pendingBalance, writeOffAt: loan.writeOffAt });
+	const isLent = loan.direction === 'lent';
 
 	const repayForm = useForm<RepaymentFormValues>({
 		resolver: zodResolver(repaymentSchema),
-		defaultValues: { amount: '0', date: todayISO(), accountId: loan.accountId }
+		// Pre-filled with everything still owed: the common case is paying it all back, and
+		// starting at "0" meant retyping a balance the screen was already showing (and an overshoot
+		// by one digit was rejected as an overpayment).
+		defaultValues: {
+			amount: formatMinorUnits(pendingBalance),
+			date: todayISO(),
+			accountId: loan.accountId
+		}
 	});
+
+	function openRepayDialog(open: boolean) {
+		if (open) {
+			repayForm.reset({
+				amount: formatMinorUnits(pendingBalance),
+				date: todayISO(),
+				accountId: loan.accountId
+			});
+		}
+		setRepayDialogOpen(open);
+	}
+
+	function openSettleDialog(open: boolean) {
+		if (open) {
+			setSettleAccountId(loan.accountId);
+			setSettleDate(todayISO());
+		}
+		setSettleDialogOpen(open);
+	}
+
+	function openEditDialog(open: boolean) {
+		if (open) {
+			setEditDueDate(loan.dueDate ?? '');
+			setEditNotes(loan.notes ?? '');
+		}
+		setEditDialogOpen(open);
+	}
 
 	async function onSubmitRepayment(values: RepaymentFormValues) {
 		try {
@@ -446,15 +498,72 @@ function LoanRow({
 			toast.error(err instanceof Error ? err.message : 'Could not log repayment.');
 			return;
 		}
-		repayForm.reset({ amount: '0', date: todayISO(), accountId: loan.accountId });
 		setRepayDialogOpen(false);
 		toast.success('Repayment logged');
+		await onChanged();
+	}
+
+	async function onSettle() {
+		try {
+			await LoanRepaymentRepository.settle(key, {
+				loanId: loan.id,
+				date: settleDate,
+				accountId: settleAccountId
+			});
+		} catch (err) {
+			toast.error(err instanceof Error ? err.message : 'Could not settle this loan.');
+			return;
+		}
+		setSettleDialogOpen(false);
+		toast.success(
+			isLent ? `${personName} has paid you back in full` : `Paid back ${personName} in full`
+		);
+		await onChanged();
+	}
+
+	async function onSaveEdit() {
+		try {
+			await PersonLoanRepository.update(key, loan.id, {
+				dueDate: editDueDate || null,
+				notes: editNotes.trim() || null
+			});
+		} catch (err) {
+			toast.error(err instanceof Error ? err.message : 'Could not save changes.');
+			return;
+		}
+		setEditDialogOpen(false);
+		toast.success('Loan updated');
 		await onChanged();
 	}
 
 	async function onUndoRepayment(repaymentId: string) {
 		await LoanRepaymentRepository.softDelete(key, repaymentId);
 		toast.success('Repayment undone');
+		await onChanged();
+	}
+
+	async function onRemoveLoan() {
+		if (
+			!window.confirm(
+				`Remove this loan? It, its repayments and the money movement behind them go to Trash, and the account balance goes back to what it was before. Use this to fix a loan recorded with the wrong amount, date or account.`
+			)
+		) {
+			return;
+		}
+		try {
+			await PersonLoanRepository.remove(key, loan.id);
+		} catch (err) {
+			toast.error(err instanceof Error ? err.message : 'Could not remove this loan.');
+			return;
+		}
+		toast.success('Loan removed', {
+			action: {
+				label: 'Undo',
+				onClick: () => {
+					void PersonLoanRepository.restore(key, loan.id).then(onChanged);
+				}
+			}
+		});
 		await onChanged();
 	}
 
@@ -478,10 +587,28 @@ function LoanRow({
 		await onChanged();
 	}
 
+	const accountPicker = (value: string, onChange: (v: string) => void, id: string) => (
+		<Select value={value} onValueChange={onChange}>
+			<SelectTrigger id={id} className="w-full">
+				<SelectValue placeholder="Choose account…" />
+			</SelectTrigger>
+			<SelectContent>
+				{accounts.map((a) => (
+					<SelectItem key={a.id} value={a.id}>
+						{a.name}
+					</SelectItem>
+				))}
+			</SelectContent>
+		</Select>
+	);
+
 	return (
 		<div className="flex flex-col gap-1 border-t pt-3 first:border-t-0 first:pt-0">
 			<div className="flex items-center justify-between text-sm">
-				<span>{loan.direction === 'lent' ? 'Lent' : 'Borrowed'}</span>
+				<span>
+					{isLent ? 'Lent' : 'Borrowed'}
+					<span className="ml-1.5 text-xs text-muted-foreground">on {loan.date}</span>
+				</span>
 				<div className="flex items-center gap-2">
 					{status === 'open' && <Badge variant="secondary">Open</Badge>}
 					{status === 'settled-by-repayment' && <Badge>Settled</Badge>}
@@ -500,6 +627,7 @@ function LoanRow({
 					)}
 				</p>
 			)}
+			{loan.notes && <p className="text-xs text-muted-foreground">{loan.notes}</p>}
 
 			{repayments.length > 0 && (
 				<ul className="flex flex-col gap-1">
@@ -512,7 +640,7 @@ function LoanRow({
 								className="flex items-center justify-between text-xs text-muted-foreground"
 							>
 								<span>
-									{r.date} · {formatMoney(r.amount)}
+									{r.date} · {formatMoney(r.amount)} {isLent ? 'received' : 'paid back'}
 								</span>
 								<Button
 									variant="link"
@@ -528,8 +656,56 @@ function LoanRow({
 			)}
 
 			{status === 'open' && (
-				<div className="mt-1 flex items-center gap-3">
-					<Dialog open={repayDialogOpen} onOpenChange={setRepayDialogOpen}>
+				<div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
+					<Button
+						variant="outline"
+						size="sm"
+						className="h-7"
+						onClick={() => openSettleDialog(true)}
+					>
+						Settle in full
+					</Button>
+
+					<Dialog open={settleDialogOpen} onOpenChange={openSettleDialog}>
+						<DialogContent>
+							<DialogHeader>
+								<DialogTitle>
+									{isLent
+										? `Collect ${formatMoney(pendingBalance)} from ${personName}`
+										: `Pay back ${formatMoney(pendingBalance)} to ${personName}`}
+								</DialogTitle>
+							</DialogHeader>
+							<div className="flex flex-col gap-4">
+								<p className="text-sm text-muted-foreground">
+									{isLent
+										? `Records that ${personName} paid back everything still owed (${formatMoney(pendingBalance)}). The money is added to the account below and the loan is marked settled.`
+										: `Records that you paid ${personName} back everything still owed (${formatMoney(pendingBalance)}). The money is taken from the account below and the loan is marked settled.`}
+								</p>
+								<div className="flex flex-col gap-1.5">
+									<Label htmlFor={`settle-account-${loan.id}`}>
+										{isLent ? 'Received into' : 'Paid from'}
+									</Label>
+									{accountPicker(settleAccountId, setSettleAccountId, `settle-account-${loan.id}`)}
+								</div>
+								<div className="flex flex-col gap-1.5">
+									<Label htmlFor={`settle-date-${loan.id}`}>Date</Label>
+									<Input
+										id={`settle-date-${loan.id}`}
+										type="date"
+										value={settleDate}
+										onChange={(e) => setSettleDate(e.target.value)}
+									/>
+								</div>
+							</div>
+							<DialogFooter>
+								<Button onClick={() => void onSettle()} disabled={!settleAccountId}>
+									Settle loan
+								</Button>
+							</DialogFooter>
+						</DialogContent>
+					</Dialog>
+
+					<Dialog open={repayDialogOpen} onOpenChange={openRepayDialog}>
 						<DialogTrigger asChild>
 							<Button variant="link" size="sm" className="h-auto w-fit p-0">
 								Log repayment
@@ -543,6 +719,11 @@ function LoanRow({
 								className="flex flex-col gap-4"
 								onSubmit={repayForm.handleSubmit(onSubmitRepayment)}
 							>
+								<p className="text-sm text-muted-foreground">
+									{isLent
+										? `Part of what ${personName} owes you. ${formatMoney(pendingBalance)} is still outstanding.`
+										: `Part of what you owe ${personName}. ${formatMoney(pendingBalance)} is still outstanding.`}
+								</p>
 								<div className="flex flex-col gap-1.5">
 									<Label htmlFor={`repay-amount-${loan.id}`}>Amount</Label>
 									<Input
@@ -562,24 +743,15 @@ function LoanRow({
 									<Input id={`repay-date-${loan.id}`} type="date" {...repayForm.register('date')} />
 								</div>
 								<div className="flex flex-col gap-1.5">
-									<Label htmlFor={`repay-account-${loan.id}`}>Account</Label>
+									<Label htmlFor={`repay-account-${loan.id}`}>
+										{isLent ? 'Received into' : 'Paid from'}
+									</Label>
 									<Controller
 										control={repayForm.control}
 										name="accountId"
-										render={({ field }) => (
-											<Select value={field.value} onValueChange={field.onChange}>
-												<SelectTrigger id={`repay-account-${loan.id}`} className="w-full">
-													<SelectValue placeholder="Choose account…" />
-												</SelectTrigger>
-												<SelectContent>
-													{accounts.map((a) => (
-														<SelectItem key={a.id} value={a.id}>
-															{a.name}
-														</SelectItem>
-													))}
-												</SelectContent>
-											</Select>
-										)}
+										render={({ field }) =>
+											accountPicker(field.value, field.onChange, `repay-account-${loan.id}`)
+										}
 									/>
 								</div>
 								<DialogFooter>
@@ -588,6 +760,46 @@ function LoanRow({
 							</form>
 						</DialogContent>
 					</Dialog>
+
+					<Dialog open={editDialogOpen} onOpenChange={openEditDialog}>
+						<DialogTrigger asChild>
+							<Button variant="link" size="sm" className="h-auto w-fit p-0 text-muted-foreground">
+								Edit details
+							</Button>
+						</DialogTrigger>
+						<DialogContent>
+							<DialogHeader>
+								<DialogTitle>Edit loan details</DialogTitle>
+							</DialogHeader>
+							<div className="flex flex-col gap-4">
+								<p className="text-xs text-muted-foreground">
+									The amount, date, account and direction can't be edited once the money has moved.
+									To fix one of those, remove this loan (below) and record it again.
+								</p>
+								<div className="flex flex-col gap-1.5">
+									<Label htmlFor={`edit-due-${loan.id}`}>Due date (optional)</Label>
+									<Input
+										id={`edit-due-${loan.id}`}
+										type="date"
+										value={editDueDate}
+										onChange={(e) => setEditDueDate(e.target.value)}
+									/>
+								</div>
+								<div className="flex flex-col gap-1.5">
+									<Label htmlFor={`edit-notes-${loan.id}`}>Notes (optional)</Label>
+									<Input
+										id={`edit-notes-${loan.id}`}
+										value={editNotes}
+										onChange={(e) => setEditNotes(e.target.value)}
+									/>
+								</div>
+							</div>
+							<DialogFooter>
+								<Button onClick={() => void onSaveEdit()}>Save</Button>
+							</DialogFooter>
+						</DialogContent>
+					</Dialog>
+
 					<Button
 						variant="link"
 						size="sm"
@@ -595,6 +807,26 @@ function LoanRow({
 						onClick={onWriteOff}
 					>
 						Write off
+					</Button>
+					<Button
+						variant="link"
+						size="sm"
+						className="h-auto w-fit p-0 text-muted-foreground"
+						onClick={() => void onRemoveLoan()}
+					>
+						Remove loan
+					</Button>
+				</div>
+			)}
+			{status !== 'open' && (
+				<div className="mt-1">
+					<Button
+						variant="link"
+						size="sm"
+						className="h-auto w-fit p-0 text-muted-foreground"
+						onClick={() => void onRemoveLoan()}
+					>
+						Remove loan
 					</Button>
 				</div>
 			)}

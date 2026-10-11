@@ -86,6 +86,8 @@ test('projected completion date and behind-schedule flag (Scenario 2)', async ({
 test('goals overview shows mixed statuses and a correct total (Scenario 3), and delete/restore keeps contributions (Scenario 6)', async ({
 	page
 }) => {
+	// Deleting a goal asks for confirmation; Playwright dismisses an unhandled dialog.
+	page.on('dialog', (dialog) => void dialog.accept());
 	await page.goto('/');
 	await page.getByLabel('Create PIN').fill('202284');
 	await page.getByLabel('Confirm PIN').fill('202284');

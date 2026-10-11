@@ -37,6 +37,7 @@ import {
 	type ImportResult
 } from '../data/io/importService';
 import { findCardMatches, type CardMatch } from '../domain/parser/cardIdentifierMatcher';
+import { detectCardPayment } from '../domain/parser/cardPaymentDetector';
 import { buildReconciliationPrompt } from '../domain/io/reconciliationPrompt';
 import type { Account } from '../domain/entities';
 
@@ -82,8 +83,10 @@ export function ImportPage() {
 		setCardMatchReason(null);
 		setCardDisambiguation(null);
 		if (accountColumn !== NONE || descriptionColumn === NONE || !parsed) return;
+		// See BulkTextImportPage: card *payment* lines must not vote on the file's destination.
 		const text = previewRows(parsed)
 			.map((r) => r[descriptionColumn] ?? '')
+			.filter((cell) => !detectCardPayment(cell))
 			.join('\n');
 		const matches = findCardMatches(text, accounts);
 		const distinctIds = [...new Set(matches.map((m) => m.accountId))];
