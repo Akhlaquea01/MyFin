@@ -3,7 +3,11 @@ import { encryptRow, decryptRows } from './encryptedTable';
 import { blindIndex } from '../crypto/cryptoService';
 import { getBlindIndexSalt } from './blindIndexSalt';
 import { NOT_DELETED } from './indexable';
-import { distinctTagIdsInUse, normalizeTagText, type TagOption } from '../../domain/transactions/tagFilterEngine';
+import {
+	distinctTagIdsInUse,
+	normalizeTagText,
+	type TagOption
+} from '../../domain/transactions/tagFilterEngine';
 import type { Tag, TransactionTag } from '../../domain/entities';
 
 export const TagRepository = {
@@ -69,9 +73,28 @@ export const TransactionTagRepository = {
 		return rows.map((r) => r.tagId);
 	},
 
+	/**
+	 * Tag ids for many transactions in ONE query, grouped by transaction. Replaces calling
+	 * `getTagIds` per row — which on a list of N entries meant N separate IndexedDB queries. Omit
+	 * `transactionIds` for every transaction's tags (export). A transaction with no tags is absent
+	 * from the map.
+	 */
+	async getTagIdsByTransaction(transactionIds?: string[]): Promise<Map<string, string[]>> {
+		const rows =
+			transactionIds === undefined
+				? await db.transactionTags.toArray()
+				: await db.transactionTags.where('transactionId').anyOf(transactionIds).toArray();
+		const grouped = new Map<string, string[]>();
+		for (const row of rows) {
+			const existing = grouped.get(row.transactionId);
+			if (existing) existing.push(row.tagId);
+			else grouped.set(row.transactionId, [row.tagId]);
+		}
+		return grouped;
+	},
+
 	async list(): Promise<TransactionTag[]> {
 		const rows = await db.transactionTags.toArray();
 		return rows.map((r) => ({ transactionId: r.transactionId, tagId: r.tagId }));
 	}
 };
-

@@ -3,40 +3,75 @@ import ExcelJS from 'exceljs';
 import { AccountRepository } from '../dexie/accountRepository';
 import { CategoryRepository } from '../dexie/categoryRepository';
 import { TransactionRepository } from '../dexie/transactionRepository';
+import { MerchantRepository } from '../dexie/merchantRepository';
+import { TagRepository, TransactionTagRepository } from '../dexie/tagRepository';
 import { buildCategoryLabels } from '../../domain/categories/categoryHierarchy';
 
 export interface ExportRow {
+	// The first five columns are the original export, in their original order, so a file produced
+	// before the later columns existed still lines up — and so does mapping this file back through
+	// the importer by column name.
 	date: string;
 	account: string;
 	categories: string;
 	amount: string; // rupees, "-" separated by two decimals
 	notes: string;
+	/** 'income' | 'expense' | 'transfer'. Without it a transfer was two rows indistinguishable from
+	 *  an uncategorized expense and an uncategorized income, and every card payment looked like
+	 *  spending. */
+	type: string;
+	merchant: string;
+	/** Tag names, "; "-separated. */
+	tags: string;
+	/** 'confirmed' or 'unreviewed' (still waiting in the Review Queue). */
+	status: string;
+	/** For a transfer: the account on its other side — "to" for the leg that left this account,
+	 *  "from" for the one that arrived. Empty for everything else. */
+	counterpart: string;
 }
 
 /** Flattens the ledger into export-ready rows (FR-039): amounts in rupees, human-readable names. */
 export async function buildExportRows(key: CryptoKey): Promise<ExportRow[]> {
-	const [accounts, categories, transactions] = await Promise.all([
+	const [accounts, categories, merchants, tags, transactions] = await Promise.all([
 		AccountRepository.list(key),
 		CategoryRepository.list(key),
+		MerchantRepository.list(key),
+		TagRepository.list(key),
 		TransactionRepository.search(key)
 	]);
 	const accountNameById = new Map(accounts.map((a) => [a.id, a.name]));
 	const categoryNameById = buildCategoryLabels(categories);
+	const merchantNameById = new Map(merchants.map((m) => [m.id, m.name]));
+	const tagNameById = new Map(tags.map((t) => [t.id, t.name]));
+	const transactionById = new Map(transactions.map((t) => [t.id, t]));
 
-	// One grouped query for every split, rather than one indexed query plus one decrypt batch
-	// per transaction. At 20k transactions the old loop issued 20k round trips.
-	const splitsByTx = await TransactionRepository.splitsByTransaction(key);
+	// One grouped query for every split (and one for every tag), rather than one indexed query plus
+	// one decrypt batch per transaction. At 20k transactions the old loop issued 20k round trips.
+	const [splitsByTx, tagIdsByTx] = await Promise.all([
+		TransactionRepository.splitsByTransaction(key),
+		TransactionTagRepository.getTagIdsByTransaction()
+	]);
 
 	const rows: ExportRow[] = [];
 	for (const tx of transactions) {
 		const splits = splitsByTx.get(tx.id) ?? [];
 		const categoryNames = splits.map((s) => categoryNameById.get(s.categoryId) ?? 'Uncategorized');
+		const partner = tx.transferPairId ? transactionById.get(tx.transferPairId) : undefined;
 		rows.push({
 			date: tx.date,
 			account: accountNameById.get(tx.accountId) ?? tx.accountId,
-			categories: [...new Set(categoryNames)].join('; '),
+			// A transfer is not categorized spending; "Uncategorized" there was misleading noise.
+			categories: tx.type === 'transfer' ? '' : [...new Set(categoryNames)].join('; '),
 			amount: (tx.amount / 100).toFixed(2),
-			notes: tx.notes ?? ''
+			notes: tx.notes ?? '',
+			type: tx.type,
+			merchant: tx.merchantId ? (merchantNameById.get(tx.merchantId) ?? '') : '',
+			tags: (tagIdsByTx.get(tx.id) ?? [])
+				.map((id) => tagNameById.get(id))
+				.filter((name): name is string => Boolean(name))
+				.join('; '),
+			status: tx.reviewStatus,
+			counterpart: partner ? (accountNameById.get(partner.accountId) ?? '') : ''
 		});
 	}
 	return rows;
@@ -62,14 +97,17 @@ function neutralizeFormula(value: string): string {
 	return FORMULA_TRIGGER.test(value) ? `\t${value}` : value;
 }
 
-/** `date` and `amount` are generated, not user text, and `amount` legitimately starts with
- *  `-` — prefixing it would break numeric parsing in the spreadsheet. */
+/** `date`, `amount`, `type` and `status` are generated, not user text, and `amount` legitimately
+ *  starts with `-` — prefixing it would break numeric parsing in the spreadsheet. */
 function sanitizeRow(row: ExportRow): ExportRow {
 	return {
 		...row,
 		account: neutralizeFormula(row.account),
 		categories: neutralizeFormula(row.categories),
-		notes: neutralizeFormula(row.notes)
+		notes: neutralizeFormula(row.notes),
+		merchant: neutralizeFormula(row.merchant),
+		tags: neutralizeFormula(row.tags),
+		counterpart: neutralizeFormula(row.counterpart)
 	};
 }
 
@@ -86,7 +124,12 @@ export async function exportToXlsxBlob(rows: ExportRow[]): Promise<Blob> {
 		{ header: 'Account', key: 'account' },
 		{ header: 'Categories', key: 'categories' },
 		{ header: 'Amount', key: 'amount' },
-		{ header: 'Notes', key: 'notes' }
+		{ header: 'Notes', key: 'notes' },
+		{ header: 'Type', key: 'type' },
+		{ header: 'Merchant', key: 'merchant' },
+		{ header: 'Tags', key: 'tags' },
+		{ header: 'Status', key: 'status' },
+		{ header: 'Transfer account', key: 'counterpart' }
 	];
 	sheet.addRows(rows.map(sanitizeRow));
 	const buffer = await workbook.xlsx.writeBuffer();
