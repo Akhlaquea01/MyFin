@@ -235,7 +235,7 @@ export function InvestmentsPage() {
 		}
 		try {
 			await InvestmentHoldingRepository.softDelete(key, holding.id);
-			// Holdings have no Trash entry of their own — an in-toast undo is the way back.
+			// The toast is the quick way back; once it is gone, the holding waits in Trash.
 			toast.success(`${holding.name} deleted`, {
 				action: {
 					label: 'Undo',

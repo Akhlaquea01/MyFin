@@ -263,7 +263,12 @@ export function BudgetsPage() {
 				action: {
 					label: 'Undo',
 					onClick: () => {
-						void BudgetRepository.restore(key, budget.id).then(refresh);
+						void BudgetRepository.restore(key, budget.id)
+							.then(refresh)
+							// e.g. a new budget for the same category was added after the delete.
+							.catch((err) =>
+								toast.error(err instanceof Error ? err.message : 'Could not restore the budget.')
+							);
 					}
 				}
 			});

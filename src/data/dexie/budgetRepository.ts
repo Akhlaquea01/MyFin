@@ -1,7 +1,12 @@
 import { db, type BudgetRow, type BudgetItemRow } from './db';
 import { putEncrypted, getDecrypted, decryptRows } from './encryptedTable';
 import { deletedAtIndex, NOT_DELETED } from './indexable';
-import type { Budget, BudgetItem, BudgetPeriodType, BudgetRolloverMode } from '../../domain/entities';
+import type {
+	Budget,
+	BudgetItem,
+	BudgetPeriodType,
+	BudgetRolloverMode
+} from '../../domain/entities';
 
 export interface NewBudget {
 	categoryId: string;
@@ -51,8 +56,30 @@ export const BudgetRepository = {
 		await this.update(key, id, { deletedAt: Date.now() });
 	},
 
+	/**
+	 * Brings a deleted budget back - unless a newer live budget has taken its category in the
+	 * meantime. A category has one active budget (the create and edit forms enforce it); restoring
+	 * past that would leave two budgets counting the same spending twice.
+	 */
 	async restore(key: CryptoKey, id: string): Promise<void> {
+		const budget = await getDecrypted<BudgetRow, Budget>(db.budgets, key, id);
+		if (!budget) throw new Error(`Budget ${id} not found`);
+		const rivals = (await this.list(key)).filter(
+			(live) => live.id !== id && live.categoryId === budget.categoryId
+		);
+		if (rivals.length > 0) {
+			throw new Error(
+				'That category now has another active budget. Edit or delete that one first, then restore this.'
+			);
+		}
 		await this.update(key, id, { deletedAt: null });
+	},
+
+	/** Deleted budgets, most recently deleted first - what Trash offers back. */
+	async listDeleted(key: CryptoKey): Promise<Budget[]> {
+		const rows = await db.budgets.filter((row) => row.deletedAt !== NOT_DELETED).toArray();
+		const budgets = await decryptRows<BudgetRow, Budget>(key, rows);
+		return budgets.sort((a, b) => (b.deletedAt ?? 0) - (a.deletedAt ?? 0));
 	},
 
 	async getById(key: CryptoKey, id: string): Promise<Budget | null> {

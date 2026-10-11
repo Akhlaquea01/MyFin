@@ -17,6 +17,8 @@ import { decryptRows } from '../data/dexie/encryptedTable';
 import { NOT_DELETED } from '../data/dexie/indexable';
 import { AccountRepository } from '../data/dexie/accountRepository';
 import { SavingsGoalRepository } from '../data/dexie/savingsGoalRepository';
+import { BudgetRepository } from '../data/dexie/budgetRepository';
+import { InvestmentHoldingRepository, LiabilityRepository } from '../data/dexie/wealthRepository';
 import { TransactionRepository } from '../data/dexie/transactionRepository';
 import {
 	CategorizationRuleRepository,
@@ -32,10 +34,14 @@ import {
 import { TransactionEngine } from '../domain/transactions/transactionEngine';
 import { formatTransactionLabel } from '../domain/transactions/transactionLabel';
 import { useSession } from '../context/SessionContext';
+import { INVESTMENT_TYPE_LABELS } from '../domain/wealth/investmentTypeLabels';
 import type {
 	Account,
+	Budget,
 	CategorizationRule,
 	Category,
+	InvestmentHolding,
+	Liability,
 	Merchant,
 	Person,
 	PersonLoan,
@@ -44,6 +50,13 @@ import type {
 	Transaction
 } from '../domain/entities';
 import { buildCategoryLabels } from '../domain/categories/categoryHierarchy';
+
+function formatMoney(paise: number): string {
+	return (paise / 100).toLocaleString(undefined, {
+		minimumFractionDigits: 2,
+		maximumFractionDigits: 2
+	});
+}
 
 // User Story 2 (P2): trash/undo for soft-deleted records (FR-014, Constitution Principle VI).
 export function TrashPage() {
@@ -58,6 +71,9 @@ export function TrashPage() {
 	const [people, setPeople] = useState<Person[]>([]);
 	const [deletedLoans, setDeletedLoans] = useState<PersonLoan[]>([]);
 	const [deletedRepayments, setDeletedRepayments] = useState<LoanRepayment[]>([]);
+	const [deletedHoldings, setDeletedHoldings] = useState<InvestmentHolding[]>([]);
+	const [deletedLiabilities, setDeletedLiabilities] = useState<Liability[]>([]);
+	const [deletedBudgets, setDeletedBudgets] = useState<Budget[]>([]);
 	const [merchants, setMerchants] = useState<Merchant[]>([]);
 	const [categories, setCategories] = useState<Category[]>([]);
 	const [loading, setLoading] = useState(true);
@@ -75,7 +91,10 @@ export function TrashPage() {
 				repaymentRows,
 				allMerchants,
 				allCategories,
-				allPeople
+				allPeople,
+				holdings,
+				liabilities,
+				budgets
 			] = await Promise.all([
 				db.accounts.filter((r) => r.deletedAt !== NOT_DELETED).toArray(),
 				db.transactions.filter((r) => r.deletedAt !== NOT_DELETED).toArray(),
@@ -86,7 +105,10 @@ export function TrashPage() {
 				db.personLoanRepayments.filter((r) => r.deletedAt !== NOT_DELETED).toArray(),
 				MerchantRepository.list(key),
 				CategoryRepository.list(key),
-				PersonRepository.list(key)
+				PersonRepository.list(key),
+				InvestmentHoldingRepository.listDeleted(key),
+				LiabilityRepository.listDeleted(key),
+				BudgetRepository.listDeleted(key)
 			]);
 			setDeletedAccounts(await decryptRows<AccountRow, Account>(key, accountRows));
 			setDeletedTransactions(await decryptRows<TransactionRow, Transaction>(key, transactionRows));
@@ -97,6 +119,9 @@ export function TrashPage() {
 			setDeletedRepayments(
 				await decryptRows<PersonLoanRepaymentRow, LoanRepayment>(key, repaymentRows)
 			);
+			setDeletedHoldings(holdings);
+			setDeletedLiabilities(liabilities);
+			setDeletedBudgets(budgets);
 			setMerchants(allMerchants);
 			setCategories(allCategories);
 			setPeople(allPeople);
@@ -166,6 +191,27 @@ export function TrashPage() {
 
 	async function restoreRepayment(repayment: LoanRepayment) {
 		await LoanRepaymentRepository.restore(key, repayment.id);
+		await refresh();
+	}
+
+	async function restoreHolding(holding: InvestmentHolding) {
+		await InvestmentHoldingRepository.restore(key, holding.id);
+		await refresh();
+	}
+
+	async function restoreLiability(liability: Liability) {
+		await LiabilityRepository.restore(key, liability.id);
+		await refresh();
+	}
+
+	async function restoreBudget(budget: Budget) {
+		try {
+			await BudgetRepository.restore(key, budget.id);
+		} catch (err) {
+			// e.g. a newer budget now covers the same category.
+			toast.error(err instanceof Error ? err.message : 'Could not restore this budget.');
+			return;
+		}
 		await refresh();
 	}
 
@@ -352,6 +398,76 @@ export function TrashPage() {
 											{repayment.date} · {(repayment.amount / 100).toFixed(2)}
 										</span>
 										<Button variant="link" size="sm" onClick={() => restoreRepayment(repayment)}>
+											Restore
+										</Button>
+									</div>
+								))}
+							</div>
+						)}
+					</section>
+
+					<section>
+						<h2 className="mb-2 text-sm font-medium text-muted-foreground">Investments</h2>
+						{deletedHoldings.length === 0 ? (
+							<EmptyTrashCard />
+						) : (
+							<div className="flex flex-col gap-2">
+								{deletedHoldings.map((holding) => (
+									<div
+										key={holding.id}
+										className="flex items-center justify-between rounded-lg border px-4 py-2"
+									>
+										<span className="text-sm">
+											{holding.name} · {INVESTMENT_TYPE_LABELS[holding.type] ?? holding.type}
+										</span>
+										<Button variant="link" size="sm" onClick={() => restoreHolding(holding)}>
+											Restore
+										</Button>
+									</div>
+								))}
+							</div>
+						)}
+					</section>
+
+					<section>
+						<h2 className="mb-2 text-sm font-medium text-muted-foreground">Liabilities</h2>
+						{deletedLiabilities.length === 0 ? (
+							<EmptyTrashCard />
+						) : (
+							<div className="flex flex-col gap-2">
+								{deletedLiabilities.map((liability) => (
+									<div
+										key={liability.id}
+										className="flex items-center justify-between rounded-lg border px-4 py-2"
+									>
+										<span className="text-sm">
+											{liability.name} · {formatMoney(liability.outstandingBalance)} owed
+										</span>
+										<Button variant="link" size="sm" onClick={() => restoreLiability(liability)}>
+											Restore
+										</Button>
+									</div>
+								))}
+							</div>
+						)}
+					</section>
+
+					<section>
+						<h2 className="mb-2 text-sm font-medium text-muted-foreground">Budgets</h2>
+						{deletedBudgets.length === 0 ? (
+							<EmptyTrashCard />
+						) : (
+							<div className="flex flex-col gap-2">
+								{deletedBudgets.map((budget) => (
+									<div
+										key={budget.id}
+										className="flex items-center justify-between rounded-lg border px-4 py-2"
+									>
+										<span className="text-sm">
+											{categoryName(budget.categoryId)} · {budget.periodType} ·{' '}
+											{formatMoney(budget.amount)}
+										</span>
+										<Button variant="link" size="sm" onClick={() => restoreBudget(budget)}>
 											Restore
 										</Button>
 									</div>

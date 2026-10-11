@@ -187,8 +187,7 @@ export function LiabilitiesPage() {
 	async function remove(liability: Liability) {
 		try {
 			await LiabilityRepository.softDelete(key, liability.id);
-			// Liabilities have no Trash entry of their own to recover this from — an in-toast
-			// undo is the only way back.
+			// The toast is the quick way back; once it is gone, the entry waits in Trash.
 			toast.success(`${liability.name} deleted`, {
 				action: {
 					label: 'Undo',

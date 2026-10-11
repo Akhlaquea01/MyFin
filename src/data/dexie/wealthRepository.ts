@@ -82,6 +82,15 @@ export const InvestmentHoldingRepository = {
 		await this.update(key, id, { deletedAt: null });
 	},
 
+	/** Deleted holdings, most recently deleted first - what Trash offers back. */
+	async listDeleted(key: CryptoKey): Promise<InvestmentHolding[]> {
+		const rows = await db.investmentHoldings
+			.filter((row) => row.deletedAt !== NOT_DELETED)
+			.toArray();
+		const holdings = await decryptRows<InvestmentHoldingRow, InvestmentHolding>(key, rows);
+		return holdings.sort((a, b) => (b.deletedAt ?? 0) - (a.deletedAt ?? 0));
+	},
+
 	async list(key: CryptoKey): Promise<InvestmentHolding[]> {
 		const rows = await db.investmentHoldings
 			.filter((row) => row.deletedAt === NOT_DELETED)
@@ -231,6 +240,13 @@ export const LiabilityRepository = {
 
 	async restore(key: CryptoKey, id: string): Promise<void> {
 		await this.update(key, id, { deletedAt: null });
+	},
+
+	/** Deleted liabilities, most recently deleted first - what Trash offers back. */
+	async listDeleted(key: CryptoKey): Promise<Liability[]> {
+		const rows = await db.liabilities.filter((row) => row.deletedAt !== NOT_DELETED).toArray();
+		const liabilities = await decryptRows<LiabilityRow, Liability>(key, rows);
+		return liabilities.sort((a, b) => (b.deletedAt ?? 0) - (a.deletedAt ?? 0));
 	},
 
 	async list(key: CryptoKey): Promise<Liability[]> {
