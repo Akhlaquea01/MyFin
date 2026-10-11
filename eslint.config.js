@@ -13,7 +13,9 @@ export default defineConfig(
 	includeIgnoreFile(gitignorePath),
 	// `.claude/worktrees/**` holds full checkouts of this repo created for background tasks;
 	// linting them duplicates every error and breaks typed linting (multiple tsconfig roots).
-	{ ignores: ['scripts/**', '.claude/worktrees/**', 'dev-dist/**'] },
+	// `android/**` is the Capacitor project: Java/Gradle plus a synced copy of the built web bundle,
+	// and its own nested .gitignore is not read by `includeIgnoreFile` above.
+	{ ignores: ['scripts/**', '.claude/worktrees/**', 'dev-dist/**', 'android/**'] },
 	js.configs.recommended,
 	ts.configs.recommended,
 	reactRefresh.configs.vite,

@@ -67,7 +67,12 @@ function cspPlugin(): Plugin {
 	};
 }
 
-export default defineConfig({
+// `vite build --mode capacitor` is the Android build (see ANDROID_APK_BUILD.md). The APK bundles
+// every asset itself, so the PWA layer is switched off: a service worker would live in the
+// WebView's persistent storage across APK updates and keep serving the previous version's
+// precached UI until the user accepted an update prompt. `virtual:pwa-register/react` still
+// resolves when the plugin is disabled (to a no-op), so no app code needs to know.
+export default defineConfig(({ mode }) => ({
 	define: {
 		__APP_VERSION__: JSON.stringify(pkg.version)
 	},
@@ -76,6 +81,7 @@ export default defineConfig({
 		react(),
 		tailwindcss(),
 		VitePWA({
+			disable: mode === 'capacitor',
 			registerType: 'prompt',
 			manifest: {
 				name: 'Personal Finance Manager',
@@ -156,4 +162,4 @@ export default defineConfig({
 			}
 		]
 	}
-});
+}));

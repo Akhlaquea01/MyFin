@@ -9,5 +9,8 @@ bun.lockb
 /public/
 components.json
 
+# Capacitor's generated Android project (Java/Gradle/XML + a synced copy of the web bundle)
+/android/
+
 # Full repo checkouts created for background tasks
 .claude/worktrees

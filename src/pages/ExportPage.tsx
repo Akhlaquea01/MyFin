@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { saveAs } from 'file-saver';
+import { saveFile } from '../lib/saveFile';
 import { Download, FileText, Upload, CheckCircle2, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '../components/ui/button';
@@ -63,7 +63,7 @@ export function ExportPage() {
 			const template = await buildDataTemplate(key);
 			const blob = exportDataTemplateToJsonBlob(template);
 			const date = new Date().toISOString().slice(0, 10);
-			saveAs(blob, `myfin-template-${date}.json`);
+			await saveFile(blob, `myfin-template-${date}.json`);
 			toast.success('Exported complete data template');
 		} catch (err) {
 			toast.error('Failed to export data template');
@@ -72,10 +72,14 @@ export function ExportPage() {
 		}
 	}
 
-	function handleDownloadSampleTemplate() {
+	async function handleDownloadSampleTemplate() {
 		const blob = exportDataTemplateToJsonBlob(SAMPLE_DATA_TEMPLATE);
-		saveAs(blob, 'myfin-sample-template.json');
-		toast.success('Downloaded sample data template');
+		try {
+			await saveFile(blob, 'myfin-sample-template.json');
+			toast.success('Downloaded sample data template');
+		} catch (err) {
+			toast.error(err instanceof Error ? err.message : 'Could not download sample template.');
+		}
 	}
 
 	async function handleImportTemplateFile(event: React.ChangeEvent<HTMLInputElement>) {
@@ -114,7 +118,7 @@ export function ExportPage() {
 			}
 			const blob = format === 'csv' ? exportToCsvBlob(rows) : await exportToXlsxBlob(rows);
 			const date = new Date().toISOString().slice(0, 10);
-			saveAs(blob, `myfin-transactions-${date}.${format}`);
+			await saveFile(blob, `myfin-transactions-${date}.${format}`);
 			toast.success(`Exported ${rows.length} transaction(s)`);
 		} catch (err) {
 			toast.error(err instanceof Error ? err.message : 'Could not export transactions.');
@@ -146,7 +150,7 @@ export function ExportPage() {
 			// for every user who never generates a report.
 			const { buildReportPdfBlob, reportPdfFilename } = await import('../data/io/reportPdfExport');
 			const blob = buildReportPdfBlob(summary);
-			saveAs(blob, reportPdfFilename(summary));
+			await saveFile(blob, reportPdfFilename(summary));
 			toast.success(`Downloaded report for ${summary.periodLabel}`);
 		} catch (err) {
 			toast.error(err instanceof Error ? err.message : 'Could not download report PDF.');

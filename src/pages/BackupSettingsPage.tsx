@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { saveAs } from 'file-saver';
+import { saveFile } from '../lib/saveFile';
 import { DatabaseBackup, ShieldAlert, Trash2, Upload, HelpCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '../components/ui/button';
@@ -186,7 +186,7 @@ export function BackupSettingsPage() {
 			const backup = await createBackup(key, profile.encryptionSalt, backupPin);
 			const blob = new Blob([JSON.stringify(backup)], { type: 'application/json' });
 			const date = new Date().toISOString().slice(0, 10);
-			saveAs(blob, `myfin-backup-${date}.json`);
+			await saveFile(blob, `myfin-backup-${date}.json`);
 			setAutoBackup((s) => ({ ...s, lastBackupAt: Date.now() }));
 			setBackupPin('');
 			toast.success('Backup created');
