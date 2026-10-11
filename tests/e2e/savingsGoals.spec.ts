@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
+import { todayLocalISO } from '../../src/domain/shared/dateMath';
 
 // Feature 003 (Savings Goals), User Stories 1-3, plus Scenario 6 (delete/restore).
 // Dates are computed relative to "today" at test-run time so the test never goes stale.
@@ -16,7 +17,9 @@ function monthsFromNow(n: number): string {
 	d.setUTCMonth(d.getUTCMonth() + n);
 	return isoDate(d);
 }
-const TODAY = isoDate(new Date());
+// Local calendar date, not UTC: the app rejects a contribution dated after the local "today", and
+// the UTC date is already tomorrow for the evening hours in zones behind UTC.
+const TODAY = todayLocalISO();
 
 async function createGoal(page: Page, name: string, targetAmount: string, targetDate?: string) {
 	await page.getByRole('button', { name: 'Add goal' }).click();

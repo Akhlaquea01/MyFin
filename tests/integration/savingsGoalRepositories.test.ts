@@ -5,6 +5,7 @@ import {
 	GoalContributionRepository
 } from '../../src/data/dexie/savingsGoalRepository';
 import { deriveEncryptionKey, randomSaltBase64 } from '../../src/data/crypto/cryptoService';
+import { addDaysISO, todayLocalISO } from '../../src/domain/shared/dateMath';
 
 describe('SavingsGoalRepository + GoalContributionRepository against Dexie', () => {
 	let key: CryptoKey;
@@ -65,7 +66,9 @@ describe('SavingsGoalRepository + GoalContributionRepository against Dexie', () 
 			targetAmount: 800000,
 			targetDate: null
 		});
-		const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+		// Local calendar, matching the repository's validation: a UTC "tomorrow" equals today's
+		// local date for the first hours of the day in zones ahead of UTC.
+		const tomorrow = addDaysISO(todayLocalISO(), 1);
 		await expect(
 			GoalContributionRepository.create(key, { goalId: goal.id, amount: 1000, date: tomorrow })
 		).rejects.toThrow();
