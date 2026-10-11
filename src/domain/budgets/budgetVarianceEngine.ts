@@ -1,6 +1,11 @@
 import { BudgetRepository } from '../../data/dexie/budgetRepository';
 import { CategoryRepository } from '../../data/dexie/categoryRepository';
-import { ensureBudgetItemForPeriod, getCurrentPeriodRange, recalcActualAmount } from './budgetEngine';
+import {
+	ensureBudgetItemForPeriod,
+	getCurrentPeriodRange,
+	recalcActualAmount
+} from './budgetEngine';
+import { ancestorIds } from '../categories/categoryHierarchy';
 import type { Budget } from '../entities';
 
 export type VarianceStatus = 'unbudgeted' | 'under' | 'on-track' | 'over';
@@ -26,6 +31,14 @@ function monthToReferenceDate(month: string): Date {
  * that don't — so a category with real spend but no budget is reported as `'unbudgeted'` with
  * its actual spend, never silently folded into zero-variance or omitted. A category with a
  * budget and zero actual transactions is still included (full under-spend), never omitted.
+ *
+ * A budget covers its subcategories (see `recalcActualAmount`), so:
+ *  - a budgeted category's actual includes everything filed under its subcategories;
+ *  - a category with no budget of its own, but a budgeted ANCESTOR, is not "unbudgeted" — its spend
+ *    is already inside that ancestor's row, and listing it again as unbudgeted would both
+ *    contradict that and show the same money twice;
+ *  - a category that is genuinely unbudgeted reports only what is filed directly under it, since
+ *    each of its subcategories gets a row of its own.
  */
 export async function computeVarianceReport(
 	key: CryptoKey,
@@ -36,6 +49,11 @@ export async function computeVarianceReport(
 		CategoryRepository.list(key)
 	]);
 	const budgetByCategory = new Map<string, Budget>(budgets.map((b) => [b.categoryId, b]));
+	const coveredByAncestorBudget = new Set(
+		categories
+			.filter((c) => ancestorIds(categories, c.id).some((id) => budgetByCategory.has(id)))
+			.map((c) => c.id)
+	);
 
 	const results: CategoryVariance[] = [];
 	for (const month of months) {
@@ -63,7 +81,11 @@ export async function computeVarianceReport(
 			} else {
 				// No budget covers this category this month — only worth a row if it actually has
 				// spend, or every never-budgeted category would clutter every month's report.
-				const actualMinor = await recalcActualAmount(key, category.id, periodStart, periodEnd);
+				if (coveredByAncestorBudget.has(category.id)) continue;
+				const actualMinor = await recalcActualAmount(key, category.id, periodStart, periodEnd, {
+					includeSubcategories: false,
+					categories
+				});
 				if (actualMinor === 0) continue;
 				results.push({
 					categoryId: category.id,

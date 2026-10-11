@@ -35,6 +35,7 @@ import type {
 	Transaction,
 	TransactionSplit
 } from '../domain/entities';
+import { categoryOptions } from '../domain/categories/categoryHierarchy';
 
 type Kind = 'loading' | 'regular' | 'transfer' | 'loan';
 
@@ -337,9 +338,9 @@ export function EditTransactionDialog({
 										</SelectTrigger>
 										<SelectContent>
 											<SelectItem value={UNCATEGORIZED_CATEGORY_ID}>Uncategorized</SelectItem>
-											{categories.map((c) => (
-												<SelectItem key={c.id} value={c.id}>
-													{c.name}
+											{categoryOptions(categories).map(({ id, label }) => (
+												<SelectItem key={id} value={id}>
+													{label}
 												</SelectItem>
 											))}
 										</SelectContent>

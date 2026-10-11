@@ -31,6 +31,8 @@ import { CategoryRepository } from '../data/dexie/categoryRepository';
 import { RecurringRepository } from '../data/dexie/recurringRepository';
 import type { Account, Category, RecurringFrequency, RecurringRule } from '../domain/entities';
 import { isPositiveMoney, parseMoneyOrZero, formatMinorUnits } from '../domain/shared/money';
+import { categoryOptions } from '../domain/categories/categoryHierarchy';
+import { buildCategoryLabels } from '../domain/categories/categoryHierarchy';
 
 /**
  * Valid `dayOfPeriod` range per frequency, matching what recurringEngine actually does with
@@ -118,8 +120,9 @@ export function RecurringPage() {
 	function accountName(id: string): string {
 		return accounts.find((a) => a.id === id)?.name ?? id;
 	}
+	const categoryLabels = buildCategoryLabels(categories);
 	function categoryName(id: string): string {
-		return categories.find((c) => c.id === id)?.name ?? id;
+		return categoryLabels.get(id) ?? id;
 	}
 
 	async function onSubmit(values: RuleFormValues) {
@@ -208,11 +211,11 @@ export function RecurringPage() {
 														<SelectValue placeholder="Choose…" />
 													</SelectTrigger>
 													<SelectContent>
-														{categories.map((c) => (
-															<SelectItem key={c.id} value={c.id}>
-																{c.name}
-															</SelectItem>
-														))}
+														{categoryOptions(categories).map(({ id, label }) => (
+<SelectItem key={id} value={id}>
+{label}
+</SelectItem>
+))}
 													</SelectContent>
 												</Select>
 											)}

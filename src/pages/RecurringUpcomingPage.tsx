@@ -7,6 +7,7 @@ import { CategoryRepository } from '../data/dexie/categoryRepository';
 import { RecurringRepository, ExpectedEventRepository } from '../data/dexie/recurringRepository';
 import { generateExpectedEvents, markMissedPastDue } from '../domain/recurring/recurringEngine';
 import type { Category, ExpectedEvent, ExpectedEventStatus } from '../domain/entities';
+import { buildCategoryLabels } from '../domain/categories/categoryHierarchy';
 
 const STATUS_VARIANT: Record<ExpectedEventStatus, 'outline' | 'secondary' | 'destructive'> = {
 	pending: 'outline',
@@ -51,7 +52,7 @@ export function RecurringUpcomingPage() {
 
 	function categoryNameForEvent(event: ExpectedEvent): string {
 		const categoryId = ruleCategoryByRuleId[event.recurringRuleId];
-		return categories.find((c) => c.id === categoryId)?.name ?? 'Recurring';
+		return buildCategoryLabels(categories).get(categoryId) ?? 'Recurring';
 	}
 
 	return (

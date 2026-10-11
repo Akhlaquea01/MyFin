@@ -17,6 +17,7 @@ import { recordLiabilityPayment } from '../domain/wealth/wealthEngine';
 import { formatMinorUnits, isPositiveMoney, parseMoneyOrZero } from '../domain/shared/money';
 import { todayLocalISO } from '../domain/shared/dateMath';
 import type { Account, Category, Liability } from '../domain/entities';
+import { categoryOptions } from '../domain/categories/categoryHierarchy';
 
 const NO_CATEGORY = '__none__';
 
@@ -150,9 +151,9 @@ export function LiabilityPaymentDialog({
 							</SelectTrigger>
 							<SelectContent>
 								<SelectItem value={NO_CATEGORY}>None</SelectItem>
-								{categories.map((c) => (
-									<SelectItem key={c.id} value={c.id}>
-										{c.name}
+								{categoryOptions(categories).map(({ id, label }) => (
+									<SelectItem key={id} value={id}>
+										{label}
 									</SelectItem>
 								))}
 							</SelectContent>

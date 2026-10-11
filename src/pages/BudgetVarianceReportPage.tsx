@@ -14,6 +14,7 @@ import {
 } from '../domain/budgets/budgetVarianceEngine';
 import type { Category } from '../domain/entities';
 import { formatMinorUnits } from '../domain/shared/money';
+import { buildCategoryLabels } from '../domain/categories/categoryHierarchy';
 
 const STATUS_LABELS: Record<VarianceStatus, string> = {
 	unbudgeted: 'Unbudgeted',
@@ -65,7 +66,7 @@ export function BudgetVarianceReportPage() {
 	const [loading, setLoading] = useState(true);
 
 	const categoryNameById = useMemo(
-		() => new Map(categories.map((c) => [c.id, c.name])),
+		() => buildCategoryLabels(categories),
 		[categories]
 	);
 

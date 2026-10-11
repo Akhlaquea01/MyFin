@@ -31,6 +31,8 @@ import { validateAttachmentFile, compressImage } from '../lib/imageAttachment';
 import type { Account, Category } from '../domain/entities';
 import { isPositiveMoney, parseMoneyOrZero } from '../domain/shared/money';
 import { todayLocalISO } from '../domain/shared/dateMath';
+import { categoryOptions } from '../domain/categories/categoryHierarchy';
+import { buildCategoryLabels } from '../domain/categories/categoryHierarchy';
 
 const formSchema = z.object({
 	accountId: z.string().min(1, 'Choose an account.'),
@@ -150,8 +152,8 @@ export function NewTransactionPage() {
 					{ notes, merchantName: name }
 				);
 				if (!result) return null;
-				const category = categories.find((c) => c.id === result.categoryId);
-				return category ? { categoryName: category.name, source: result.source } : null;
+				const label = buildCategoryLabels(categories).get(result.categoryId);
+				return label ? { categoryName: label, source: result.source } : null;
 			})()
 				.then((hint) => {
 					if (!cancelled) setAutoCategoryHint(hint);
@@ -351,9 +353,9 @@ export function NewTransactionPage() {
 													<SelectValue placeholder="Category…" />
 												</SelectTrigger>
 												<SelectContent>
-													{categories.map((c) => (
-														<SelectItem key={c.id} value={c.id}>
-															{c.name}
+													{categoryOptions(categories).map(({ id, label }) => (
+														<SelectItem key={id} value={id}>
+															{label}
 														</SelectItem>
 													))}
 												</SelectContent>

@@ -74,6 +74,7 @@ import type {
 	SavedFilterView
 } from '../domain/entities';
 import { SavedFilterViewRepository } from '../data/dexie/savedFilterViewRepository';
+import { buildCategoryLabels } from '../domain/categories/categoryHierarchy';
 
 function formatMoney(paise: number): string {
 	return (paise / 100).toLocaleString(undefined, {
@@ -247,13 +248,14 @@ export function TransactionsPage() {
 			if (ids.length === 0) return;
 			void (async () => {
 				const splitsByTx = await TransactionRepository.splitsByTransaction(key, ids);
+				const categoryLabels = buildCategoryLabels(categories);
 				const labels: Record<string, string> = {};
 				for (const id of ids) {
 					const splits = splitsByTx.get(id) ?? [];
 					if (splits.length > 1) labels[id] = `Split (${splits.length})`;
 					else if (splits.length === 0 || splits[0].categoryId === UNCATEGORIZED_CATEGORY_ID)
 						labels[id] = '';
-					else labels[id] = categories.find((c) => c.id === splits[0].categoryId)?.name ?? '';
+					else labels[id] = categoryLabels.get(splits[0].categoryId) ?? '';
 				}
 
 				const counterparts: Record<string, string> = {};

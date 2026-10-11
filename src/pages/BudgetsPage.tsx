@@ -41,6 +41,11 @@ import {
 } from '../domain/budgets/budgetEngine';
 import type { Budget, BudgetItem, BudgetPeriodType, Category } from '../domain/entities';
 import { isPositiveMoney, parseMoneyOrZero } from '../domain/shared/money';
+import { categoryOptions } from '../domain/categories/categoryHierarchy';
+import {
+	buildCategoryLabels,
+	categoryWithDescendantIds
+} from '../domain/categories/categoryHierarchy';
 
 const budgetSchema = z.object({
 	categoryId: z.string().min(1, 'Choose a category.'),
@@ -155,8 +160,15 @@ export function BudgetsPage() {
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [selectedMonth]);
 
+	const categoryLabels = buildCategoryLabels(categories);
 	function categoryName(id: string): string {
-		return categories.find((c) => c.id === id)?.name ?? id;
+		return categoryLabels.get(id) ?? id;
+	}
+	/** "Includes 3 subcategories" for a budget on a category that has any, else nothing. */
+	function subcategoryNote(id: string): string | undefined {
+		const count = categoryWithDescendantIds(categories, id).length - 1;
+		if (count <= 0) return undefined;
+		return `Includes ${count} ${count === 1 ? 'subcategory' : 'subcategories'}`;
 	}
 
 	async function onSubmit(values: BudgetFormValues) {
@@ -292,9 +304,9 @@ export function BudgetsPage() {
 												<SelectValue placeholder="Choose category…" />
 											</SelectTrigger>
 											<SelectContent>
-												{categories.map((c) => (
-													<SelectItem key={c.id} value={c.id}>
-														{c.name}
+												{categoryOptions(categories).map(({ id, label }) => (
+													<SelectItem key={id} value={id}>
+														{label}
 													</SelectItem>
 												))}
 											</SelectContent>
@@ -436,6 +448,11 @@ export function BudgetsPage() {
 									<CardContent className="flex flex-col gap-1 pt-6">
 										<div className="flex items-start justify-between">
 											<p className="text-sm font-medium">{categoryName(budget.categoryId)}</p>
+											{subcategoryNote(budget.categoryId) && (
+												<p className="text-xs text-muted-foreground">
+													{subcategoryNote(budget.categoryId)}
+												</p>
+											)}
 											{actions}
 										</div>
 										<p className="text-xs text-muted-foreground italic">
@@ -449,6 +466,7 @@ export function BudgetsPage() {
 							<BudgetProgressCard
 								key={budget.id}
 								categoryName={categoryName(budget.categoryId)}
+								note={subcategoryNote(budget.categoryId)}
 								item={item}
 								actions={actions}
 							/>
@@ -474,9 +492,9 @@ export function BudgetsPage() {
 											<SelectValue placeholder="Choose category…" />
 										</SelectTrigger>
 										<SelectContent>
-											{categories.map((c) => (
-												<SelectItem key={c.id} value={c.id}>
-													{c.name}
+											{categoryOptions(categories).map(({ id, label }) => (
+												<SelectItem key={id} value={id}>
+													{label}
 												</SelectItem>
 											))}
 										</SelectContent>

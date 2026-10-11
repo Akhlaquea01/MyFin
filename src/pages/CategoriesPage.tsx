@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { Controller, useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -57,8 +57,44 @@ export function CategoriesPage() {
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, []);
 
-	const topLevel = categories.filter((c) => c.parentId === null);
+	// A category whose parent no longer exists (deleted before subcategories were protected) is shown
+	// at the top level rather than vanishing — otherwise it stays in every picker with no way to
+	// reach or remove it.
+	const liveIds = new Set(categories.map((c) => c.id));
+	const topLevel = categories.filter((c) => c.parentId === null || !liveIds.has(c.parentId));
 	const childrenOf = (id: string) => categories.filter((c) => c.parentId === id);
+
+	/** One category and, indented below it, its subcategories — at any depth (an imported file can
+	 *  nest further than this page lets you create). */
+	function renderCategory(category: Category, depth: number): ReactNode {
+		const children = childrenOf(category.id);
+		return (
+			<div key={category.id}>
+				<div
+					className={
+						depth === 0
+							? 'flex items-center justify-between rounded-lg border bg-card px-4 py-2.5'
+							: 'flex items-center justify-between rounded-lg border px-4 py-2 text-sm'
+					}
+				>
+					<span className={depth === 0 ? 'font-medium' : undefined}>{category.name}</span>
+					<Button
+						variant="ghost"
+						size="icon-sm"
+						aria-label={`Delete ${category.name}`}
+						onClick={() => remove(category)}
+					>
+						<X className="text-muted-foreground" />
+					</Button>
+				</div>
+				{children.length > 0 && (
+					<div className="mt-2 ml-6 flex flex-col gap-2">
+						{children.map((child) => renderCategory(child, depth + 1))}
+					</div>
+				)}
+			</div>
+		);
+	}
 
 	async function onSubmit(values: CategoryFormValues) {
 		try {
@@ -76,6 +112,21 @@ export function CategoriesPage() {
 	}
 
 	async function remove(category: Category) {
+		// Deleting a parent used to leave its subcategories behind pointing at a parent that no longer
+		// exists: they vanished from this page (it only lists children under a visible parent) yet
+		// stayed in every picker, with no way left to reach or remove them. The subcategories have to
+		// go first, which also makes the cost of the deletion visible.
+		const subcategories = childrenOf(category.id);
+		if (subcategories.length > 0) {
+			toast.error(
+				`${category.name} still has ${subcategories.length} ${
+					subcategories.length === 1 ? 'subcategory' : 'subcategories'
+				} (${subcategories.map((c) => c.name).join(', ')}). Delete ${
+					subcategories.length === 1 ? 'it' : 'them'
+				} first.`
+			);
+			return;
+		}
 		const confirmed = window.confirm(`Remove the ${category.name} category? You can undo this right after.`);
 		if (!confirmed) return;
 		try {
@@ -162,41 +213,7 @@ export function CategoriesPage() {
 				</Card>
 			) : (
 				<div className="flex flex-col gap-3">
-					{topLevel.map((parent) => (
-						<div key={parent.id}>
-							<div className="flex items-center justify-between rounded-lg border bg-card px-4 py-2.5">
-								<span className="font-medium">{parent.name}</span>
-								<Button
-									variant="ghost"
-									size="icon-sm"
-									aria-label={`Delete ${parent.name}`}
-									onClick={() => remove(parent)}
-								>
-									<X className="text-muted-foreground" />
-								</Button>
-							</div>
-							{childrenOf(parent.id).length > 0 && (
-								<div className="mt-2 ml-6 flex flex-col gap-2">
-									{childrenOf(parent.id).map((child) => (
-										<div
-											key={child.id}
-											className="flex items-center justify-between rounded-lg border px-4 py-2 text-sm"
-										>
-											<span>{child.name}</span>
-											<Button
-												variant="ghost"
-												size="icon-sm"
-												aria-label={`Delete ${child.name}`}
-												onClick={() => remove(child)}
-											>
-												<X className="text-muted-foreground" />
-											</Button>
-										</div>
-									))}
-								</div>
-							)}
-						</div>
-					))}
+					{topLevel.map((category) => renderCategory(category, 0))}
 				</div>
 			)}
 		</div>

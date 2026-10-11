@@ -62,6 +62,7 @@ import type {
 	Transaction,
 	TransactionSplit
 } from '../domain/entities';
+import { categoryOptions } from '../domain/categories/categoryHierarchy';
 
 function formatMoney(paise: number): string {
 	return (paise / 100).toLocaleString(undefined, {
@@ -414,9 +415,9 @@ export function ReviewPage() {
 											</SelectTrigger>
 											<SelectContent>
 												<SelectItem value={UNCATEGORIZED_CATEGORY_ID}>Uncategorized</SelectItem>
-												{categories.map((c) => (
-													<SelectItem key={c.id} value={c.id}>
-														{c.name}
+												{categoryOptions(categories).map(({ id, label }) => (
+													<SelectItem key={id} value={id}>
+														{label}
 													</SelectItem>
 												))}
 											</SelectContent>

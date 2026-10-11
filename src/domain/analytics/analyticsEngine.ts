@@ -1,4 +1,5 @@
 import { CategoryRepository } from '../../data/dexie/categoryRepository';
+import { buildCategoryLabels, topLevelAncestorId } from '../categories/categoryHierarchy';
 import { TransactionRepository } from '../../data/dexie/transactionRepository';
 import { BudgetRepository, BudgetItemRepository } from '../../data/dexie/budgetRepository';
 import { NetWorthSnapshotRepository } from '../../data/dexie/wealthRepository';
@@ -37,14 +38,27 @@ export interface NetWorthTrendPoint {
 	netWorth: number;
 }
 
+export interface CategoryBreakdownOptions {
+	/**
+	 * Attribute each subcategory's spending to its top-level parent, so "Food" shows everything spent
+	 * on groceries, dining out and the rest as one figure (default false: each category on its own).
+	 */
+	rollUp?: boolean;
+}
+
 /**
  * Spending by category over [dateFrom, dateTo] (FR-035): sums the magnitude of negative
  * (expense) split amounts, joined against each split's transaction date.
+ *
+ * A subcategory is labelled with its full path ("Food › Groceries"), so two parents that each have
+ * an "Other" child no longer produce two indistinguishable "Other" bars. With `rollUp`, spending
+ * is grouped under the top-level ancestor instead and labelled with just its name.
  */
 export async function categoryBreakdown(
 	key: CryptoKey,
 	dateFrom: string,
-	dateTo: string
+	dateTo: string,
+	options: CategoryBreakdownOptions = {}
 ): Promise<CategoryBreakdownItem[]> {
 	const [categories, transactions] = await Promise.all([
 		CategoryRepository.list(key),
@@ -57,7 +71,7 @@ export async function categoryBreakdown(
 		key,
 		transactions.map((t) => t.id)
 	);
-	const categoryNameById = new Map(categories.map((c) => [c.id, c.name]));
+	const labels = buildCategoryLabels(categories);
 
 	const totals = new Map<string, number>();
 	for (const tx of transactions) {
@@ -68,14 +82,17 @@ export async function categoryBreakdown(
 		if (tx.type === 'transfer') continue;
 		for (const split of splitsByTx.get(tx.id) ?? []) {
 			if (split.amount >= 0) continue; // only expense splits count as "spending"
-			totals.set(split.categoryId, (totals.get(split.categoryId) ?? 0) - split.amount);
+			const target = options.rollUp
+				? topLevelAncestorId(categories, split.categoryId)
+				: split.categoryId;
+			totals.set(target, (totals.get(target) ?? 0) - split.amount);
 		}
 	}
 
 	return [...totals.entries()]
 		.map(([categoryId, total]) => ({
 			categoryId,
-			categoryName: categoryNameById.get(categoryId) ?? 'Uncategorized',
+			categoryName: labels.get(categoryId) ?? 'Uncategorized',
 			total
 		}))
 		.sort((a, b) => b.total - a.total);
@@ -139,7 +156,7 @@ export async function budgetPerformance(
 		BudgetRepository.list(key),
 		CategoryRepository.list(key)
 	]);
-	const categoryNameById = new Map(categories.map((c) => [c.id, c.name]));
+	const categoryNameById = buildCategoryLabels(categories);
 
 	// One round of lookups in parallel rather than a sequential await per budget.
 	const itemsPerBudget = await Promise.all(

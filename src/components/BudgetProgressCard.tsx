@@ -15,10 +15,13 @@ function formatMoney(paise: number): string {
 /** Actual-vs-planned progress for one budget's current period (User Story 5, FR-024/027). */
 export function BudgetProgressCard({
 	categoryName,
+	note,
 	item,
 	actions
 }: {
 	categoryName: string;
+	/** Small line under the name, e.g. "Includes 2 subcategories". */
+	note?: string;
 	item: BudgetItem;
 	/** Optional per-budget actions (Edit/Delete, spec 017 FR-011/FR-013) rendered in the header. */
 	actions?: ReactNode;
@@ -43,6 +46,7 @@ export function BudgetProgressCard({
 				</div>
 			</CardHeader>
 			<CardContent>
+				{note && <p className="mb-2 text-xs text-muted-foreground">{note}</p>}
 				<div className="mb-2 flex items-baseline justify-between text-sm">
 					<span className="font-mono">{formatMoney(item.actualAmount)}</span>
 					<span className="text-muted-foreground">of {formatMoney(item.plannedAmount)}</span>

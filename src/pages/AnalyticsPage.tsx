@@ -16,6 +16,7 @@ import { toast } from 'sonner';
 import { Badge } from '../components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { ChartCanvas } from '../components/ChartCanvas';
+import { CategoryRepository } from '../data/dexie/categoryRepository';
 import { DateRangeSelector, type DateRange } from '../components/DateRangeSelector';
 import { useSession } from '../context/SessionContext';
 import { getChartPalette, getAxisColor, getGridColor, withAlpha } from '../lib/chartColors';
@@ -79,6 +80,10 @@ export function AnalyticsPage() {
 	const [range, setRange] = useState<DateRange>(defaultRange);
 	const [loading, setLoading] = useState(true);
 	const [categories, setCategories] = useState<CategoryBreakdownItem[]>([]);
+	// Offered only when there is a hierarchy to group by. Off by default: each category on its own,
+	// labelled with its full path, is what this chart has always shown.
+	const [hasSubcategories, setHasSubcategories] = useState(false);
+	const [rollUp, setRollUp] = useState(false);
 	const [trend, setTrend] = useState<MonthlyTrendPoint[]>([]);
 	const [cashFlow, setCashFlow] = useState<CashFlowPoint[]>([]);
 	const [budgets, setBudgets] = useState<BudgetPerformanceItem[]>([]);
@@ -88,7 +93,7 @@ export function AnalyticsPage() {
 		let cancelled = false;
 		setLoading(true);
 		void Promise.all([
-			categoryBreakdown(key, range.from, range.to),
+			categoryBreakdown(key, range.from, range.to, { rollUp }),
 			incomeExpenseTrend(key, range.from, range.to),
 			cashFlowTrend(key, range.from, range.to),
 			budgetPerformance(key, range.from, range.to),
@@ -113,7 +118,13 @@ export function AnalyticsPage() {
 		return () => {
 			cancelled = true;
 		};
-	}, [key, range]);
+	}, [key, range, rollUp]);
+
+	useEffect(() => {
+		void CategoryRepository.list(key)
+			.then((all) => setHasSubcategories(all.some((c) => c.parentId !== null)))
+			.catch(() => setHasSubcategories(false));
+	}, [key]);
 
 	return (
 		<div className="mx-auto max-w-5xl px-4 py-8 sm:px-6">
@@ -131,6 +142,16 @@ export function AnalyticsPage() {
 							<CardTitle className="flex items-center gap-2 text-base">
 								<PieChart className="size-4 text-primary" /> Spending by category
 							</CardTitle>
+							{hasSubcategories && (
+								<label className="mt-1 flex items-center gap-2 text-xs font-normal text-muted-foreground">
+									<input
+										type="checkbox"
+										checked={rollUp}
+										onChange={(e) => setRollUp(e.target.checked)}
+									/>
+									Group subcategories under their parent
+								</label>
+							)}
 						</CardHeader>
 						<CardContent>
 							{categories.length === 0 ? (

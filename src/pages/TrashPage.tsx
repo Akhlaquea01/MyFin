@@ -43,6 +43,7 @@ import type {
 	SavingsGoal,
 	Transaction
 } from '../domain/entities';
+import { buildCategoryLabels } from '../domain/categories/categoryHierarchy';
 
 // User Story 2 (P2): trash/undo for soft-deleted records (FR-014, Constitution Principle VI).
 export function TrashPage() {
@@ -177,8 +178,9 @@ export function TrashPage() {
 	function merchantName(id: string): string {
 		return merchants.find((m) => m.id === id)?.name ?? id;
 	}
+	const categoryLabels = buildCategoryLabels(categories);
 	function categoryName(id: string): string {
-		return categories.find((c) => c.id === id)?.name ?? id;
+		return categoryLabels.get(id) ?? id;
 	}
 
 	return (

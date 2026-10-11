@@ -1,9 +1,17 @@
 import { db } from '../../data/dexie/db';
 import { decryptRows } from '../../data/dexie/encryptedTable';
 import { BudgetItemRepository, BudgetRepository } from '../../data/dexie/budgetRepository';
+import { CategoryRepository } from '../../data/dexie/categoryRepository';
+import { categoryWithDescendantIds } from '../categories/categoryHierarchy';
 import type { TransactionSplitRow } from '../../data/dexie/db';
 import { NOT_DELETED } from '../../data/dexie/indexable';
-import type { Budget, BudgetItem, BudgetPeriodType, TransactionSplit } from '../../domain/entities';
+import type {
+	Budget,
+	BudgetItem,
+	BudgetPeriodType,
+	Category,
+	TransactionSplit
+} from '../../domain/entities';
 
 /** How many empty periods to walk back through when looking for a rollover source, scaled by
  *  period type so both bound to roughly the same two years — a flat cap applied to yearly
@@ -56,17 +64,32 @@ export function getPreviousPeriodRange(
 	return getCurrentPeriodRange('monthly', prevMonthDate);
 }
 
+export interface ActualAmountOptions {
+	/**
+	 * Count spending in the category's subcategories too (default true). A budget on "Food" is a
+	 * budget for food — "Groceries" and "Dining out" included. Counting only entries filed directly
+	 * under "Food" made a parent budget show almost nothing spent while the money went out under its
+	 * children, which is where nearly all of it is filed in practice.
+	 */
+	includeSubcategories?: boolean;
+	/** The live categories, when the caller already has them (saves a read per call). */
+	categories?: Category[];
+}
+
 /**
  * Sums how much was actually spent in `categoryId` within [periodStart, periodEnd]
  * (FR-024): the magnitude of net negative (expense) split amounts on non-deleted
  * transactions. Income booked to the same category nets against spend rather than
  * inflating it, but the result never reports "negative spending".
+ *
+ * By default this includes every subcategory of `categoryId` (see `ActualAmountOptions`).
  */
 export async function recalcActualAmount(
 	key: CryptoKey,
 	categoryId: string,
 	periodStart: string,
-	periodEnd: string
+	periodEnd: string,
+	options: ActualAmountOptions = {}
 ): Promise<number> {
 	// Narrow on the `date` index first, then join. This previously loaded every split ever
 	// recorded for the category and issued one `db.transactions.get(id)` per split — so the cost
@@ -79,9 +102,17 @@ export async function recalcActualAmount(
 		.toArray();
 	if (txRows.length === 0) return 0;
 
+	const categoryIds =
+		options.includeSubcategories === false
+			? [categoryId]
+			: categoryWithDescendantIds(
+					options.categories ?? (await CategoryRepository.list(key)),
+					categoryId
+				);
+
 	const idsInPeriod = new Set(txRows.map((r) => r.id));
 	const splitRows = (
-		await db.transactionSplits.where('categoryId').equals(categoryId).toArray()
+		await db.transactionSplits.where('categoryId').anyOf(categoryIds).toArray()
 	).filter((row) => idsInPeriod.has(row.transactionId));
 	if (splitRows.length === 0) return 0;
 

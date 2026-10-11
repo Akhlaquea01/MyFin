@@ -15,6 +15,7 @@ import {
 } from '../../data/dexie/personLoanRepository';
 import { computePendingBalance, findOverduePersonLoans } from '../personLoans/loanProgress';
 import type { NotificationCandidate } from './types';
+import { buildCategoryLabels } from '../categories/categoryHierarchy';
 
 /** Matches RecurringUpcomingPage's own lookahead horizon, so this check sees the same
  *  expected events that page would generate on its own next load. */
@@ -54,7 +55,7 @@ export async function runNotificationCheck(
 
 	const dispatched: NotificationCandidate[] = [];
 	const categories = await CategoryRepository.list(key);
-	const categoryNameById = new Map(categories.map((c) => [c.id, c.name]));
+	const categoryNameById = buildCategoryLabels(categories);
 
 	const activeRules = await RecurringRepository.listActive(key);
 	const throughDate = new Date(asOfDate);

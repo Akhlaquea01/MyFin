@@ -43,6 +43,8 @@ import {
 } from '../domain/categorization/resolveCategorization';
 import { MIN_KEYWORD_LENGTH, validateKeyword } from '../domain/categorization/keywordMatching';
 import type { Category, Merchant, MerchantAlias, Tag } from '../domain/entities';
+import { categoryOptions } from '../domain/categories/categoryHierarchy';
+import { buildCategoryLabels } from '../domain/categories/categoryHierarchy';
 
 const ruleSchema = z
 	.object({
@@ -168,8 +170,9 @@ export function CategorizationRulesPage() {
 	function merchantName(id: string): string {
 		return merchants.find((m) => m.id === id)?.name ?? id;
 	}
+	const categoryLabels = buildCategoryLabels(categories);
 	function categoryName(id: string): string {
-		return categories.find((c) => c.id === id)?.name ?? id;
+		return categoryLabels.get(id) ?? id;
 	}
 	function tagNames(ids: string[]): string {
 		return ids
@@ -466,9 +469,9 @@ export function CategorizationRulesPage() {
 										<SelectValue placeholder="Choose category…" />
 									</SelectTrigger>
 									<SelectContent>
-										{categories.map((c) => (
-											<SelectItem key={c.id} value={c.id}>
-												{c.name}
+										{categoryOptions(categories).map(({ id, label }) => (
+											<SelectItem key={id} value={id}>
+												{label}
 											</SelectItem>
 										))}
 									</SelectContent>

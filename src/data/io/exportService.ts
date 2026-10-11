@@ -3,6 +3,7 @@ import ExcelJS from 'exceljs';
 import { AccountRepository } from '../dexie/accountRepository';
 import { CategoryRepository } from '../dexie/categoryRepository';
 import { TransactionRepository } from '../dexie/transactionRepository';
+import { buildCategoryLabels } from '../../domain/categories/categoryHierarchy';
 
 export interface ExportRow {
 	date: string;
@@ -20,7 +21,7 @@ export async function buildExportRows(key: CryptoKey): Promise<ExportRow[]> {
 		TransactionRepository.search(key)
 	]);
 	const accountNameById = new Map(accounts.map((a) => [a.id, a.name]));
-	const categoryNameById = new Map(categories.map((c) => [c.id, c.name]));
+	const categoryNameById = buildCategoryLabels(categories);
 
 	// One grouped query for every split, rather than one indexed query plus one decrypt batch
 	// per transaction. At 20k transactions the old loop issued 20k round trips.
