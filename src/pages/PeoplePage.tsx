@@ -550,8 +550,9 @@ function LoanRow({
 		) {
 			return;
 		}
+		let removedRepaymentIds: string[];
 		try {
-			await PersonLoanRepository.remove(key, loan.id);
+			({ removedRepaymentIds } = await PersonLoanRepository.remove(key, loan.id));
 		} catch (err) {
 			toast.error(err instanceof Error ? err.message : 'Could not remove this loan.');
 			return;
@@ -559,8 +560,19 @@ function LoanRow({
 		toast.success('Loan removed', {
 			action: {
 				label: 'Undo',
+				// Brings back the loan AND the repayments that were removed with it; otherwise the loan
+				// reappears as if nothing had ever been paid back.
 				onClick: () => {
-					void PersonLoanRepository.restore(key, loan.id).then(onChanged);
+					void (async () => {
+						await PersonLoanRepository.restore(key, loan.id);
+						for (const repaymentId of removedRepaymentIds) {
+							await LoanRepaymentRepository.restore(key, repaymentId);
+						}
+					})()
+						.then(onChanged)
+						.catch((err: unknown) =>
+							toast.error(err instanceof Error ? err.message : 'Could not undo.')
+						);
 				}
 			}
 		});

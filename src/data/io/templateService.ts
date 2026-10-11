@@ -961,7 +961,7 @@ export async function importDataTemplate(
 				duplicateOfId: duplicateId
 			},
 			resolvedSplits,
-			{ deferBalance: true }
+			{ deferBalance: true, skipLearning: true }
 		);
 
 		transactionRemap.set(tx.id, createdTx.id);

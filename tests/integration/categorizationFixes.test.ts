@@ -21,7 +21,13 @@ import {
 	setMerchantRule
 } from '../../src/domain/categorization/resolveCategorization';
 import { resolveMerchant } from '../../src/domain/parser/merchantResolver';
-import { deriveEncryptionKey, randomSaltBase64 } from '../../src/data/crypto/cryptoService';
+import { UserProfileRepository } from '../../src/data/dexie/userProfileRepository';
+import { buildDataTemplate, importDataTemplate } from '../../src/data/io/templateService';
+import {
+	deriveEncryptionKey,
+	hashPin,
+	randomSaltBase64
+} from '../../src/data/crypto/cryptoService';
 
 describe('Auto-categorization fixes', () => {
 	let key: CryptoKey;
@@ -383,6 +389,96 @@ describe('Auto-categorization fixes', () => {
 			await CategoryRepository.softDelete(key, dining);
 			expect((await applyAutoCategorization(key)).updated).toBe(0);
 			expect((await categoryOf(tx.id)).categoryId).toBe(UNCATEGORIZED_CATEGORY_ID);
+		});
+	});
+
+	describe('regressions', () => {
+		it('never collapses an entry split across categories, even if one part is still uncategorized', async () => {
+			const merchant = await MerchantRepository.create(key, 'Mall');
+			const tx = await TransactionEngine.recordTransaction(
+				key,
+				{ accountId, date: '2026-01-05', amount: -100, type: 'expense', merchantId: merchant.id },
+				[
+					{ categoryId: transport, amount: -60 },
+					{ categoryId: UNCATEGORIZED_CATEGORY_ID, amount: -40 }
+				]
+			);
+			await setMerchantRule(key, merchant.id, dining);
+
+			expect(await applyAutoCategorization(key, { merchantId: merchant.id, dryRun: true })).toEqual(
+				{
+					updated: 0
+				}
+			);
+			expect(await applyAutoCategorization(key)).toEqual({ updated: 0 });
+
+			const splits = await TransactionRepository.getSplits(key, tx.id);
+			expect(splits.map((s) => [s.categoryId, s.amount]).sort()).toEqual(
+				[
+					[transport, -60],
+					[UNCATEGORIZED_CATEGORY_ID, -40]
+				].sort()
+			);
+		});
+
+		it('a data-template import does not teach the merchant streak a second time', async () => {
+			const merchant = await MerchantRepository.create(key, 'Uber');
+			// The file's own streak: [A, B]. The entry below is categorized B and is part of that history.
+			await MerchantCategorySignalRepository.set(key, merchant.id, [dining, transport]);
+			await TransactionEngine.recordTransaction(
+				key,
+				{ accountId, date: '2026-01-05', amount: -100, type: 'expense', merchantId: merchant.id },
+				[{ categoryId: transport, amount: -100 }],
+				{ skipLearning: true }
+			);
+			const template = await buildDataTemplate(key);
+
+			await db.delete();
+			await db.open();
+			const salt = randomSaltBase64();
+			const freshKey = await deriveEncryptionKey('8080', salt);
+			const pinSalt = randomSaltBase64();
+			await UserProfileRepository.create({
+				pinVerifierHash: await hashPin('8080', pinSalt),
+				pinSalt,
+				encryptionSalt: salt,
+				biometricEnabled: false,
+				autoLockTimeoutMs: 300_000,
+				storagePersisted: true
+			});
+			await importDataTemplate(freshKey, template);
+
+			const [importedMerchant] = await MerchantRepository.list(freshKey);
+			const importedStreak = (
+				await MerchantCategorySignalRepository.get(freshKey, importedMerchant.id)
+			)?.recentCategoryIds;
+			// Two entries — exactly the file's streak, not [A, B, B].
+			expect(importedStreak).toHaveLength(2);
+			const names = await Promise.all(
+				importedStreak!.map(async (id) => (await CategoryRepository.getById(freshKey, id))?.name)
+			);
+			expect(names).toEqual(['Dining', 'Transport']);
+		});
+
+		it('still learns from a manual entry (the default), but not when skipLearning is set', async () => {
+			const merchant = await MerchantRepository.create(key, 'Cafe');
+			await TransactionEngine.recordTransaction(
+				key,
+				{ accountId, date: '2026-01-05', amount: -10, type: 'expense', merchantId: merchant.id },
+				[{ categoryId: dining, amount: -10 }]
+			);
+			expect(
+				(await MerchantCategorySignalRepository.get(key, merchant.id))?.recentCategoryIds
+			).toEqual([dining]);
+			await TransactionEngine.recordTransaction(
+				key,
+				{ accountId, date: '2026-01-06', amount: -10, type: 'expense', merchantId: merchant.id },
+				[{ categoryId: transport, amount: -10 }],
+				{ skipLearning: true }
+			);
+			expect(
+				(await MerchantCategorySignalRepository.get(key, merchant.id))?.recentCategoryIds
+			).toEqual([dining]);
 		});
 	});
 });

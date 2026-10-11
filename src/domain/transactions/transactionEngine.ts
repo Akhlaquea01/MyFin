@@ -46,6 +46,13 @@ export interface RecordOptions {
 	 * which get a fresh resolver (and so always see the latest rules).
 	 */
 	categorizer?: CategorizationResolver;
+	/**
+	 * Do not feed this entry's category into the merchant's learning streak. A data-template import
+	 * replays *historical* entries that arrive alongside the streaks they already produced (merged
+	 * in an earlier import step), so teaching from them again would append every imported category
+	 * to the streak a second time.
+	 */
+	skipLearning?: boolean;
 }
 
 export const TransactionEngine = {
@@ -96,6 +103,7 @@ export const TransactionEngine = {
 		// suggestion. An explicit single category only: a multi-way split says nothing about what
 		// the merchant "is", and an unreviewed entry has not been confirmed yet.
 		if (
+			!options.skipLearning &&
 			splits.length === 1 &&
 			input.merchantId &&
 			input.type !== 'transfer' &&

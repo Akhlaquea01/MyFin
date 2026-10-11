@@ -247,12 +247,23 @@ export interface ApplyAutoCategorizationOptions {
 }
 
 /** Uncategorized, non-transfer entries that have something to match on: a merchant, or — for
- *  keyword rules — a description. */
+ *  keyword rules — a description.
+ *
+ *  Only entries with exactly ONE split qualify. An entry split across categories can still carry a
+ *  stray "Uncategorized" part, and filing it would replace all of its splits with a single new one
+ *  — silently throwing away the categories the user had assigned to the other parts. */
 async function uncategorizedCandidates(key: CryptoKey) {
+	const candidates = (await TransactionRepository.listUncategorized(key)).filter(
+		(tx) => tx.type !== 'transfer' && (tx.merchantId !== null || !!tx.notes)
+	);
+	const splitsByTx = await TransactionRepository.splitsByTransaction(
+		key,
+		candidates.map((tx) => tx.id)
+	);
 	// Newest first, with a deterministic tie-break: storage order is by random split id, which
 	// would make the preview's "for example" lines change from one open to the next.
-	return (await TransactionRepository.listUncategorized(key))
-		.filter((tx) => tx.type !== 'transfer' && (tx.merchantId !== null || !!tx.notes))
+	return candidates
+		.filter((tx) => (splitsByTx.get(tx.id)?.length ?? 0) === 1)
 		.sort(
 			(a, b) =>
 				b.date.localeCompare(a.date) || b.createdAt - a.createdAt || a.id.localeCompare(b.id)

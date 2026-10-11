@@ -249,14 +249,19 @@ export const PersonLoanRepository = {
 	 * a loan entered with the wrong amount, date or account could only be "written off", which
 	 * leaves the bogus money movement in the ledger forever.
 	 */
-	async remove(key: CryptoKey, id: string): Promise<void> {
+	async remove(key: CryptoKey, id: string): Promise<{ removedRepaymentIds: string[] }> {
 		const loan = await getDecrypted<PersonLoanRow, PersonLoan>(db.personLoans, key, id);
-		if (!loan) return;
+		if (!loan) return { removedRepaymentIds: [] };
+		const removedRepaymentIds: string[] = [];
 		for (const repayment of await LoanRepaymentRepository.listForLoan(key, id)) {
 			await LoanRepaymentRepository.softDelete(key, repayment.id);
+			removedRepaymentIds.push(repayment.id);
 		}
 		await TransactionEngine.deleteTransaction(key, loan.transactionId);
 		await this.softDelete(key, id);
+		// Returned so an immediate "Undo" can bring back exactly the repayments this call removed —
+		// not repayments the user had undone earlier, which must stay undone.
+		return { removedRepaymentIds };
 	},
 
 	/** Restores the loan AND the ledger movement behind its principal (repayments are restored

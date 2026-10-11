@@ -133,6 +133,34 @@ describe('settling and removing person loans', () => {
 			await expect(PersonRepository.softDelete(key, loan.personId)).resolves.toBeUndefined();
 		});
 
+		it('reports which repayments it removed, so Undo can restore exactly those', async () => {
+			const loan = await lend(100_000);
+			const keptUndone = await LoanRepaymentRepository.create(key, {
+				loanId: loan.id,
+				amount: 10_000,
+				date: '2026-03-02',
+				accountId
+			});
+			await LoanRepaymentRepository.softDelete(key, keptUndone.id); // undone by the user earlier
+			const live = await LoanRepaymentRepository.create(key, {
+				loanId: loan.id,
+				amount: 20_000,
+				date: '2026-03-05',
+				accountId
+			});
+
+			const { removedRepaymentIds } = await PersonLoanRepository.remove(key, loan.id);
+			expect(removedRepaymentIds).toEqual([live.id]);
+
+			// What the "Undo" action does: the loan and the repayments removed with it come back…
+			await PersonLoanRepository.restore(key, loan.id);
+			for (const id of removedRepaymentIds) await LoanRepaymentRepository.restore(key, id);
+
+			// …but not the repayment the user had deliberately undone before.
+			expect(await pending(loan.id)).toBe(100_000 - 20_000);
+			expect(await balance()).toBe(500_000 - 100_000 + 20_000);
+		});
+
 		it('restoring the loan brings its principal movement back', async () => {
 			const loan = await lend(100_000);
 			await PersonLoanRepository.remove(key, loan.id);
