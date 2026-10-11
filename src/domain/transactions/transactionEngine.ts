@@ -6,7 +6,7 @@ import {
 	type SplitInput
 } from '../../data/dexie/transactionRepository';
 import { TransactionTagRepository } from '../../data/dexie/tagRepository';
-import { matchTransaction } from '../recurring/recurringEngine';
+import { matchTransaction, releaseMatches, rematchTransaction } from '../recurring/recurringEngine';
 import {
 	createCategorizationResolver,
 	recordConfirmation,
@@ -158,6 +158,9 @@ export const TransactionEngine = {
 		if (before && before.accountId !== updated.accountId) {
 			await recalculateAccountBalance(key, before.accountId);
 		}
+		// A changed amount, date, account or category can make it match a different expected
+		// payment — or stop matching the one it had.
+		await rematchTransaction(key, updated);
 		return updated;
 	},
 
@@ -188,6 +191,9 @@ export const TransactionEngine = {
 			await TransactionRepository.softDelete(key, id);
 		}
 		await recalculateAccountBalance(key, tx.accountId);
+		// A deleted payment must not keep an expected recurring payment marked as paid. (Transfers
+		// never match a schedule, so they skip the lookup.)
+		if (tx.type !== 'transfer') await releaseMatches(key, id).catch(() => 0);
 	},
 
 	/** Mirror of `deleteTransaction`: restoring one leg of a transfer restores both. */
@@ -211,6 +217,8 @@ export const TransactionEngine = {
 			await TransactionRepository.restore(key, id);
 		}
 		await recalculateAccountBalance(key, tx.accountId);
+		// The restored payment can claim its expected recurring payment again.
+		if (tx.type !== 'transfer') await rematchTransaction(key, { ...tx, deletedAt: null });
 	},
 
 	/**
@@ -340,6 +348,8 @@ export const TransactionEngine = {
 		]);
 		await recalculateAccountBalance(key, converted.accountId);
 		await recalculateAccountBalance(key, counterpart.accountId);
+		// No longer an expense/income, so it can no longer be the payment a schedule was waiting for.
+		await releaseMatches(key, converted.id).catch(() => 0);
 		return [converted, counterpart];
 	},
 
@@ -423,6 +433,10 @@ export const TransactionEngine = {
 				await recordConfirmation(key, updated.merchantId, firstSplit.categoryId);
 			}
 		}
+
+		// The category chosen in Review is what finally lets a bill that arrived uncategorized (a bank
+		// statement row, an SMS) be matched to its expected recurring payment.
+		await rematchTransaction(key, updated);
 
 		return updated;
 	}

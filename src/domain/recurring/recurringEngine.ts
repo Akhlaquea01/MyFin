@@ -1,6 +1,15 @@
 import { RecurringRepository, ExpectedEventRepository } from '../../data/dexie/recurringRepository';
-import { TransactionRepository } from '../../data/dexie/transactionRepository';
-import type { RecurringRule, RecurringFrequency, ExpectedEvent, Transaction } from '../../domain/entities';
+import {
+	TransactionRepository,
+	UNCATEGORIZED_CATEGORY_ID
+} from '../../data/dexie/transactionRepository';
+import { todayLocalISO } from '../shared/dateMath';
+import type {
+	RecurringRule,
+	RecurringFrequency,
+	ExpectedEvent,
+	Transaction
+} from '../../domain/entities';
 
 const MATCH_WINDOW_DAYS = 3;
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -109,9 +118,19 @@ export async function generateExpectedEvents(
 }
 
 /**
- * Tries to match a newly recorded transaction to a pending expected event on the same
- * account+category+amount within ±MATCH_WINDOW_DAYS (FR-030). Returns the matched event,
- * or null if none qualified.
+ * Tries to match a transaction to an expected event on the same account within
+ * ±MATCH_WINDOW_DAYS, for the same amount and direction (FR-030). Returns the matched event, or
+ * null if none qualified.
+ *
+ * Two things here exist because bills are usually paid and *recorded* in different orders:
+ *  - An "Uncategorized" entry matches regardless of the rule's category. A bill that arrives from a
+ *    bank statement, an SMS or Quick Add has no category yet, so insisting on one meant such a
+ *    bill could never match anything and every recurring payment recorded that way was reported
+ *    "missed". An entry with a real category must still agree with the rule's.
+ *  - A `missed` event can still be matched. "Missed" is a judgement made when the due date passes
+ *    with nothing recorded; a statement imported later is exactly the evidence that overturns it.
+ *
+ * Transfers (a card payment, a person-loan movement) are never bills and never match.
  */
 export async function matchTransaction(
 	key: CryptoKey,
@@ -119,13 +138,18 @@ export async function matchTransaction(
 	categoryId: string | null
 ): Promise<ExpectedEvent | null> {
 	if (!categoryId) return null;
+	if (transaction.type === 'transfer' || transaction.deletedAt !== null) return null;
 	const rules = await RecurringRepository.list(key);
 	const candidateRules = rules.filter(
-		(r) => r.accountId === transaction.accountId && r.categoryId === categoryId
+		(r) =>
+			r.accountId === transaction.accountId &&
+			(categoryId === UNCATEGORIZED_CATEGORY_ID || r.categoryId === categoryId)
 	);
 	if (candidateRules.length === 0) return null;
 
 	const txDate = new Date(transaction.date).getTime();
+	const windowMs = MATCH_WINDOW_DAYS * DAY_MS;
+	let best: { event: ExpectedEvent; distance: number } | null = null;
 
 	for (const rule of candidateRules) {
 		// Compare magnitude and direction separately: rule.amount follows the same sign
@@ -133,18 +157,78 @@ export async function matchTransaction(
 		// never satisfy an expense rule of the same magnitude, or vice versa.
 		if (Math.abs(rule.amount) !== Math.abs(transaction.amount)) continue;
 		if (rule.amount < 0 !== transaction.amount < 0) continue;
-		const pending = (await ExpectedEventRepository.listForRule(key, rule.id)).filter(
-			(e) => e.status === 'pending'
-		);
-		const match = pending.find(
-			(e) => Math.abs(new Date(e.expectedDate).getTime() - txDate) <= MATCH_WINDOW_DAYS * DAY_MS
-		);
-		if (match) {
-			return ExpectedEventRepository.update(key, match.id, {
-				status: 'matched',
-				matchedTransactionId: transaction.id
-			});
+		const events = await ExpectedEventRepository.listForRule(key, rule.id);
+		// Already matched to this very transaction (re-running after an edit/confirm): keep it.
+		const already = events.find((e) => e.matchedTransactionId === transaction.id);
+		if (already) return already;
+		for (const event of events) {
+			if (event.status === 'matched') continue;
+			const distance = Math.abs(new Date(event.expectedDate).getTime() - txDate);
+			if (distance > windowMs) continue;
+			// Closest due date wins; on a tie prefer a still-pending event over a missed one.
+			if (
+				!best ||
+				distance < best.distance ||
+				(distance === best.distance &&
+					event.status === 'pending' &&
+					best.event.status !== 'pending')
+			) {
+				best = { event, distance };
+			}
 		}
+	}
+
+	if (!best) return null;
+	return ExpectedEventRepository.update(key, best.event.id, {
+		status: 'matched',
+		matchedTransactionId: transaction.id
+	});
+}
+
+/**
+ * Detaches every expected event matched to `transactionId` — the transaction was deleted, edited,
+ * or turned into a transfer. A past-due event goes back to `missed`, a future one to `pending`, so
+ * the schedule never keeps claiming a payment that no longer exists. Returns how many were freed.
+ */
+export async function releaseMatches(
+	key: CryptoKey,
+	transactionId: string,
+	asOf: Date = new Date()
+): Promise<number> {
+	if ((await RecurringRepository.list(key)).length === 0) return 0;
+	const today = todayLocalISO(asOf);
+	let freed = 0;
+	for (const event of await ExpectedEventRepository.listAll(key)) {
+		if (event.matchedTransactionId !== transactionId) continue;
+		await ExpectedEventRepository.update(key, event.id, {
+			status: event.expectedDate < today ? 'missed' : 'pending',
+			matchedTransactionId: null
+		});
+		freed++;
+	}
+	return freed;
+}
+
+/**
+ * Re-evaluates a transaction against the recurring schedule after something about it changed
+ * (confirmed from Review with a category, edited, restored from Trash): frees whatever it was
+ * matched to, then matches it afresh. Best effort — never throws, so it can never fail the edit or
+ * confirmation that triggered it.
+ */
+export async function rematchTransaction(
+	key: CryptoKey,
+	transaction: Transaction
+): Promise<ExpectedEvent | null> {
+	try {
+		await releaseMatches(key, transaction.id);
+		if (transaction.deletedAt !== null || transaction.type === 'transfer') return null;
+		const splits = await TransactionRepository.getSplits(key, transaction.id);
+		for (const split of splits) {
+			const matched = await matchTransaction(key, transaction, split.categoryId);
+			if (matched) return matched;
+		}
+	} catch {
+		// Recurring matching is a convenience layered on top of the ledger.
 	}
 	return null;
 }
