@@ -20,10 +20,7 @@ import { BudgetRepository, BudgetItemRepository } from '../dexie/budgetRepositor
 import { ensureBudgetItemForPeriod } from '../../domain/budgets/budgetEngine';
 import type { InvestmentType } from '../../domain/entities';
 import { RecurringRepository, ExpectedEventRepository } from '../dexie/recurringRepository';
-import {
-	CategorizationRuleRepository,
-	isKeywordRule
-} from '../dexie/categorizationRuleRepository';
+import { CategorizationRuleRepository, isKeywordRule } from '../dexie/categorizationRuleRepository';
 import { normalizeMatchText } from '../../domain/categorization/keywordMatching';
 import { MerchantCategorySignalRepository } from '../dexie/merchantCategorySignalRepository';
 import { NotificationPreferenceRepository } from '../dexie/notificationRepository';
@@ -974,6 +971,40 @@ export async function importDataTemplate(
 		}
 
 		touchedAccountIds.add(resolvedAccountId);
+	}
+
+	// 21-pair. Transfer pairing. Each leg of a transfer carries its partner's id in `transferPairId`,
+	// but those are the FILE's ids: the legs were just created under new ids, and a leg can only be
+	// pointed at its partner once both exist. Skipping this left every imported transfer as two
+	// unlinked single-sided movements — deleting one no longer removed the other, and the Transactions
+	// list labelled them as loans. Done after the loop, once `transactionRemap` is complete.
+	const pairedFileIds = new Set<string>();
+	for (const tx of rawTransactions) {
+		if (!tx.transferPairId || pairedFileIds.has(tx.id)) continue;
+		const firstId = transactionRemap.get(tx.id);
+		const secondId = transactionRemap.get(tx.transferPairId);
+		if (!firstId) continue; // this leg itself was not imported
+		const first = await TransactionRepository.getById(key, firstId);
+		if (!first) continue;
+
+		const second = secondId ? await TransactionRepository.getById(key, secondId) : null;
+		if (second && second.accountId !== first.accountId && second.amount === -first.amount) {
+			pairedFileIds.add(tx.id);
+			pairedFileIds.add(tx.transferPairId);
+			const now = Date.now();
+			await TransactionRepository.writeAtomic(key, [
+				{ transaction: { ...first, transferPairId: second.id, updatedAt: now } },
+				{ transaction: { ...second, transferPairId: first.id, updatedAt: now } }
+			]);
+		} else if (first.type === 'transfer' && !first.transferPairId) {
+			// The other side was not imported (its account is unresolved, or the file is damaged). A
+			// transfer with no partner is a half-movement nothing can reconcile — and is
+			// indistinguishable from a person-loan movement — so keep it as the plain income or
+			// expense it effectively is on this account.
+			await TransactionRepository.update(key, first.id, {
+				type: first.amount < 0 ? 'expense' : 'income'
+			});
+		}
 	}
 
 	// 21a. Expected Event matches (deferred from step 15 until transactionRemap is populated)
