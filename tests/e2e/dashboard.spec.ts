@@ -76,3 +76,35 @@ test('dashboard widgets can be hidden, reordered, and reset, and persist across 
 	await page.keyboard.press('Escape');
 	await expect(page.locator('[data-slot="card"]').filter({ hasText: 'Lending' })).toBeVisible();
 });
+
+test('total balance says it is net of credit card debt, with both halves', async ({ page }) => {
+	await onboard(page, '424285');
+
+	await goTo(page, 'Accounts', 'Accounts');
+	await page.getByRole('button', { name: 'Add account' }).click();
+	let dialog = page.getByRole('dialog');
+	await dialog.getByLabel('Name').fill('Checking');
+	await dialog.getByLabel('Opening balance').fill('1000');
+	await dialog.getByRole('button', { name: 'Add account' }).click();
+	await expect(dialog).not.toBeVisible();
+
+	// With no card there is nothing to explain, so nothing extra is shown.
+	await goTo(page, 'Dashboard', 'Dashboard');
+	const balanceCard = page.locator('[data-slot="card"]').filter({ hasText: 'Total Balance' });
+	await expect(balanceCard).toContainText('1,000.00');
+	await expect(balanceCard.getByText(/owed on cards/)).toHaveCount(0);
+
+	await goTo(page, 'Accounts', 'Accounts');
+	await page.getByRole('button', { name: 'Add account' }).click();
+	dialog = page.getByRole('dialog');
+	await dialog.getByLabel('Name').fill('Visa');
+	await dialog.getByLabel('Type').click();
+	await page.getByRole('option', { name: 'Credit Card', exact: true }).click();
+	await dialog.getByLabel('Amount currently owed').fill('300');
+	await dialog.getByRole('button', { name: 'Add account' }).click();
+	await expect(dialog).not.toBeVisible();
+
+	await goTo(page, 'Dashboard', 'Dashboard');
+	await expect(balanceCard).toContainText('700.00'); // 1000 cash - 300 owed
+	await expect(balanceCard.getByText('Cash & bank 1,000.00 · owed on cards 300.00')).toBeVisible();
+});

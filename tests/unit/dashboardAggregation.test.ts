@@ -142,4 +142,60 @@ describe('Dashboard aggregation', () => {
 		expect(summary.balanceTrend.at(-1)).toBe(summary.totalBalance);
 		expect(summary.balanceTrend).toEqual([900, 1100]);
 	});
+
+	it('splits the total into cash and credit-card halves, and flags when there are cards', async () => {
+		await AccountRepository.create(key, {
+			name: 'Checking',
+			type: 'bank',
+			openingBalance: 50000,
+			creditLimit: null,
+			billingCycleDay: null
+		});
+		await AccountRepository.create(key, {
+			name: 'Wallet',
+			type: 'cash',
+			openingBalance: 2000,
+			creditLimit: null,
+			billingCycleDay: null
+		});
+		// A card is stored negative: -12500 means 125.00 is owed.
+		await AccountRepository.create(key, {
+			name: 'Card',
+			type: 'credit_card',
+			openingBalance: -12500,
+			creditLimit: 100000,
+			billingCycleDay: null
+		});
+
+		const summary = await getDashboardSummary(key);
+		expect(summary.hasCreditCards).toBe(true);
+		expect(summary.cashBalance).toBe(52000);
+		expect(summary.cardBalance).toBe(-12500);
+		// The headline is unchanged — net of card debt — and the halves add back up to it.
+		expect(summary.totalBalance).toBe(52000 - 12500);
+		expect(summary.cashBalance + summary.cardBalance).toBe(summary.totalBalance);
+	});
+
+	it('has no card half when there are no credit cards, and ignores archived cards', async () => {
+		await AccountRepository.create(key, {
+			name: 'Checking',
+			type: 'bank',
+			openingBalance: 1000,
+			creditLimit: null,
+			billingCycleDay: null
+		});
+		const old = await AccountRepository.create(key, {
+			name: 'Old card',
+			type: 'credit_card',
+			openingBalance: 0,
+			creditLimit: null,
+			billingCycleDay: null
+		});
+		await AccountRepository.update(key, old.id, { isArchived: true });
+
+		const summary = await getDashboardSummary(key);
+		expect(summary.hasCreditCards).toBe(false);
+		expect(summary.cardBalance).toBe(0);
+		expect(summary.cashBalance).toBe(summary.totalBalance);
+	});
 });

@@ -120,6 +120,15 @@ export function DashboardPage() {
 				</CardHeader>
 				<CardContent>
 					<p className="font-mono text-2xl font-semibold">{formatMoney(summary.totalBalance)}</p>
+					{/* This total is net of credit card debt; say so, with both halves, whenever there is a
+					    card — otherwise "37,500" reads as cash in hand when 12,500 of it is a debt. */}
+					{summary.hasCreditCards && (
+						<p className="mt-1 text-xs text-muted-foreground">
+							Cash &amp; bank {formatMoney(summary.cashBalance)} ·{' '}
+							{summary.cardBalance <= 0 ? 'owed on cards' : 'credit on cards'}{' '}
+							{formatMoney(Math.abs(summary.cardBalance))}
+						</p>
+					)}
 					{summary.balanceTrend.length > 1 && <Sparkline values={summary.balanceTrend} />}
 				</CardContent>
 			</Card>

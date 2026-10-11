@@ -4,7 +4,14 @@ import { computeNetWorth } from '../wealth/wealthEngine';
 import type { Account, Transaction } from '../../domain/entities';
 
 export interface DashboardSummary {
+	/** Every active account added together — a credit card counts as the (negative) amount owed on it,
+	 *  so this is NET of card debt. See `cashBalance`/`cardBalance` for the two halves. */
 	totalBalance: number;
+	/** Bank, cash and wallet accounts only: money that is actually available. */
+	cashBalance: number;
+	/** Credit card accounts only: negative is money owed, positive is credit on the card. */
+	cardBalance: number;
+	hasCreditCards: boolean;
 	netWorth: number;
 	unreviewedCount: number;
 	recentTransactions: Transaction[];
@@ -33,6 +40,9 @@ export async function getDashboardSummary(key: CryptoKey): Promise<DashboardSumm
 	]);
 
 	const totalBalance = accounts.reduce((sum, a) => sum + a.currentBalance, 0);
+	const cardAccounts = accounts.filter((a) => a.type === 'credit_card');
+	const cardBalance = cardAccounts.reduce((sum, a) => sum + a.currentBalance, 0);
+	const cashBalance = totalBalance - cardBalance;
 
 	// recentTransactions is sorted newest-first; walk backwards from the current total to
 	// build an oldest-to-newest cumulative trend over the last TREND_POINTS transactions.
@@ -46,6 +56,9 @@ export async function getDashboardSummary(key: CryptoKey): Promise<DashboardSumm
 
 	return {
 		totalBalance,
+		cashBalance,
+		cardBalance,
+		hasCreditCards: cardAccounts.length > 0,
 		netWorth: netWorthBreakdown.netWorth,
 		unreviewedCount,
 		recentTransactions: recentTransactions.slice(0, RECENT_TRANSACTIONS_LIMIT),
