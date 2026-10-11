@@ -127,4 +127,63 @@ describe('Subscription detection engine', () => {
 		const second = await detectSubscriptions(key, { asOf });
 		expect(first).toEqual(second);
 	});
+
+	describe('credit card bill payments are not subscriptions', () => {
+		async function monthly(merchantId: string | null, notes: string | null, amount = 500000) {
+			for (const days of [90, 60, 30]) {
+				await TransactionRepository.create(
+					key,
+					{
+						accountId,
+						date: isoDaysAgo(days, asOf),
+						amount: -amount,
+						type: 'expense',
+						merchantId,
+						notes
+					},
+					[]
+				);
+			}
+		}
+
+		it('ignores a monthly card payment recognised from its description', async () => {
+			await monthly(null, 'CREDIT CARD PAYMENT XX1234');
+			expect(await detectSubscriptions(key, { asOf })).toEqual([]);
+		});
+
+		it('ignores one recognised from its merchant name (an imported statement line)', async () => {
+			const merchant = await MerchantRepository.create(key, 'CREDIT CARD PAYMENT HDFC');
+			await monthly(merchant.id, null);
+			expect(await detectSubscriptions(key, { asOf })).toEqual([]);
+		});
+
+		it('still reports a real subscription found alongside the card payments', async () => {
+			await monthly(null, 'BILLPAY ICICI CREDIT CARD 4321');
+			const netflix = await MerchantRepository.create(key, 'Netflix');
+			await chargeMerchant(netflix.id, [49900, 49900, 49900], [90, 60, 30]);
+
+			const results = await detectSubscriptions(key, { asOf });
+			expect(results.map((r) => r.merchantName)).toEqual(['Netflix']);
+		});
+
+		it('does not mistake an ordinary card purchase that mentions "payment" for one', async () => {
+			const merchant = await MerchantRepository.create(key, 'Spotify');
+			for (const days of [90, 60, 30]) {
+				await TransactionRepository.create(
+					key,
+					{
+						accountId,
+						date: isoDaysAgo(days, asOf),
+						amount: -11900,
+						type: 'expense',
+						merchantId: merchant.id,
+						notes: 'Payment of Rs.119 at SPOTIFY using card ending 1234'
+					},
+					[]
+				);
+			}
+			const results = await detectSubscriptions(key, { asOf });
+			expect(results.map((r) => r.merchantName)).toEqual(['Spotify']);
+		});
+	});
 });

@@ -1,6 +1,7 @@
 import { TransactionRepository } from '../../data/dexie/transactionRepository';
 import { MerchantRepository } from '../../data/dexie/merchantRepository';
 import { normalizeMerchantText } from '../parser/merchantResolver';
+import { looksLikeCardPayment } from '../parser/cardPaymentDetector';
 import type { Transaction } from '../entities';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -99,6 +100,12 @@ export async function detectSubscriptions(
 	for (const tx of transactions) {
 		// Only expenses represent a "charge" — income/transfer transactions are never subscriptions.
 		if (tx.type !== 'expense' || tx.transferPairId) continue;
+		// Paying a credit card bill is a movement between the user's own accounts, not a service they
+		// subscribe to. When one is still recorded as a plain expense (an imported "CREDIT CARD
+		// PAYMENT" line, an SMS), its monthly rhythm made the card bill the biggest "subscription".
+		if (looksLikeCardPayment(tx.notes)) continue;
+		const merchantName = tx.merchantId ? merchantById.get(tx.merchantId)?.name : undefined;
+		if (looksLikeCardPayment(merchantName)) continue;
 		const gKey = groupKey(tx);
 		if (!gKey) continue;
 		const list = groups.get(gKey) ?? [];
