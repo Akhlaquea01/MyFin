@@ -6,8 +6,11 @@ export interface ForecastPoint {
 }
 
 export interface ForecastWarning {
+	/** 'low-balance': an ordinary account is projected below its threshold. 'over-limit': a credit
+	 *  card's projected amount owed is projected to exceed its credit limit. */
+	kind: 'low-balance' | 'over-limit';
 	date: string; // ISO date — first day the trajectory crosses the threshold
-	shortfallAmountMinor: number; // positive: how far below the threshold
+	shortfallAmountMinor: number; // positive: how far past the threshold (below it / over the limit)
 }
 
 export interface BalanceForecast {

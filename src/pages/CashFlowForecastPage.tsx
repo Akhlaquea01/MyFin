@@ -80,6 +80,10 @@ export function CashFlowForecastPage() {
 	}
 
 	const primaryColor = getPrimaryColor();
+	const selectedAccount = accounts.find((a) => a.id === accountId);
+	// A card's balance is what is owed (negative), so it is forecast and drawn as an amount owed, and
+	// warned about against its credit limit rather than a low-balance threshold.
+	const isCard = selectedAccount?.type === 'credit_card';
 
 	return (
 		<div className="mx-auto max-w-3xl px-4 py-8 sm:px-6">
@@ -134,24 +138,39 @@ export function CashFlowForecastPage() {
 						</div>
 					</div>
 
-					<Card>
-						<CardContent className="flex flex-col gap-2 pt-6 sm:flex-row sm:items-end sm:justify-between">
-							<div className="flex flex-col gap-1.5">
-								<Label htmlFor="forecast-threshold">Low-balance threshold</Label>
-								<Input
-									id="forecast-threshold"
-									type="number"
-									step="0.01"
-									className="w-40"
-									value={thresholdInput}
-									onChange={(e) => setThresholdInput(e.target.value)}
-								/>
-							</div>
-							<Button variant="outline" onClick={saveThreshold}>
-								Save threshold
-							</Button>
-						</CardContent>
-					</Card>
+					{isCard && selectedAccount && (
+						<Card className="border-dashed">
+							<CardContent className="py-4 text-sm text-muted-foreground">
+								{selectedAccount.name} is a credit card, so this shows how much you would{' '}
+								<strong>owe</strong> — based on your card spending and payments over the last 90
+								days.{' '}
+								{selectedAccount.creditLimit
+									? `You'll be warned if it would pass your ${formatMinorUnits(selectedAccount.creditLimit)} credit limit.`
+									: 'Set a credit limit on the Accounts page to get a warning before you would pass it.'}
+							</CardContent>
+						</Card>
+					)}
+
+					{!isCard && (
+						<Card>
+							<CardContent className="flex flex-col gap-2 pt-6 sm:flex-row sm:items-end sm:justify-between">
+								<div className="flex flex-col gap-1.5">
+									<Label htmlFor="forecast-threshold">Low-balance threshold</Label>
+									<Input
+										id="forecast-threshold"
+										type="number"
+										step="0.01"
+										className="w-40"
+										value={thresholdInput}
+										onChange={(e) => setThresholdInput(e.target.value)}
+									/>
+								</div>
+								<Button variant="outline" onClick={saveThreshold}>
+									Save threshold
+								</Button>
+							</CardContent>
+						</Card>
+					)}
 
 					{forecast && (
 						<>
@@ -167,10 +186,15 @@ export function CashFlowForecastPage() {
 							{forecast.warning && (
 								<Card className="border-destructive">
 									<CardContent className="flex items-center gap-2 py-4 text-sm">
-										<Badge variant="destructive">Low balance warning</Badge>
+										<Badge variant="destructive">
+											{forecast.warning.kind === 'over-limit'
+												? 'Credit limit warning'
+												: 'Low balance warning'}
+										</Badge>
 										<span>
-											Projected to fall {formatMinorUnits(forecast.warning.shortfallAmountMinor)}{' '}
-											below your threshold by {formatDate(forecast.warning.date)}.
+											{forecast.warning.kind === 'over-limit'
+												? `Projected to go ${formatMinorUnits(forecast.warning.shortfallAmountMinor)} over your credit limit by ${formatDate(forecast.warning.date)}.`
+												: `Projected to fall ${formatMinorUnits(forecast.warning.shortfallAmountMinor)} below your threshold by ${formatDate(forecast.warning.date)}.`}
 										</span>
 									</CardContent>
 								</Card>
@@ -179,15 +203,18 @@ export function CashFlowForecastPage() {
 							<Card>
 								<CardContent className="pt-6">
 									<ChartCanvas
-										label={`Projected balance for the next ${horizonDays} days`}
+										label={`${isCard ? 'Projected amount owed' : 'Projected balance'} for the next ${horizonDays} days`}
 										config={{
 											type: 'line',
 											data: {
 												labels: forecast.points.map((p) => formatDate(p.date)),
 												datasets: [
 													{
-														label: 'Projected balance',
-														data: forecast.points.map((p) => p.projectedBalanceMinor / 100),
+														label: isCard ? 'Projected amount owed' : 'Projected balance',
+														data: forecast.points.map(
+															(p) =>
+																(isCard ? -p.projectedBalanceMinor : p.projectedBalanceMinor) / 100
+														),
 														borderColor: primaryColor,
 														backgroundColor: withAlpha(primaryColor, 0.15),
 														fill: true,

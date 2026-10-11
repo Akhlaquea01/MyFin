@@ -20,7 +20,8 @@ function toDateOnly(d: Date): string {
  * (reusing `recurringEngine.generateExpectedEvents`, never re-deriving it), and (b) drift — the
  * trailing 90-day average daily net of transactions *not* already linked to a recurring rule,
  * spread evenly across the horizon. `warning` is the first day the trajectory crosses the
- * account's low-balance threshold (default 0).
+ * account's low-balance threshold (default 0) — or, for a credit card, the day the projected amount
+ * owed would pass its credit limit.
  */
 export async function projectAccountBalance(
 	key: CryptoKey,
@@ -57,9 +58,18 @@ export async function projectAccountBalance(
 	// spec 016) — those are already counted deterministically above via expected events, so
 	// counting them again here would double-count them.
 	const driftFrom = toDateOnly(new Date(asOf.getTime() - DRIFT_LOOKBACK_DAYS * DAY_MS));
+	// A credit card is the one account where transfers ARE the story: its balance is debt, and the
+	// monthly bill payment (a transfer in from a bank account) is what brings it down. Leaving them
+	// out projected a card's debt climbing forever, with nothing ever paying it off. For every other
+	// account a transfer is money moving to another of the user's own accounts, which is not this
+	// account's drift (and a person-loan movement, being unpaired, never counts for any account).
+	const isCard = account.type === 'credit_card';
 	const recentTransactions = (
 		await TransactionRepository.search(key, { accountId, dateFrom: driftFrom })
-	).filter((tx) => tx.type !== 'transfer' && !tx.recurringRuleId);
+	).filter(
+		(tx) =>
+			(tx.type !== 'transfer' || (isCard && tx.transferPairId !== null)) && !tx.recurringRuleId
+	);
 	const driftNet = recentTransactions.reduce((sum, tx) => sum + tx.amount, 0);
 	const driftPerDay = recentTransactions.length > 0 ? driftNet / DRIFT_LOOKBACK_DAYS : 0;
 
@@ -68,7 +78,14 @@ export async function projectAccountBalance(
 		eventAmountByDate.set(event.date, (eventAmountByDate.get(event.date) ?? 0) + event.amountMinor);
 	}
 
-	const threshold = account.lowBalanceThresholdMinor ?? 0;
+	// A card's balance is negative by design (it is what is owed), so a "low balance" threshold of 0
+	// fired on day one for any card carrying debt. What matters for a card is the credit limit: warn
+	// when the projected amount owed would pass it (and not at all if no limit has been set).
+	const threshold: number | null = isCard
+		? account.creditLimit !== null && account.creditLimit > 0
+			? -account.creditLimit
+			: null
+		: (account.lowBalanceThresholdMinor ?? 0);
 	const points: ForecastPoint[] = [];
 	let warning: ForecastWarning | null = null;
 	let cumulative = account.currentBalance;
@@ -79,8 +96,12 @@ export async function projectAccountBalance(
 		cumulative += driftPerDay;
 		const projectedBalanceMinor = Math.round(cumulative);
 		points.push({ date, projectedBalanceMinor });
-		if (!warning && projectedBalanceMinor < threshold) {
-			warning = { date, shortfallAmountMinor: threshold - projectedBalanceMinor };
+		if (!warning && threshold !== null && projectedBalanceMinor < threshold) {
+			warning = {
+				kind: isCard ? 'over-limit' : 'low-balance',
+				date,
+				shortfallAmountMinor: threshold - projectedBalanceMinor
+			};
 		}
 	}
 
