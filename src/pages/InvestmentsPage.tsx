@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Controller, useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { LineChart, Minus, Plus, TrendingDown, TrendingUp } from 'lucide-react';
+import { LineChart, Minus, Pencil, Plus, Trash2, TrendingDown, TrendingUp } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -29,20 +29,22 @@ import {
 	InvestmentHoldingRepository,
 	InvestmentValuationRepository
 } from '../data/dexie/wealthRepository';
-import { computePortfolioSummary, recordPurchase, recordSale } from '../domain/wealth/wealthEngine';
+import { HoldingEditDialog } from '../components/HoldingEditDialog';
+import {
+	computePortfolioSummary,
+	recordPurchase,
+	recordSale,
+	recordValuation
+} from '../domain/wealth/wealthEngine';
+import { INVESTMENT_TYPE_LABELS as TYPE_LABELS } from '../domain/wealth/investmentTypeLabels';
 import { todayLocalISO } from '../domain/shared/dateMath';
 import type { InvestmentHolding, InvestmentType } from '../domain/entities';
-import { isNonNegativeMoney, isPositiveMoney, parseMoneyOrZero } from '../domain/shared/money';
-
-const TYPE_LABELS: Record<InvestmentType, string> = {
-	stock: 'Stock',
-	mutual_fund: 'Mutual Fund',
-	etf: 'ETF',
-	bond: 'Bond',
-	fixed_deposit: 'Fixed Deposit',
-	crypto: 'Crypto',
-	other: 'Other'
-};
+import {
+	formatMinorUnits,
+	isNonNegativeMoney,
+	isPositiveMoney,
+	parseMoneyOrZero
+} from '../domain/shared/money';
 
 function isPositiveUnits(raw: string): boolean {
 	const n = Number(raw);
@@ -110,6 +112,7 @@ export function InvestmentsPage() {
 	const [valuationTarget, setValuationTarget] = useState<InvestmentHolding | null>(null);
 	const [purchaseTarget, setPurchaseTarget] = useState<InvestmentHolding | null>(null);
 	const [saleTarget, setSaleTarget] = useState<InvestmentHolding | null>(null);
+	const [editTarget, setEditTarget] = useState<InvestmentHolding | null>(null);
 
 	const holdingForm = useForm<HoldingFormValues>({
 		resolver: zodResolver(holdingSchema),
@@ -172,8 +175,8 @@ export function InvestmentsPage() {
 	async function onAddValuation(values: ValuationFormValues) {
 		if (!valuationTarget) return;
 		try {
-			await InvestmentValuationRepository.create(key, {
-				holdingId: valuationTarget.id,
+			// Same-day entries replace each other, so re-entering today's value corrects it.
+			await recordValuation(key, valuationTarget.id, {
 				date: todayLocalISO(),
 				value: parseMoneyOrZero(values.value)
 			});
@@ -212,6 +215,38 @@ export function InvestmentsPage() {
 			await refresh();
 		} catch (err) {
 			toast.error(err instanceof Error ? err.message : 'Could not record sale.');
+		}
+	}
+
+	/** Opens "Update value" showing what the holding is currently worth, not a zero to overwrite. */
+	function openValuation(holding: InvestmentHolding) {
+		const current = valuesWithSource[holding.id]?.value ?? holding.costBasis;
+		valuationForm.reset({ value: formatMinorUnits(current) });
+		setValuationTarget(holding);
+	}
+
+	async function remove(holding: InvestmentHolding) {
+		if (
+			!window.confirm(
+				`Delete ${holding.name}? It stops counting toward your portfolio and net worth. You can undo it right after.`
+			)
+		) {
+			return;
+		}
+		try {
+			await InvestmentHoldingRepository.softDelete(key, holding.id);
+			// Holdings have no Trash entry of their own — an in-toast undo is the way back.
+			toast.success(`${holding.name} deleted`, {
+				action: {
+					label: 'Undo',
+					onClick: () => {
+						void InvestmentHoldingRepository.restore(key, holding.id).then(refresh);
+					}
+				}
+			});
+			await refresh();
+		} catch (err) {
+			toast.error(err instanceof Error ? err.message : 'Could not delete holding.');
 		}
 	}
 
@@ -383,7 +418,27 @@ export function InvestmentsPage() {
 						return (
 							<Card key={holding.id}>
 								<CardHeader className="pb-2">
-									<CardTitle className="text-base">{holding.name}</CardTitle>
+									<div className="flex items-start justify-between gap-2">
+										<CardTitle className="text-base">{holding.name}</CardTitle>
+										<div className="flex shrink-0 items-center">
+											<Button
+												size="icon-sm"
+												variant="ghost"
+												aria-label={`Edit ${holding.name}`}
+												onClick={() => setEditTarget(holding)}
+											>
+												<Pencil />
+											</Button>
+											<Button
+												size="icon-sm"
+												variant="ghost"
+												aria-label={`Delete ${holding.name}`}
+												onClick={() => void remove(holding)}
+											>
+												<Trash2 className="text-destructive" />
+											</Button>
+										</div>
+									</div>
 									<Badge variant="secondary" className="mt-1 w-fit">
 										{TYPE_LABELS[holding.type] ?? holding.type}
 									</Badge>
@@ -412,7 +467,7 @@ export function InvestmentsPage() {
 											variant="link"
 											size="sm"
 											className="h-auto p-0"
-											onClick={() => setValuationTarget(holding)}
+											onClick={() => openValuation(holding)}
 										>
 											Update value
 										</Button>
@@ -438,6 +493,15 @@ export function InvestmentsPage() {
 						);
 					})}
 				</div>
+			)}
+
+			{editTarget && (
+				<HoldingEditDialog
+					key={editTarget.id}
+					holding={editTarget}
+					onOpenChange={(open) => !open && setEditTarget(null)}
+					onChanged={() => void refresh()}
+				/>
 			)}
 
 			<Dialog open={!!valuationTarget} onOpenChange={(open) => !open && setValuationTarget(null)}>

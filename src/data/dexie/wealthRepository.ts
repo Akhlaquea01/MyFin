@@ -78,6 +78,10 @@ export const InvestmentHoldingRepository = {
 		});
 	},
 
+	async restore(key: CryptoKey, id: string): Promise<void> {
+		await this.update(key, id, { deletedAt: null });
+	},
+
 	async list(key: CryptoKey): Promise<InvestmentHolding[]> {
 		const rows = await db.investmentHoldings
 			.filter((row) => row.deletedAt === NOT_DELETED)
@@ -107,10 +111,41 @@ export const InvestmentValuationRepository = {
 		return valuation;
 	},
 
+	/**
+	 * Newest first. Two valuations on the same date used to compare as "a before b" both ways, which
+	 * left the order — and so which one counted as the latest value — to whatever the database
+	 * returned. The one entered last now wins a tie.
+	 */
 	async listForHolding(key: CryptoKey, holdingId: string): Promise<InvestmentValuation[]> {
 		const rows = await db.investmentValuations.where('holdingId').equals(holdingId).toArray();
 		const valuations = await decryptRows<InvestmentValuationRow, InvestmentValuation>(key, rows);
-		return valuations.sort((a, b) => (a.date < b.date ? 1 : -1));
+		return valuations.sort(
+			(a, b) =>
+				b.date.localeCompare(a.date) || b.createdAt - a.createdAt || a.id.localeCompare(b.id)
+		);
+	},
+
+	async update(
+		key: CryptoKey,
+		id: string,
+		changes: Partial<Pick<InvestmentValuation, 'value' | 'date'>>
+	): Promise<InvestmentValuation> {
+		const existing = await getDecrypted<InvestmentValuationRow, InvestmentValuation>(
+			db.investmentValuations,
+			key,
+			id
+		);
+		if (!existing) throw new Error(`InvestmentValuation ${id} not found`);
+		const updated: InvestmentValuation = { ...existing, ...changes, id, updatedAt: Date.now() };
+		await putEncrypted(db.investmentValuations, key, updated, {
+			holdingId: updated.holdingId,
+			date: updated.date
+		});
+		return updated;
+	},
+
+	async delete(id: string): Promise<void> {
+		await db.investmentValuations.delete(id);
 	},
 
 	/** The most recent valuation for a holding, or its cost basis if none recorded yet. */

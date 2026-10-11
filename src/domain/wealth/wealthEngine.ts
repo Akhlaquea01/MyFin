@@ -18,6 +18,7 @@ import type {
 	Account,
 	InvestmentHolding,
 	InvestmentType,
+	InvestmentValuation,
 	Liability,
 	LiabilityPayment,
 	NetWorthSnapshot
@@ -406,6 +407,15 @@ export async function netWorthHistory(key: CryptoKey): Promise<NetWorthSnapshot[
 }
 
 /**
+ * What `units` held at `avgPrice` (smallest currency unit per unit) cost. Units may be fractional
+ * (0.333 of a fund), so the product is rounded to a whole minor unit — a cost basis is money, and
+ * money here is always an integer.
+ */
+function costBasisFor(units: number, avgPrice: number): number {
+	return Math.round(units * avgPrice);
+}
+
+/**
  * Records a purchase of additional units for an existing holding, recalculating the
  * weighted-average price and cost basis (spec 016, FR-017, contracts/wealth-engine.md).
  */
@@ -427,7 +437,7 @@ export async function recordPurchase(
 	const newAvgPrice = Math.round(
 		(existingUnits * existingAvgPrice + purchase.units * purchase.price) / newUnits
 	);
-	const newCostBasis = newUnits * newAvgPrice;
+	const newCostBasis = costBasisFor(newUnits, newAvgPrice);
 
 	return InvestmentHoldingRepository.update(key, holdingId, {
 		units: newUnits,
@@ -458,12 +468,88 @@ export async function recordSale(
 
 	const newUnits = existingUnits - sale.units;
 	const avgPrice = holding.avgPrice ?? 0;
-	const newCostBasis = newUnits * avgPrice;
+	const newCostBasis = costBasisFor(newUnits, avgPrice);
 
 	return InvestmentHoldingRepository.update(key, holdingId, {
 		units: newUnits,
 		costBasis: newCostBasis
 	});
+}
+
+/** What can be corrected on a holding. A holding tracked in units is corrected through its units and
+ *  average price (the cost basis follows); a legacy one that only ever had a cost basis, through that. */
+export type HoldingEdit = { name: string; type: InvestmentType } & (
+	{ units: number; avgPrice: number } | { costBasis: number }
+);
+
+/**
+ * Corrects a holding's details as entered — a misspelled name, the wrong type, a units or price typo.
+ * It is not how a purchase or sale is recorded (those weight the average price / reduce the units
+ * and keep the history coherent); it overwrites the numbers outright.
+ */
+export async function editHolding(
+	key: CryptoKey,
+	holdingId: string,
+	edit: HoldingEdit
+): Promise<InvestmentHolding> {
+	const name = edit.name.trim();
+	if (!name) throw new Error('Name is required.');
+	const holding = await InvestmentHoldingRepository.getById(key, holdingId);
+	if (!holding || holding.deletedAt !== null) throw new Error('Holding not found.');
+
+	if ('units' in edit) {
+		if (!Number.isFinite(edit.units) || edit.units < 0)
+			throw new Error('Units cannot be negative.');
+		if (!Number.isInteger(edit.avgPrice) || edit.avgPrice < 0) {
+			throw new Error('The average price cannot be negative.');
+		}
+		return InvestmentHoldingRepository.update(key, holdingId, {
+			name,
+			type: edit.type,
+			units: edit.units,
+			avgPrice: edit.avgPrice,
+			costBasis: costBasisFor(edit.units, edit.avgPrice)
+		});
+	}
+	if (!Number.isInteger(edit.costBasis) || edit.costBasis < 0) {
+		throw new Error('The cost basis cannot be negative.');
+	}
+	return InvestmentHoldingRepository.update(key, holdingId, {
+		name,
+		type: edit.type,
+		costBasis: edit.costBasis
+	});
+}
+
+/**
+ * Records what a holding is worth on `date`. One value per holding per day: entering it again the
+ * same day REPLACES that day's value rather than adding a second one — which is how a mistyped value
+ * is corrected, and what keeps "the latest value" unambiguous.
+ */
+export async function recordValuation(
+	key: CryptoKey,
+	holdingId: string,
+	input: { date: string; value: number }
+): Promise<InvestmentValuation> {
+	if (!Number.isInteger(input.value) || input.value < 0) {
+		throw new Error('The value cannot be negative.');
+	}
+	const holding = await InvestmentHoldingRepository.getById(key, holdingId);
+	if (!holding || holding.deletedAt !== null) throw new Error('Holding not found.');
+
+	const [sameDay, ...extras] = (
+		await InvestmentValuationRepository.listForHolding(key, holdingId)
+	).filter((valuation) => valuation.date === input.date);
+	if (!sameDay) {
+		return InvestmentValuationRepository.create(key, {
+			holdingId,
+			date: input.date,
+			value: input.value
+		});
+	}
+	// Older data may already hold several for the day; fold them into the one that counts.
+	for (const extra of extras) await InvestmentValuationRepository.delete(extra.id);
+	return InvestmentValuationRepository.update(key, sameDay.id, { value: input.value });
 }
 
 export interface PortfolioTypeSummary {
