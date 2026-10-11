@@ -107,7 +107,8 @@ graph TD
 | :--- | :--- | :--- |
 | **Cipher** | AES-256-GCM | Authenticated encryption with 96-bit unique IV per record |
 | **Key Derivation** | PBKDF2-HMAC-SHA256 | 600,000 iterations (exceeding OWASP recommendations) |
-| **Biometrics** | WebAuthn PRF Extension | Hardware-backed biometric credential derivation |
+| **Biometrics** | WebAuthn PRF Extension (browser) · Android BiometricPrompt + Keystore (APK) | Hardware-backed release of a secret that unwraps the PIN; never a replacement for the PIN |
+| **Captured messages (APK)** | RSA-2048 OAEP (SHA-1) wrapping a per-message AES-256-GCM key | Native receivers can only lock messages away; the private key is stored encrypted with the PIN-derived key, so they open only after unlock |
 | **Searchable Encryption** | Blind Indexing (HMAC-SHA256) | Unique per-column salt to allow indexed exact-match queries on encrypted fields without leaking plaintexts |
 | **Integrity Check** | SHA-256 Checksums | Verified during full backup restore and data template ingestion |
 
@@ -198,3 +199,36 @@ sequenceDiagram
 | **Concurrent multi-tab data corruption** | Web Locks API coordinator enforces single-tab mutation exclusivity. |
 | **Database file tampering / corrupt backups** | SHA-256 checksums and AES-GCM authentication tags guarantee tamper detection before committing any restored record. |
 | **Search leakage on encrypted fields** | Salted blind indexing prevents frequency analysis across payees and search tokens. |
+| **Phone stolen while locked, with bank messages already captured (APK)** | The queue holds only sealed boxes. The private key that opens them is itself encrypted with the PIN-derived key, so the queue is unreadable without the PIN. The "N new transactions" alert never shows an amount or merchant and is private on the lock screen. |
+| **Stale or invalidated fingerprint enrollment (APK)** | The Keystore key is invalidated when fingerprints change; a wrapped PIN that no longer opens is dropped and never counts as a wrong PIN attempt. The PIN always remains. |
+| **Unrelated personal messages reaching MyFin (APK)** | A coarse native filter drops anything that cannot be about money, personal-number senders and one-time codes before anything is stored; notifications are read only from a fixed list of payment/banking apps. |
+
+---
+
+## 6. Android App: Fingerprint Unlock and Auto-capture
+
+The APK is the same web app in a Capacitor WebView plus two local plugins. The web layer stays the only place that ever holds the data key or reads the database.
+
+```mermaid
+flowchart LR
+    subgraph Android process
+        SMS[SmsReceiver] --> F[Coarse filter]
+        NL[NotificationCaptureService] --> F
+        F --> SEAL["SealedBox (public key only)"]
+        SEAL --> Q[("Queue: sealed items")]
+        Q --> ALERT["Alert: N new to review (no content)"]
+    end
+    subgraph WebView - only when unlocked
+        DRAIN[drainCapturedTransactions] --> OPEN["Open with private key"]
+        OPEN --> JF[Filter and parse]
+        JF --> MATCH[Account, merchant, pairing, duplicates]
+        MATCH --> REVIEW[(Review queue)]
+    end
+    Q -. "after unlock / on resume" .-> DRAIN
+    DRAIN -. "acknowledge" .-> Q
+```
+
+- **Why sealed boxes**: receivers run with no PIN, so they cannot write to the encrypted store, and they must not leave the message readable (Constitution Principle II). When capture is switched on the web layer makes an RSA key pair, hands native code the **public** half and stores the **private** half encrypted with the data key. Native code can only seal. A device-bound Keystore key would not be PIN-derived and could be used by anything running as the app.
+- **Fingerprint**: the plugin generates a random secret and keeps it behind an Android Keystore key that needs a fresh strong-biometric `BiometricPrompt` for every use. The web layer wraps the PIN with that secret (`profile.nativeBiometric.wrappedPin`). Unlocking recovers the PIN, which then runs through the normal PIN check and key derivation; the PIN never crosses to native code. A wrapped PIN stored at rest follows the precedent of `profile.webauthn.wrappedPin`.
+- **Idempotency**: each message is recorded in the existing notified-items ledger (keyed by a blind-index digest of channel, sender, time and text) after its entry is created and before it is acknowledged, so a replay is skipped and a crash in between files a *flagged* duplicate rather than losing a transaction.
+- **Verification boundaries**: the web side is covered by unit/integration/component/e2e tests, including opening an item sealed by the real Java `SealedBox`. The Java code is compiled and unit-tested in CI only; the receivers, permission flows and fingerprint prompt can only be checked on a phone.

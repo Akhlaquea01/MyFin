@@ -26,7 +26,7 @@ Every transaction, account balance, category, payee, and receipt attachment is e
 
 ## ✨ Features
 
-- 🔐 **Zero-Knowledge Encryption**: All records encrypted with AES-256-GCM and PBKDF2 (600,000 rounds). Supports WebAuthn biometric unlock.
+- 🔐 **Zero-Knowledge Encryption**: All records encrypted with AES-256-GCM and PBKDF2 (600,000 rounds). Supports fingerprint unlock (WebAuthn in the browser, Android's own fingerprint prompt in the APK).
 - 💳 **Multi-Account Ledger**: Track checking, savings, credit cards, investments, cash wallets, and loans in one unified double-sided register.
 - 📉 **Debt Payoff Planner**: Simulate and execute **Debt Snowball** and **Debt Avalanche** payoff schedules with custom amortization modeling.
 - 🎯 **Savings Goals**: Set visual milestone targets with dynamic pace projections based on your real savings rate.
@@ -35,6 +35,7 @@ Every transaction, account balance, category, payee, and receipt attachment is e
 - 🧠 **Smart Auto-Categorization**: Merchant normalization rules combined with streak-learning that surfaces automatic categorization suggestions.
 - 📊 **Financial Health Score (0–100)**: Quantitative wellness diagnostic assessing emergency runway, savings rate, and debt-to-income (DTI) ratio.
 - 📱 **PWA Web Share Target**: Native OS share integration allowing you to share bank SMS alerts and receipts directly into the quick-add drawer.
+- 📲 **Android Auto-capture** _(APK only)_: Bank SMS and payment-app notifications (GPay, PhonePe, Paytm, bank apps) are read as they arrive and added to your Review queue, where you can edit and confirm them. Messages are locked away on arrival and only opened after you unlock the app.
 - 📥 **Multi-Account Statement Importer**: High-speed CSV and Excel parser with fuzzy column mapping and intelligent duplicate detection.
 - 🤝 **Peer Lending & Borrowing**: Track money lent to or borrowed from contacts with settlement milestones and ledger integration.
 - 📑 **Year-in-Review & Vector PDF Export**: Interactive annual retrospective infographic with vector-grade client-side PDF export.
@@ -57,7 +58,7 @@ MyFin follows a strict **zero-knowledge architecture**:
 
 - **Symmetric Cipher**: **AES-256-GCM** with a cryptographically secure, unique 96-bit Initialization Vector (IV) per record.
 - **Key Derivation**: **PBKDF2-HMAC-SHA256** with **600,000 iterations** derived from the user's master PIN.
-- **Biometric Authentication**: Hardware-backed **WebAuthn PRF (Pseudo-Random Function)** extension for instant fingerprint/face unlock.
+- **Biometric Authentication**: Hardware-backed **WebAuthn PRF (Pseudo-Random Function)** extension in the browser; in the Android app, Android's **BiometricPrompt** with a Keystore key that only a fresh strong-biometric check can use. In both, biometrics only recover the PIN — they never replace it.
 - **Searchable Encryption**: **HMAC-SHA256 Blind Indexing** with per-column salts enables indexed search on encrypted fields without leaking plaintexts.
 - **Concurrency Isolation**: **Web Locks API** single-instance coordinator prevents concurrent tab write conflicts.
 

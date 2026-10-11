@@ -43,11 +43,51 @@ version number (the run number). Artifacts are kept for 30 days.
   private cache. If you dismiss the sheet, MyFin reports "Save cancelled." and no file was saved.
 - **Data stays on the device.** The app disables Android's cloud auto-backup (`android:allowBackup="false"`) so your encrypted ledger and session key are never uploaded to a Google
   account. Moving to a new phone therefore works through MyFin's own encrypted Backup → Restore, not through Android's phone-to-phone transfer.
-- **Not available or unverified in the APK** (they rely on browser features; MyFin hides or skips them when missing, but check on your phone): biometric unlock (the PIN always
-  works), browser notifications, automatic backup to a chosen folder, sharing text/images _into_ MyFin from other apps, and the PWA update prompt (updating is installing a new
-  APK). The "browser couldn't guarantee protected storage" banner may appear; it is dismissible, and the advice behind it still holds — take regular Backups.
-- The hardware/gesture **Back** button does not step back through MyFin's pages: Capacitor's core has no back-button handling (that is the separate `@capacitor/app` plugin, which
-  this project does not include), so Android's default applies and Back leaves the app. Use MyFin's own menu to navigate.
+- **Fingerprint unlock** works through Android's own fingerprint prompt (the browser's WebAuthn is not available inside Android WebView). Turn it on from **Security** in the
+  menu (or from the offer after you unlock with your PIN). The PIN still works and is still what protects your data: the fingerprint only fetches a key that unlocks your PIN
+  on this phone. The lock screen opens the fingerprint prompt by itself when you come back to the app after being away longer than your **auto-lock** time (default 5
+  minutes; change it under **Security**); coming back sooner does not ask again. Adding or removing a fingerprint in Android settings switches MyFin's fingerprint unlock off on
+  purpose: enter your PIN and turn it on again. It needs a fingerprint sensor (or face unlock) that Android rates as _strong_; some face unlock is rated weaker and will be
+  reported as unavailable.
+- **Share into MyFin**: MyFin appears in Android's share sheet. Share a bank SMS (text) from your messages app and it opens **Quick Add** with the message parsed; share a receipt
+  photo and it opens **New Transaction** with the image attached. A share made while MyFin is locked waits and opens after you unlock. Images over 10 MB are refused with a message.
+- **Reminders are real Android notifications**: bill reminders, budget alerts and overdue-loan reminders now appear as Android notifications (the browser's notification API does not
+  exist inside the app). MyFin asks once (Android 13+ shows the system permission dialog), and they are shown when you unlock the app, not on a schedule while it is closed — nothing
+  financial is handed to Android's alarm scheduler to be stored and fired later. They appear under the channel **Bill and budget reminders** (hidden on the lock screen).
+- **Not available or unverified in the APK** (they rely on browser features; MyFin hides or skips them when missing, but check on your phone): automatic backup to a chosen folder,
+  and the PWA update prompt (updating is installing a new APK). The "browser couldn't guarantee protected storage" banner may appear; it is dismissible, and the advice behind it
+  still holds — take regular Backups.
+- The hardware/gesture **Back** button does not step back through MyFin's pages: the app only uses `@capacitor/app` to notice when it returns to the foreground and does not
+  handle the Back button, so Android's default applies and Back leaves the app. Use MyFin's own menu to navigate.
+
+## Auto-capture of bank messages
+
+MyFin can add bank transactions to your **Review** queue by itself: it reads incoming bank SMS, and notifications from payment and banking apps (Google Pay, PhonePe, Paytm,
+BHIM, CRED and the HDFC, ICICI, SBI, Axis and Kotak apps). It is off until you turn it on under **Auto-capture** in the menu (the page only exists in the APK).
+
+1. **Add the last digits of each account** under Accounts (for example `1234`, from "A/c XX1234" in your bank's messages). Messages are filed under the account whose digits they
+   name; anything else goes to the **default account** you choose.
+2. Open **Auto-capture** and: allow **Read incoming SMS**, switch on **Notification access** for MyFin in Android's list, and allow the **alert** (Android 13+). Pick the default
+   account and **Turn on auto-capture**. MyFin first locks and unlocks a test message to prove the phone and the app agree before it captures anything.
+3. New transactions then appear in Review with an **SMS** or **Notification** badge, the original message under **Original message**, and **Edit** if the amount, account, merchant or
+   date need fixing. One payment seen as both an SMS and an app notification becomes one entry. Entries on a guessed account say **Account not matched — check**.
+
+**What is and is not read.** Only SMS that look like completed money movements are kept; one-time codes, offers, balance alerts, failed payments, bill reminders and texts from phone
+numbers are discarded without being stored. Notifications are read only from the payment/banking apps listed in `CaptureFilter.java` (package names change between app versions —
+check with `adb shell pm list packages`; an app missing from the list is simply not captured from). MyFin never reads your SMS inbox (it only holds the receive permission), never
+logs message text, and nothing leaves the phone.
+
+**Locked or closed.** Messages that arrive while MyFin is closed or locked are locked away on arrival with a public key; the matching private key is stored encrypted with your PIN-derived
+key, so nothing readable is kept. They are opened and filed the next time you unlock. The alert only says how many are waiting.
+
+**If Android blocks it.** An app installed from a file is treated as risky for SMS and notification access. If the permission is refused, or the "Notification access" switch is greyed
+out: open **App info** for MyFin, tap the **⋮ menu**, choose **Allow restricted settings**, then try again (the menu only appears after one blocked attempt). The Auto-capture page has
+buttons for both screens. Google Play Protect may also warn about, or refuse, installing a file-based app that asks for SMS or notification access; **Install anyway** works, and
+`adb install` is the fallback. If a phone's battery saver stops MyFin, allow it to run in the background, or messages arrive late or not at all. Receivers only start working after MyFin
+has been opened once following an install or a Force stop.
+
+**Checking it on a phone.** `adb emu sms send VM-HDFCBK "Rs.250.00 debited from A/c XX1234 to SWIGGY on 05-10-26 Ref 628123456789"` sends a test SMS to an emulator; on a real phone,
+text the phone from another number is ignored on purpose (numeric senders are skipped), so use a real bank message or an emulator.
 
 ## Change the app name or application ID
 

@@ -33,3 +33,9 @@ MyFin operates entirely client-side with a zero-knowledge threat model:
 - Searchable fields utilize HMAC blind indexing with distinct per-column salts.
 - Volatile keys are purged from memory upon session lock or inactivity timeout.
 - Unencrypted data is never sent to external servers or third-party analytics.
+
+### Android app
+
+- **Fingerprint unlock** uses Android's `BiometricPrompt` with a Keystore key that requires a fresh strong-biometric authentication for every use and is invalidated when fingerprints change. The PIN is never sent to native code, and the PIN always remains available.
+- **Auto-capture** (optional, off until enabled) requests `RECEIVE_SMS` (it never reads the SMS inbox) and the user-granted "Notification access", and shows its own alert (`POST_NOTIFICATIONS`). Captured messages are sealed on arrival with a public key; the private key is stored encrypted with the PIN-derived key, so nothing readable is stored while the app is locked. Messages that cannot be about money, one-time codes and texts from phone numbers are discarded before anything is stored. Notifications are read only from a fixed list of payment and banking apps. Message text is never logged.
+- The debug APK is installed from a file, not Play Store. Android may require "Allow restricted settings" before SMS or notification access can be granted; Google Play Protect may also warn about or block sideloaded apps that request these permissions.
