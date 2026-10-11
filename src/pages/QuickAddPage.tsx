@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { HandCoins, Sparkles } from 'lucide-react';
+import { AlertTriangle, HandCoins, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -16,13 +16,16 @@ import {
 } from '../components/ui/select';
 import { useSession } from '../context/SessionContext';
 import { AccountRepository } from '../data/dexie/accountRepository';
+import { MerchantRepository } from '../data/dexie/merchantRepository';
 import { TransactionEngine } from '../domain/transactions/transactionEngine';
+import { findDuplicateCandidates } from '../domain/transactions/duplicateCandidates';
+import { formatTransactionLabel } from '../domain/transactions/transactionLabel';
 import { resolveMerchant } from '../domain/parser/merchantResolver';
 import { parseQuickAddText, isConfident } from '../domain/parser/quickAddParser';
 import { findCardMatches, type CardMatch } from '../domain/parser/cardIdentifierMatcher';
 import { detectCardPayment } from '../domain/parser/cardPaymentDetector';
 import type { TransferLocationState } from './TransferPage';
-import type { Account, TransactionType } from '../domain/entities';
+import type { Account, Merchant, Transaction, TransactionType } from '../domain/entities';
 import { formatMinorUnits, parseMoneyToMinorUnits } from '../domain/shared/money';
 import { todayLocalISO } from '../domain/shared/dateMath';
 
@@ -49,6 +52,23 @@ export function QuickAddPage() {
 	const [cardDisambiguation, setCardDisambiguation] = useState<CardMatch[] | null>(null);
 	// Set when the pasted text reads like paying a credit card bill rather than spending on one.
 	const [cardPayment, setCardPayment] = useState<{ cardAccountId: string | null } | null>(null);
+	// Existing entries this one would plausibly duplicate, found when the user pressed Confirm. Tied to
+	// the exact account/amount/date they were found for (`for`): change any of them and the warning
+	// no longer applies, so it disappears instead of nagging about something that is no longer true.
+	const [duplicateWarning, setDuplicateWarning] = useState<{
+		for: string;
+		matches: Transaction[];
+	} | null>(null);
+	const [merchants, setMerchants] = useState<Merchant[]>([]);
+
+	/** Identifies what a duplicate check was run against; null while the amount is not yet valid. */
+	function duplicateKeyFor(): string | null {
+		const amount = amountInput ? parseMoneyToMinorUnits(amountInput) : null;
+		if (!accountId || amount === null || amount <= 0) return null;
+		return `${accountId}|${type === 'expense' ? -amount : amount}|${date}`;
+	}
+	const activeDuplicateWarning =
+		duplicateWarning && duplicateWarning.for === duplicateKeyFor() ? duplicateWarning : null;
 
 	// Spec 008, User Story 1 (FR-002): text shared in via the OS share sheet arrives here as
 	// router state from ShareTargetLandingPage and must parse identically to manual paste — so
@@ -57,6 +77,7 @@ export function QuickAddPage() {
 	// the account list has actually loaded (passed explicitly, not read from state) so spec 018's
 	// card auto-match below isn't racing this mount-time effect against the async account fetch.
 	useEffect(() => {
+		void MerchantRepository.list(key).then(setMerchants);
 		void AccountRepository.list(key, false).then((loaded) => {
 			setAccounts(loaded);
 			const sharedText = (location.state as { sharedText?: string } | null)?.sharedText;
@@ -135,6 +156,27 @@ export function QuickAddPage() {
 				return;
 			}
 			const signedAmount = type === 'expense' ? -amount : amount;
+
+			// Pasting the same bank SMS twice (or one for something already entered by hand) used to
+			// save a second copy without a word — file and bulk import both flag exactly this. The
+			// first Confirm only checks and warns; confirming again, with nothing changed, adds it
+			// anyway (flagged, like an import) because two same-amount entries can be genuine.
+			const checkKey = `${accountId}|${signedAmount}|${date}`;
+			let duplicateOfId: string | null = null;
+			if (activeDuplicateWarning) {
+				duplicateOfId = activeDuplicateWarning.matches[0]?.id ?? null;
+			} else {
+				const matches = await findDuplicateCandidates(
+					key,
+					{ accountId, amount: signedAmount, date },
+					{ merchantName, merchants }
+				);
+				if (matches.length > 0) {
+					setDuplicateWarning({ for: checkKey, matches });
+					return;
+				}
+			}
+
 			const resolved = merchantName.trim() ? await resolveMerchant(key, merchantName.trim()) : null;
 			await TransactionEngine.recordTransaction(key, {
 				accountId,
@@ -147,7 +189,8 @@ export function QuickAddPage() {
 				// "Record as transfer" later, and it is the only record of what the entry was.
 				notes: cardPayment ? rawText.trim().slice(0, 200) : null,
 				source: 'quick_add',
-				reviewStatus: 'unreviewed'
+				reviewStatus: 'unreviewed',
+				duplicateOfId
 			});
 			toast.success('Transaction added to your review queue');
 			navigate('/review');
@@ -288,12 +331,35 @@ export function QuickAddPage() {
 								onChange={(e) => setMerchantName(e.target.value)}
 							/>
 						</div>
+						{activeDuplicateWarning && (
+							<div className="flex flex-col gap-2 rounded-md border border-amber-500/40 bg-amber-500/5 p-3">
+								<p className="flex items-center gap-1.5 text-sm font-medium">
+									<AlertTriangle className="size-4 text-amber-600 dark:text-amber-400" />
+									This looks like something you already have.
+								</p>
+								<ul className="flex flex-col gap-1 text-xs text-muted-foreground">
+									{activeDuplicateWarning.matches.map((match) => (
+										<li key={match.id}>
+											{match.date} · {formatMinorUnits(Math.abs(match.amount))} ·{' '}
+											{formatTransactionLabel(match, merchants)}
+											{match.reviewStatus === 'unreviewed' && ' (waiting in Review)'}
+										</li>
+									))}
+								</ul>
+								<p className="text-xs text-muted-foreground">
+									Same account, same amount, within a day. If it's a separate purchase, add it
+									anyway — it will be marked as a possible duplicate in Review so you can compare.
+								</p>
+							</div>
+						)}
 						<Button onClick={handleConfirm} disabled={submitting}>
 							{submitting
 								? 'Saving…'
-								: cardPayment
-									? 'Add as an ordinary transaction anyway'
-									: 'Confirm & add to review queue'}
+								: activeDuplicateWarning
+									? 'Add anyway'
+									: cardPayment
+										? 'Add as an ordinary transaction anyway'
+										: 'Confirm & add to review queue'}
 						</Button>
 					</CardContent>
 				</Card>
