@@ -97,8 +97,8 @@ export default defineConfig(({ mode }) => ({
 					{ src: '/icons/icon-512.png', sizes: '512x512', type: 'image/png' },
 					{ src: '/icons/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' }
 				],
-				// Spec 008: a single share_target (the platform allows only one) handles both a
-				// text/URL share and an image share — see specs/008-pwa-share-target/research.md §2.
+				// A single share_target (the platform allows only one) handles both a
+				// text/URL share and an image share.
 				share_target: {
 					action: '/share-target',
 					method: 'POST',

@@ -1,7 +1,7 @@
 /**
  * Pure query/matching logic for tag-based filtering and search (spec 012). No I/O, no
  * `CryptoKey`, no Dexie import — every function here takes already-loaded, already-decrypted
- * data and returns a plain result. See specs/012-tag-filtering-search/contracts/tag-filter-engine.md.
+ * data and returns a plain result.
  */
 
 /** A tag as presented to the filter pick-list — a thin, decrypted projection of `Tag`. */

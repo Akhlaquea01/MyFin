@@ -350,7 +350,6 @@ A bundle of seven targeted fixes and additions to the daily-use workflow: transa
 - **Engines**: [`budgetEngine.ts`](file:///e:/MyFin/src/domain/budgets/budgetEngine.ts) (`ensureBudgetItemForPeriod`), [`recurringEngine.ts`](file:///e:/MyFin/src/domain/recurring/recurringEngine.ts) (`createRuleFromTransaction`), [`wealthEngine.ts`](file:///e:/MyFin/src/domain/wealth/wealthEngine.ts) (`recordPurchase`/`recordSale`)
 - **Data Layer**: [`clearAllTables.ts`](file:///e:/MyFin/src/data/dexie/clearAllTables.ts), [`resetService.ts`](file:///e:/MyFin/src/data/io/resetService.ts), import-time budget recompute and investment type mapping in [`templateService.ts`](file:///e:/MyFin/src/data/io/templateService.ts)
 - **Primary Pages**: [`DashboardPage.tsx`](file:///e:/MyFin/src/pages/DashboardPage.tsx), [`TransactionsPage.tsx`](file:///e:/MyFin/src/pages/TransactionsPage.tsx), [`ReviewPage.tsx`](file:///e:/MyFin/src/pages/ReviewPage.tsx), [`AccountsPage.tsx`](file:///e:/MyFin/src/pages/AccountsPage.tsx), [`BudgetsPage.tsx`](file:///e:/MyFin/src/pages/BudgetsPage.tsx), [`BackupSettingsPage.tsx`](file:///e:/MyFin/src/pages/BackupSettingsPage.tsx), [`InvestmentsPage.tsx`](file:///e:/MyFin/src/pages/InvestmentsPage.tsx)
-- **Spec**: [`specs/016-core-workflow-improvements/`](file:///e:/MyFin/specs/016-core-workflow-improvements/)
 
 ---
 
@@ -380,7 +379,6 @@ A bundle of five visibility and control gaps closed across credit cards, net wor
 - **Repositories**: [`wealthRepository.ts`](file:///e:/MyFin/src/data/dexie/wealthRepository.ts), [`budgetRepository.ts`](file:///e:/MyFin/src/data/dexie/budgetRepository.ts) (`softDelete`/`restore`), [`accountRepository.ts`](file:///e:/MyFin/src/data/dexie/accountRepository.ts) (`creditLimit`, `billingCycleDay`, `cardLast4`, `cardNickname`)
 - **Import Integration**: [`importService.ts`](file:///e:/MyFin/src/data/io/importService.ts), [`bulkTextImportService.ts`](file:///e:/MyFin/src/data/io/bulkTextImportService.ts)
 - **Primary Pages**: [`AccountsPage.tsx`](file:///e:/MyFin/src/pages/AccountsPage.tsx), [`LiabilitiesPage.tsx`](file:///e:/MyFin/src/pages/LiabilitiesPage.tsx), [`NetWorthPage.tsx`](file:///e:/MyFin/src/pages/NetWorthPage.tsx), [`BudgetsPage.tsx`](file:///e:/MyFin/src/pages/BudgetsPage.tsx), [`InvestmentsPage.tsx`](file:///e:/MyFin/src/pages/InvestmentsPage.tsx), [`ImportPage.tsx`](file:///e:/MyFin/src/pages/ImportPage.tsx), [`BulkTextImportPage.tsx`](file:///e:/MyFin/src/pages/BulkTextImportPage.tsx)
-- **Spec**: [`specs/017-financial-visibility-enhancements/`](file:///e:/MyFin/specs/017-financial-visibility-enhancements/)
 
 ---
 
@@ -403,7 +401,6 @@ Seven independently-shippable additions spanning passive insight (subscriptions,
 - **Data Layer**: [`autoBackupSettingsRepository.ts`](file:///e:/MyFin/src/data/dexie/autoBackupSettingsRepository.ts), [`autoBackupService.ts`](file:///e:/MyFin/src/data/io/autoBackupService.ts) (`maybeRunScheduledBackup`, reusing `backupService.ts`'s `createBackup` unchanged), Dexie schema v12 (`autoBackupSettings` table)
 - **Primary Pages**: [`SubscriptionsPage.tsx`](file:///e:/MyFin/src/pages/SubscriptionsPage.tsx), [`CashFlowForecastPage.tsx`](file:///e:/MyFin/src/pages/CashFlowForecastPage.tsx), [`BudgetVarianceReportPage.tsx`](file:///e:/MyFin/src/pages/BudgetVarianceReportPage.tsx), [`BudgetsPage.tsx`](file:///e:/MyFin/src/pages/BudgetsPage.tsx), [`DashboardPage.tsx`](file:///e:/MyFin/src/pages/DashboardPage.tsx), [`BackupSettingsPage.tsx`](file:///e:/MyFin/src/pages/BackupSettingsPage.tsx)
 - **Components**: [`CommandPalette.tsx`](file:///e:/MyFin/src/components/CommandPalette.tsx), [`DashboardCustomizeSheet.tsx`](file:///e:/MyFin/src/components/DashboardCustomizeSheet.tsx)
-- **Spec**: [`specs/019-financial-planning-and-productivity/`](file:///e:/MyFin/specs/019-financial-planning-and-productivity/)
 
 ---
 
@@ -428,4 +425,3 @@ Three changes aimed at the Android APK. Fingerprint unlock did not work there at
 - **Capture data layer**: [`captureIngestService.ts`](file:///e:/MyFin/src/data/io/captureIngestService.ts), [`captureDrain.ts`](file:///e:/MyFin/src/data/io/captureDrain.ts), [`captureSetup.ts`](file:///e:/MyFin/src/data/io/captureSetup.ts), [`sealedBox.ts`](file:///e:/MyFin/src/data/crypto/sealedBox.ts)
 - **Native capture**: `android/app/src/main/java/io/github/akhlaquea01/myfin/capture/` (`SmsReceiver`, `NotificationCaptureService`, `SealedBox`, `CaptureFilter`, `CaptureQueue`, `CaptureNotifier`, `TransactionCapturePlugin`)
 - **Pages**: [`SecurityPage.tsx`](file:///e:/MyFin/src/pages/SecurityPage.tsx), [`AutoCapturePage.tsx`](file:///e:/MyFin/src/pages/AutoCapturePage.tsx), [`ReviewPage.tsx`](file:///e:/MyFin/src/pages/ReviewPage.tsx), [`AccountsPage.tsx`](file:///e:/MyFin/src/pages/AccountsPage.tsx) (account digits)
-- **Spec**: [`specs/020-android-biometric-and-capture/`](file:///e:/MyFin/specs/020-android-biometric-and-capture/)

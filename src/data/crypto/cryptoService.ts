@@ -1,6 +1,5 @@
 // Native Web Crypto API only — no cryptography dependency (Constitution Principles II, V).
 // PBKDF2-SHA256 (210,000 iterations) derives a 256-bit AES-GCM key from the user's PIN.
-// See specs/001-personal-finance-manager/research.md #6 and contracts/repository-interfaces.md.
 
 // Interactive unlock cost. OWASP's current PBKDF2-HMAC-SHA256 guidance is 600,000; this
 // sits below it deliberately because it runs on the main thread on every unlock, and is

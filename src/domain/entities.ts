@@ -1,5 +1,4 @@
 // Plaintext entity shapes shared by the domain and data layers.
-// See specs/001-personal-finance-manager/data-model.md for the authoritative definitions.
 // Monetary fields are always integers in the smallest currency unit (never floating point).
 
 export type ID = string;

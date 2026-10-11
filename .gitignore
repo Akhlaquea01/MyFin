@@ -33,6 +33,5 @@ test-results
 playwright-report
 blob-report
 playwright/.cache
-# Local agent and spec directories
+# Local agent directory
 .claude/
-specs/

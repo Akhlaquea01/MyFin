@@ -125,8 +125,7 @@ function ScoreCard({ score }: { score: FinancialHealthScore | null }) {
 }
 
 // User Story 007: derived read-only insights (savings rate, expense/income ratio, budget
-// adherence, trend, composite score) computed entirely from existing ledger/budget data —
-// see specs/007-financial-health-insights.
+// adherence, trend, composite score) computed entirely from existing ledger/budget data.
 export function FinancialHealthPage() {
 	const { getEncryptionKey } = useSession();
 	const key = getEncryptionKey();

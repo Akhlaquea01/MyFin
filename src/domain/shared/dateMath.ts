@@ -1,8 +1,7 @@
 /**
  * Whole-month date arithmetic shared by the debt payoff planner (spec 002) and savings
  * goals (spec 003) engines. UTC throughout to avoid timezone drift; day-of-month is always
- * normalized to the 1st, since neither engine needs day-level precision (see
- * specs/003-savings-goals/research.md §2).
+ * normalized to the 1st, since neither engine needs day-level precision.
  */
 
 /**
