@@ -50,4 +50,68 @@ describe('QuickAddParser', () => {
 		expect(result.type).toBe('expense');
 		expect(isConfident(result)).toBe(true);
 	});
+
+	describe('amount formats', () => {
+		const amountOf = (text: string) => parseQuickAddText(text).amount;
+
+		it.each([
+			['₹500.00 debited from A/c XX1234 to AMAZON', 50000],
+			['Spent ₹ 1,234.50 at SWIGGY', 123450],
+			['₹1,23,456.78 credited to your account', 12345678],
+			['Paid 750₹ to ZOMATO', 75000],
+			['INR500 debited from your account', 50000],
+			['Rs. 1,234 debited', 123400]
+		])('reads the rupee sign and Rs/INR forms: %s', (text, expected) => {
+			expect(amountOf(text)).toBe(expected);
+		});
+
+		it.each([
+			['Your a/c is debited by 500.00 on 01-03-26 trf to ZOMATO', 50000],
+			['A/c credited with 1,200 on 02-03-26 from JOHN', 120000],
+			['Amount: 750 debited from account', 75000],
+			['Txn of 99.50 on card ending 1234 at SPOTIFY. Amt spent 99.50', 9950]
+		])('reads an amount that names no currency: %s', (text, expected) => {
+			expect(amountOf(text)).toBe(expected);
+		});
+
+		it('does not mistake digits glued to an account tag for the amount', () => {
+			// These used to be read as 1234.00 — a silently wrong amount.
+			expect(amountOf('A/c XX1234 Rs.500.00 debited to AMAZON')).toBe(50000);
+			expect(amountOf('Card 1234 Rs 500 spent at ZOMATO')).toBe(50000);
+			expect(amountOf('Acct 98765 INR 1,200.00 credited')).toBe(120000);
+		});
+
+		it('does not mistake an account number or reference for an amount', () => {
+			expect(amountOf('Debited from A/c 123456789012 on 01-03-26')).toBeNull();
+			expect(amountOf('Ref No 123456 debited')).toBeNull();
+			expect(amountOf('Your OTP is 482913')).toBeNull();
+		});
+
+		it('does not find "rs" inside a longer word', () => {
+			expect(amountOf('Hours 500 worked today')).toBeNull();
+			expect(amountOf('Transfers 100 pending')).toBeNull();
+			// …but a real amount in the same message still wins.
+			expect(amountOf('Hours worked 8, Rs.500 debited')).toBe(50000);
+		});
+
+		it('takes the transaction amount, not the balance that follows it', () => {
+			expect(amountOf('Rs.500 debited. Avl Bal Rs.9,000.00')).toBe(50000);
+			expect(amountOf('₹250 spent at SWIGGY. Avl bal ₹9,999.00')).toBe(25000);
+			// A currency-less amount still comes before a later marked balance.
+			expect(amountOf('Debited by 500.00 on 01-03. Avl Bal Rs.9,000.00')).toBe(50000);
+		});
+
+		it('keeps exact paise (no float scaling)', () => {
+			expect(amountOf('₹8.165 debited')).toBeNull(); // three decimals is not a valid amount
+			expect(amountOf('₹8.16 debited')).toBe(816);
+			expect(amountOf('₹0.50 debited')).toBe(50);
+		});
+
+		it('still returns the direction and merchant alongside a rupee-sign amount', () => {
+			const result = parseQuickAddText('₹500.00 debited from A/c XX1234 to AMAZON');
+			expect(result.type).toBe('expense');
+			expect(result.merchantText).toBe('AMAZON');
+			expect(isConfident(result)).toBe(true);
+		});
+	});
 });
