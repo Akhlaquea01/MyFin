@@ -3,6 +3,7 @@ import { MerchantRepository } from '../../data/dexie/merchantRepository';
 import { normalizeMerchantText } from '../parser/merchantResolver';
 import { looksLikeCardPayment } from '../parser/cardPaymentDetector';
 import type { Transaction } from '../entities';
+import { todayLocalISO } from '../shared/dateMath';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -88,7 +89,7 @@ export async function detectSubscriptions(
 ): Promise<DetectedSubscription[]> {
 	const toleranceRatio = options.toleranceRatio ?? DEFAULT_TOLERANCE_RATIO;
 	const asOf = options.asOf ?? new Date();
-	const dateFrom = new Date(asOf.getTime() - 400 * DAY_MS).toISOString().slice(0, 10);
+	const dateFrom = todayLocalISO(new Date(asOf.getTime() - 400 * DAY_MS));
 
 	const [transactions, merchants] = await Promise.all([
 		TransactionRepository.search(key, { dateFrom }),
@@ -137,7 +138,7 @@ export async function detectSubscriptions(
 
 		const lastChargedDate = sorted[sorted.length - 1].date;
 		const [, , maxWindow] = CADENCE_WINDOWS[cadence];
-		const isLapsed = daysBetween(lastChargedDate, asOf.toISOString().slice(0, 10)) > maxWindow;
+		const isLapsed = daysBetween(lastChargedDate, todayLocalISO(asOf)) > maxWindow;
 		const averageAmountMinor = Math.round(meanAmount);
 
 		results.push({

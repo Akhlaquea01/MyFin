@@ -50,18 +50,14 @@ import type {
 	Transaction
 } from '../domain/entities';
 import { buildCategoryLabels } from '../domain/categories/categoryHierarchy';
-
-function formatMoney(paise: number): string {
-	return (paise / 100).toLocaleString(undefined, {
-		minimumFractionDigits: 2,
-		maximumFractionDigits: 2
-	});
-}
+import { useConfirm } from '../lib/confirm';
+import { formatMoney } from '../domain/shared/money';
 
 // User Story 2 (P2): trash/undo for soft-deleted records (FR-014, Constitution Principle VI).
 export function TrashPage() {
 	const { getEncryptionKey } = useSession();
 	const key = getEncryptionKey();
+	const confirm = useConfirm();
 
 	const [deletedAccounts, setDeletedAccounts] = useState<Account[]>([]);
 	const [deletedTransactions, setDeletedTransactions] = useState<Transaction[]>([]);
@@ -150,9 +146,12 @@ export function TrashPage() {
 	// Constitution Principle VI: permanent purge requires explicit, separate user
 	// confirmation — this is the first such flow in the app (spec 005, research.md §5).
 	async function purgeTransaction(tx: Transaction) {
-		const confirmed = window.confirm(
-			'Permanently delete this transaction and any attached receipts? This cannot be undone.'
-		);
+		const confirmed = await confirm({
+			message:
+				'Permanently delete this transaction and any attached receipts? This cannot be undone.',
+			confirmLabel: 'Delete permanently',
+			destructive: true
+		});
 		if (!confirmed) return;
 		try {
 			await TransactionRepository.purge(key, tx.id);
@@ -395,7 +394,7 @@ export function TrashPage() {
 										className="flex items-center justify-between rounded-lg border px-4 py-2"
 									>
 										<span className="text-sm">
-											{repayment.date} · {(repayment.amount / 100).toFixed(2)}
+											{repayment.date} · {formatMoney(repayment.amount)}
 										</span>
 										<Button variant="link" size="sm" onClick={() => restoreRepayment(repayment)}>
 											Restore

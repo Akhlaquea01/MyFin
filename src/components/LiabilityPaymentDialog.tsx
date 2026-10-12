@@ -14,19 +14,12 @@ import {
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { useSession } from '../context/SessionContext';
 import { recordLiabilityPayment } from '../domain/wealth/wealthEngine';
-import { formatMinorUnits, isPositiveMoney, parseMoneyOrZero } from '../domain/shared/money';
+import { formatMinorUnits, isPositiveMoney, parseMoneyOrZero, formatMoney } from '../domain/shared/money';
 import { todayLocalISO } from '../domain/shared/dateMath';
 import type { Account, Category, Liability } from '../domain/entities';
 import { categoryOptions } from '../domain/categories/categoryHierarchy';
 
 const NO_CATEGORY = '__none__';
-
-function formatMoney(paise: number): string {
-	return (paise / 100).toLocaleString(undefined, {
-		minimumFractionDigits: 2,
-		maximumFractionDigits: 2
-	});
-}
 
 /**
  * "I paid this month's EMI." One action: the money leaves the chosen account AND the amount still

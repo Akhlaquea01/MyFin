@@ -50,15 +50,23 @@ version number (the run number). Artifacts are kept for 30 days.
   purpose: enter your PIN and turn it on again. It needs a fingerprint sensor (or face unlock) that Android rates as _strong_; some face unlock is rated weaker and will be
   reported as unavailable.
 - **Share into MyFin**: MyFin appears in Android's share sheet. Share a bank SMS (text) from your messages app and it opens **Quick Add** with the message parsed; share a receipt
-  photo and it opens **New Transaction** with the image attached. A share made while MyFin is locked waits and opens after you unlock. Images over 10 MB are refused with a message.
+  photo and it opens **New Transaction** with the image attached; share a bank statement downloaded as **CSV or Excel** and it opens **Import** with the file loaded for column
+  mapping. A share made while MyFin is locked waits and opens after you unlock. Images and statements over 10 MB are refused with a message. If you are partway through typing a
+  transaction, MyFin asks before a share replaces it (and offers to open the share later if you decline).
 - **Reminders are real Android notifications**: bill reminders, budget alerts and overdue-loan reminders now appear as Android notifications (the browser's notification API does not
   exist inside the app). MyFin asks once (Android 13+ shows the system permission dialog), and they are shown when you unlock the app, not on a schedule while it is closed — nothing
-  financial is handed to Android's alarm scheduler to be stored and fired later. They appear under the channel **Bill and budget reminders** (hidden on the lock screen).
-- **Not available or unverified in the APK** (they rely on browser features; MyFin hides or skips them when missing, but check on your phone): automatic backup to a chosen folder,
-  and the PWA update prompt (updating is installing a new APK). The "browser couldn't guarantee protected storage" banner may appear; it is dismissible, and the advice behind it
-  still holds — take regular Backups.
-- The hardware/gesture **Back** button does not step back through MyFin's pages: the app only uses `@capacitor/app` to notice when it returns to the foreground and does not
-  handle the Back button, so Android's default applies and Back leaves the app. Use MyFin's own menu to navigate.
+  financial is handed to Android's alarm scheduler to be stored and fired later. They appear under the channel **Bill and budget reminders** (hidden on the lock screen). Each one is
+  also listed under **Alerts** in the menu (with an unread count), whether or not notifications are allowed, and tapping the notification opens the matching screen.
+- **Automatic backups to a folder**: under **Backup → Automatic backups**, **Choose backup folder** opens Android's folder picker (Storage Access Framework — no storage permission is
+  needed, and MyFin can only touch the one folder you pick). Choose a folder that Google Drive, Syncthing or similar already watches, and each scheduled backup (checked every time you
+  unlock with your PIN — the backup is encrypted with it) leaves the phone as a new encrypted `myfin-auto-backup-YYYY-MM-DD.json` file. Old files are not deleted. If Android
+  revokes the folder, the next run is recorded as failed and the page says so. **Remind me weekly** additionally schedules a notification with fixed text (no financial details) so
+  a missed backup does not go unnoticed; it is the one notification MyFin hands to Android's scheduler.
+- **Not available in the APK** (they rely on browser features; MyFin hides or skips them): the PWA update prompt (updating is installing a new APK) and the "browser couldn't
+  guarantee protected storage" banner. Take regular Backups — see above.
+- The hardware/gesture **Back** button follows the app: it first closes an open dialog or the navigation drawer, then steps back through MyFin's pages, and from the Dashboard leaves
+  the app.
+- **Lock when I leave the app** (Security → Auto-lock) locks MyFin once it has been out of the foreground for more than 30 seconds, whatever the auto-lock time.
 
 ## Auto-capture of bank messages
 

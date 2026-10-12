@@ -16,15 +16,8 @@ import {
 } from '../domain/debtPlanner/generatePlan';
 import type { DebtPayoffPlan, PayoffStrategy } from '../domain/debtPlanner/types';
 import type { Liability } from '../domain/entities';
-import { formatMinorUnits, parseMoneyToMinorUnits } from '../domain/shared/money';
+import { formatMinorUnits, parseMoneyToMinorUnits, formatMoney } from '../domain/shared/money';
 import { toast } from 'sonner';
-
-function formatMoney(paise: number): string {
-	return (paise / 100).toLocaleString(undefined, {
-		minimumFractionDigits: 2,
-		maximumFractionDigits: 2
-	});
-}
 
 function formatDate(iso: string): string {
 	return new Date(iso).toLocaleDateString(undefined, { year: 'numeric', month: 'long' });

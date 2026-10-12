@@ -75,13 +75,8 @@ import type {
 } from '../domain/entities';
 import { SavedFilterViewRepository } from '../data/dexie/savedFilterViewRepository';
 import { buildCategoryLabels } from '../domain/categories/categoryHierarchy';
-
-function formatMoney(paise: number): string {
-	return (paise / 100).toLocaleString(undefined, {
-		minimumFractionDigits: 2,
-		maximumFractionDigits: 2
-	});
-}
+import { useConfirm } from '../lib/confirm';
+import { formatMoney } from '../domain/shared/money';
 
 // Row-level (not library) virtualization: past this many rows, rendering every <tr> at
 // once is the actual jank source at 10k+ transactions (SC-008), so only the rows within
@@ -117,6 +112,7 @@ function mergeCounts(
 export function TransactionsPage() {
 	const { getEncryptionKey } = useSession();
 	const key = getEncryptionKey();
+	const confirm = useConfirm();
 
 	const [accounts, setAccounts] = useState<Account[]>([]);
 	const [merchants, setMerchants] = useState<Merchant[]>([]);
@@ -141,6 +137,19 @@ export function TransactionsPage() {
 	const [attachmentCounts, setAttachmentCounts] = useState<Record<string, number>>({});
 	const [attachmentDialogTx, setAttachmentDialogTx] = useState<Transaction | null>(null);
 
+	const hasActiveFilters =
+		accountFilter !== '' ||
+		dateFrom !== '' ||
+		dateTo !== '' ||
+		freeText.trim() !== '' ||
+		selectedTagIds.length > 0;
+	function clearAllFilters() {
+		setAccountFilter('');
+		setDateFrom('');
+		setDateTo('');
+		setFreeText('');
+		setSelectedTagIds([]);
+	}
 	const [savedViews, setSavedViews] = useState<SavedFilterView[]>([]);
 	const [saveViewOpen, setSaveViewOpen] = useState(false);
 	const [newViewName, setNewViewName] = useState('');
@@ -301,15 +310,14 @@ export function TransactionsPage() {
 		} catch {
 			// If the check itself fails, fall through to the normal confirmation rather than block.
 		}
-		const confirmed = window.confirm(
-			tx.transferPairId
+		const confirmed = await confirm({ message: tx.transferPairId
 				? 'This is a transfer — both sides (the money leaving one account and arriving in the other) will move to trash. You can undo this right after.'
-				: 'Move this transaction to trash? You can undo this right after.'
-		);
+				: 'Move this transaction to trash? You can undo this right after.', confirmLabel: 'Move to trash', destructive: true });
 		if (!confirmed) return;
 		try {
 			await TransactionEngine.deleteTransaction(key, tx.id);
 			toast.success('Transaction moved to trash', {
+				duration: 10_000,
 				action: {
 					label: 'Undo',
 					onClick: () => {
@@ -332,7 +340,7 @@ export function TransactionsPage() {
 		try {
 			const existing = await SavedFilterViewRepository.findByName(key, newViewName.trim());
 			if (existing) {
-				if (!window.confirm(`A view named "${existing.name}" already exists. Overwrite?`)) {
+				if (!(await confirm({ message: `A view named "${existing.name}" already exists. Overwrite?`, confirmLabel: 'Overwrite', destructive: false }))) {
 					setSavingView(false);
 					return;
 				}
@@ -376,18 +384,18 @@ export function TransactionsPage() {
 			toast.success('View renamed.');
 			setRenamingView(null);
 			setSavedViews(await SavedFilterViewRepository.list(key));
-		} catch (err) {
+		} catch {
 			toast.error('Could not rename view.');
 		}
 	}
 
 	async function handleDeleteView(id: string) {
-		if (!window.confirm('Delete this saved view?')) return;
+		if (!(await confirm({ message: 'Delete this saved view?', confirmLabel: 'Delete view', destructive: true }))) return;
 		try {
 			await SavedFilterViewRepository.delete(id);
 			toast.success('Saved view deleted.');
 			setSavedViews(await SavedFilterViewRepository.list(key));
-		} catch (err) {
+		} catch {
 			toast.error('Could not delete view.');
 		}
 	}
@@ -649,8 +657,30 @@ export function TransactionsPage() {
 				<p className="text-sm text-muted-foreground">Loading…</p>
 			) : transactions.length === 0 ? (
 				<Card className="border-dashed">
-					<CardContent className="py-10 text-center text-sm text-muted-foreground">
-						No transactions match.
+					<CardContent className="flex flex-col items-center gap-3 py-10 text-center text-sm text-muted-foreground">
+						{hasActiveFilters ? (
+							<>
+								<p>No transactions match these filters.</p>
+								<Button variant="outline" size="sm" onClick={clearAllFilters}>
+									Clear filters
+								</Button>
+							</>
+						) : (
+							<>
+								<p>No transactions yet.</p>
+								<div className="flex flex-wrap justify-center gap-2">
+									<Button size="sm" asChild>
+										<Link to="/transactions/new">Add your first one</Link>
+									</Button>
+									<Button size="sm" variant="outline" asChild>
+										<Link to="/quick-add">Paste a bank message</Link>
+									</Button>
+									<Button size="sm" variant="outline" asChild>
+										<Link to="/import">Upload a statement file</Link>
+									</Button>
+								</div>
+							</>
+						)}
 					</CardContent>
 				</Card>
 			) : (
@@ -751,8 +781,15 @@ export function TransactionsPage() {
 												>
 													<Pencil className="size-4" />
 												</Button>
-												<Button variant="ghost" size="sm" onClick={() => remove(tx)}>
-													Delete
+												<Button
+													variant="ghost"
+													size="sm"
+													aria-label="Delete transaction"
+													onClick={() => remove(tx)}
+												>
+													{/* Icon only on a phone, where seven columns leave no room for a word. */}
+													<Trash2 className="size-4 sm:hidden" />
+													<span className="hidden sm:inline">Delete</span>
 												</Button>
 											</div>
 										</TableCell>
@@ -876,6 +913,7 @@ function AttachmentsDialog({
 }) {
 	const { getEncryptionKey } = useSession();
 	const key = getEncryptionKey();
+	const confirm = useConfirm();
 
 	const [attachments, setAttachments] = useState<Attachment[]>([]);
 	const [loading, setLoading] = useState(true);
@@ -921,7 +959,7 @@ function AttachmentsDialog({
 	async function removeAttachment(attachment: Attachment) {
 		// AttachmentRepository.remove is a permanent hard delete (no Trash entry, no undo) —
 		// unlike a transaction's own soft-delete above, this needs its own confirmation.
-		if (!window.confirm('Permanently delete this receipt? This cannot be undone.')) return;
+		if (!(await confirm({ message: 'Permanently delete this receipt? This cannot be undone.', confirmLabel: 'Delete receipt', destructive: true }))) return;
 		try {
 			await AttachmentRepository.remove(key, attachment.id);
 			await refreshAttachments();

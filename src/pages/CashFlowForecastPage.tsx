@@ -19,7 +19,7 @@ import { AccountRepository } from '../data/dexie/accountRepository';
 import { projectAccountBalance } from '../domain/forecast/forecastEngine';
 import type { BalanceForecast, ForecastHorizonDays } from '../domain/forecast/types';
 import type { Account } from '../domain/entities';
-import { formatMinorUnits, isValidMoney, parseMoneyOrZero } from '../domain/shared/money';
+import { isValidMoney, parseMoneyOrZero, formatMoney } from '../domain/shared/money';
 import { getPrimaryColor, withAlpha, getAxisColor, getGridColor } from '../lib/chartColors';
 
 const HORIZON_OPTIONS: ForecastHorizonDays[] = [30, 60, 90];
@@ -145,7 +145,7 @@ export function CashFlowForecastPage() {
 								<strong>owe</strong> — based on your card spending and payments over the last 90
 								days.{' '}
 								{selectedAccount.creditLimit
-									? `You'll be warned if it would pass your ${formatMinorUnits(selectedAccount.creditLimit)} credit limit.`
+									? `You'll be warned if it would pass your ${formatMoney(selectedAccount.creditLimit)} credit limit.`
 									: 'Set a credit limit on the Accounts page to get a warning before you would pass it.'}
 							</CardContent>
 						</Card>
@@ -193,8 +193,8 @@ export function CashFlowForecastPage() {
 										</Badge>
 										<span>
 											{forecast.warning.kind === 'over-limit'
-												? `Projected to go ${formatMinorUnits(forecast.warning.shortfallAmountMinor)} over your credit limit by ${formatDate(forecast.warning.date)}.`
-												: `Projected to fall ${formatMinorUnits(forecast.warning.shortfallAmountMinor)} below your threshold by ${formatDate(forecast.warning.date)}.`}
+												? `Projected to go ${formatMoney(forecast.warning.shortfallAmountMinor)} over your credit limit by ${formatDate(forecast.warning.date)}.`
+												: `Projected to fall ${formatMoney(forecast.warning.shortfallAmountMinor)} below your threshold by ${formatDate(forecast.warning.date)}.`}
 										</span>
 									</CardContent>
 								</Card>

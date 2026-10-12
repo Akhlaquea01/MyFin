@@ -40,12 +40,13 @@ import {
 	hasActiveBudgetForCategory
 } from '../domain/budgets/budgetEngine';
 import type { Budget, BudgetItem, BudgetPeriodType, Category } from '../domain/entities';
-import { isPositiveMoney, parseMoneyOrZero } from '../domain/shared/money';
+import { isPositiveMoney, parseMoneyOrZero, formatMoney } from '../domain/shared/money';
 import { categoryOptions } from '../domain/categories/categoryHierarchy';
 import {
 	buildCategoryLabels,
 	categoryWithDescendantIds
 } from '../domain/categories/categoryHierarchy';
+import { useConfirm } from '../lib/confirm';
 
 const budgetSchema = z.object({
 	categoryId: z.string().min(1, 'Choose a category.'),
@@ -86,6 +87,7 @@ const MONTH_NAMES = [
 export function BudgetsPage() {
 	const { getEncryptionKey } = useSession();
 	const key = getEncryptionKey();
+	const confirm = useConfirm();
 
 	const [categories, setCategories] = useState<Category[]>([]);
 	const [budgets, setBudgets] = useState<Budget[]>([]);
@@ -228,11 +230,14 @@ export function BudgetsPage() {
 				'off';
 			const accumulated = items[editTarget.id]?.rolloverInAmount ?? 0;
 			if (wasRolling && values.rolloverMode === 'off' && accumulated !== 0) {
-				const confirmed = window.confirm(
-					`This category has an accumulated rollover balance of ${(accumulated / 100).toFixed(2)}. ` +
+				const confirmed = await confirm({
+					message:
+						`This category has an accumulated rollover balance of ${formatMoney(accumulated)}. ` +
 						'Turning rollover off keeps that amount on the current period, but no further ' +
-						'periods will add to or subtract from it. Continue?'
-				);
+						'periods will add to or subtract from it. Continue?',
+					confirmLabel: 'Turn rollover off',
+					destructive: false
+				});
 				if (!confirmed) return;
 			}
 			await BudgetRepository.update(key, editTarget.id, {
@@ -253,9 +258,11 @@ export function BudgetsPage() {
 
 	async function deleteBudget(budget: Budget) {
 		// FR-013: a confirmation step, separate from the undo window below.
-		const confirmed = window.confirm(
-			`Remove the ${categoryName(budget.categoryId)} budget? You can undo this right after.`
-		);
+		const confirmed = await confirm({
+			message: `Remove the ${categoryName(budget.categoryId)} budget? You can undo this right after.`,
+			confirmLabel: 'Remove budget',
+			destructive: true
+		});
 		if (!confirmed) return;
 		try {
 			await BudgetRepository.softDelete(key, budget.id);

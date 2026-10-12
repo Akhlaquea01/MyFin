@@ -15,6 +15,10 @@ export interface NativeSharePayload {
 	image?: { name: string; mimeType: string; base64: string };
 	/** Set instead of `image` when an image was shared but could not be taken. */
 	imageProblem?: 'too-large' | 'unreadable';
+	/** A shared bank statement (CSV or Excel), base64-encoded — opened in Import. */
+	file?: { name: string; mimeType: string; base64: string };
+	/** Set instead of `file` when a statement was shared but could not be taken. */
+	fileProblem?: 'too-large' | 'unreadable';
 }
 
 interface NativeSharePlugin {

@@ -25,6 +25,7 @@ import {
 	type NetWorthCategory
 } from '../domain/wealth/wealthEngine';
 import type { NetWorthSnapshot } from '../domain/entities';
+import { formatMoney } from '../domain/shared/money';
 
 // FR-005/FR-006: order matters for display — assets first, then liabilities, each labeled
 // distinctly instead of one undifferentiated total (research.md §2).
@@ -45,13 +46,6 @@ const CATEGORY_LABELS: Record<
 const CATEGORY_ORDER = Object.keys(CATEGORY_LABELS) as (keyof typeof CATEGORY_LABELS)[];
 
 Chart.register(LineController, LineElement, PointElement, LinearScale, CategoryScale, Tooltip);
-
-function formatMoney(paise: number): string {
-	return (paise / 100).toLocaleString(undefined, {
-		minimumFractionDigits: 2,
-		maximumFractionDigits: 2
-	});
-}
 
 // User Story 7 (P7): net worth = assets - liabilities, with a recorded history (FR-034).
 export function NetWorthPage() {

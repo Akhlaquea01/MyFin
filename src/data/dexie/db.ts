@@ -143,6 +143,18 @@ export interface AttachmentRow extends EncryptedRow {
 	transactionId: string;
 }
 
+export interface NotificationInboxRow extends EncryptedRow {
+	dedupeKey: string;
+	createdAt: number;
+	/** 0 = unread, 1 = read. A number because a boolean is not a valid IndexedDB key; it lets the
+	 *  unread badge be counted without decrypting anything. */
+	isRead: number;
+}
+
+export interface UnreadableCaptureRow extends EncryptedRow {
+	receivedAt: number;
+}
+
 export interface CategorizationRuleRow extends EncryptedRow {
 	merchantId: string;
 	deletedAt: number;
@@ -222,6 +234,8 @@ class MyFinDatabase extends Dexie {
 	personLoanRepayments!: EntityTable<PersonLoanRepaymentRow, 'id'>;
 	savedFilterViews!: EntityTable<SavedFilterViewRow, 'id'>;
 	importMappings!: EntityTable<ImportMappingRow, 'id'>;
+	notificationInbox!: EntityTable<NotificationInboxRow, 'id'>;
+	unreadableCaptures!: EntityTable<UnreadableCaptureRow, 'id'>;
 	// Unencrypted by design — see research.md #11 "Exception — UserProfile".
 	userProfile!: EntityTable<UserProfile, 'id'>;
 	sessionKeys!: EntityTable<SessionKeyRow, 'id'>;
@@ -322,6 +336,12 @@ class MyFinDatabase extends Dexie {
 		// describe the user's bank) and device-local like the backup settings. Additive-only.
 		this.version(13).stores({
 			importMappings: 'id'
+		});
+		// v14: the in-app Alerts list and the captured messages that could not be read. Both are
+		// encrypted; both are additive-only.
+		this.version(14).stores({
+			notificationInbox: 'id, dedupeKey, createdAt, isRead',
+			unreadableCaptures: 'id, receivedAt'
 		});
 	}
 }

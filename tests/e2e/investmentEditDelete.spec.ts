@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
+import { acceptConfirm, dismissConfirm } from './helpers';
 
 // A holding can be corrected and removed after it is added, and a mistyped value can be fixed —
 // before, a typo meant living with it (no edit, no delete, and re-entering a value the same day
@@ -42,7 +43,7 @@ test('a holding can be edited, and the cost basis follows its units and price', 
 }) => {
 	await onboard(page, '707071');
 	await addHolding(page, 'BEL', 'Stock', '10', '100');
-	await expect(cardFor(page, 'BEL')).toContainText('10 units @ 100.00 avg · cost basis 1,000.00');
+	await expect(cardFor(page, 'BEL')).toContainText('10 units @ ₹100.00 avg · cost basis ₹1,000.00');
 
 	await page.getByRole('button', { name: 'Edit BEL' }).click();
 	const dialog = page.getByRole('dialog');
@@ -52,12 +53,12 @@ test('a holding can be edited, and the cost basis follows its units and price', 
 	await dialog.getByLabel('Units').fill('12');
 	await dialog.getByLabel('Avg. price / unit').fill('95');
 	// The consequence is visible before saving.
-	await expect(dialog.getByText(/Cost basis: 1,140\.00/)).toBeVisible();
+	await expect(dialog.getByText(/Cost basis: ₹1,140\.00/)).toBeVisible();
 	await dialog.getByRole('button', { name: 'Save changes' }).click();
 	await expect(dialog).not.toBeVisible();
 
 	const card = cardFor(page, 'Bharat Electronics');
-	await expect(card).toContainText('12 units @ 95.00 avg · cost basis 1,140.00');
+	await expect(card).toContainText('12 units @ ₹95.00 avg · cost basis ₹1,140.00');
 	await expect(card.getByText('ETF')).toBeVisible();
 	await expect(page.getByRole('button', { name: 'Edit BEL' })).toHaveCount(0);
 
@@ -92,11 +93,8 @@ test('re-entering today’s value corrects it, and a wrong recorded value can be
 	const dialog = page.getByRole('dialog');
 	await expect(dialog.getByRole('button', { name: /Delete value from/ })).toHaveCount(1);
 	await expect(dialog.getByText('(current)')).toBeVisible();
-	page.once('dialog', (d) => {
-		expect(d.message()).toContain('1,500.00');
-		void d.accept();
-	});
 	await dialog.getByRole('button', { name: /Delete value from/ }).click();
+	await acceptConfirm(page, '1,500.00');
 	await expect(dialog.getByText(/None yet/)).toBeVisible();
 	await dialog.getByRole('button', { name: 'Cancel' }).click();
 
@@ -113,15 +111,12 @@ test('a holding can be deleted, and Undo brings it back', async ({ page }) => {
 	await expect(summary).toContainText('1,500.00');
 
 	// Declining the prompt keeps it.
-	page.once('dialog', (d) => void d.dismiss());
 	await page.getByRole('button', { name: 'Delete BEL' }).click();
+	await dismissConfirm(page);
 	await expect(cardFor(page, 'BEL')).toBeVisible();
 
-	page.once('dialog', (d) => {
-		expect(d.message()).toContain('Delete BEL?');
-		void d.accept();
-	});
 	await page.getByRole('button', { name: 'Delete BEL' }).click();
+	await acceptConfirm(page, 'Delete BEL?');
 	await expect(page.getByText('BEL deleted')).toBeVisible();
 	await expect(page.getByRole('button', { name: 'Edit BEL' })).toHaveCount(0);
 	// It stops counting toward the portfolio.

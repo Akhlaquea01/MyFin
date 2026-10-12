@@ -3,8 +3,10 @@
 // does not exist inside Android WebView, which is why reminders never appeared there); in a
 // browser or installed PWA it is the Notification API, exactly as before.
 //
-// Only ever used for notifications shown right away, from content that is already in memory
-// after unlock — nothing financial is handed to an OS scheduler to be stored and fired later.
+// Notifications that carry anything about the user's money are only ever shown right away, from
+// content that is already in memory after unlock — nothing financial is handed to an OS scheduler
+// to be stored and fired later. The one exception is the weekly backup reminder at the bottom,
+// whose text is fixed and says nothing about the user's data.
 import { isNativeApp } from './native/platform';
 
 /** `default` = not asked yet; `unsupported` = this environment cannot show notifications at all. */
@@ -92,7 +94,13 @@ export async function requestNotifyPermission(): Promise<NotifyPermission> {
  * when it could not be, so a caller can leave the reminder eligible for the next check.
  * `tag` identifies the reminder: a repeat with the same tag replaces the earlier one.
  */
-export async function showNotification(title: string, body: string, tag: string): Promise<boolean> {
+export async function showNotification(
+	title: string,
+	body: string,
+	tag: string,
+	/** App route to open when the notification is tapped (Android app only). */
+	route?: string
+): Promise<boolean> {
 	try {
 		if (isNativeApp()) {
 			await ensureChannel();
@@ -100,7 +108,14 @@ export async function showNotification(title: string, body: string, tag: string)
 				await nativePlugin()
 			).schedule({
 				notifications: [
-					{ id: notificationId(tag), title, body, channelId: CHANNEL_ID, autoCancel: true }
+					{
+						id: notificationId(tag),
+						title,
+						body,
+						channelId: CHANNEL_ID,
+						autoCancel: true,
+						...(route ? { extra: { route } } : {})
+					}
 				]
 			});
 			return true;
@@ -110,5 +125,68 @@ export async function showNotification(title: string, body: string, tag: string)
 		return true;
 	} catch {
 		return false;
+	}
+}
+
+export const BACKUP_REMINDER_TAG = 'backup-reminder';
+
+/**
+ * Schedules the weekly "back up your data" reminder (Android app only), first firing at `firstAt`.
+ * Its text is fixed and mentions no amounts, merchants or accounts, so handing it to the OS
+ * scheduler stores nothing about the user's finances. Replaces any earlier schedule (same id).
+ * Resolves whether it was scheduled; never throws.
+ */
+export async function scheduleBackupReminder(firstAt: Date): Promise<boolean> {
+	if (!isNativeApp()) return false;
+	try {
+		await ensureChannel();
+		await (
+			await nativePlugin()
+		).schedule({
+			notifications: [
+				{
+					id: notificationId(BACKUP_REMINDER_TAG),
+					title: 'Time to back up MyFin',
+					body: 'MyFin keeps your data only on this phone. Open Backup & Restore to save a copy.',
+					channelId: CHANNEL_ID,
+					autoCancel: true,
+					schedule: { at: firstAt, repeats: true, every: 'week' },
+					extra: { route: '/backup' }
+				}
+			]
+		});
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+export async function cancelBackupReminder(): Promise<void> {
+	if (!isNativeApp()) return;
+	try {
+		await (
+			await nativePlugin()
+		).cancel({ notifications: [{ id: notificationId(BACKUP_REMINDER_TAG) }] });
+	} catch {
+		// Nothing scheduled, or the plugin is unavailable.
+	}
+}
+
+/**
+ * Calls `onRoute` with the route a tapped notification asked for (Android app only). Resolves a
+ * function that stops listening.
+ */
+export async function onNotificationTapped(onRoute: (route: string) => void): Promise<() => void> {
+	if (!isNativeApp()) return () => {};
+	try {
+		const handle = await (
+			await nativePlugin()
+		).addListener('localNotificationActionPerformed', (action) => {
+			const route = (action.notification.extra as { route?: unknown } | undefined)?.route;
+			if (typeof route === 'string' && route.startsWith('/')) onRoute(route);
+		});
+		return () => void handle.remove();
+	} catch {
+		return () => {};
 	}
 }

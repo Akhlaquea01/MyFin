@@ -89,6 +89,28 @@ export function isNonZeroMoney(raw: string | number | null | undefined): boolean
 	return parsed !== null && parsed !== 0;
 }
 
+/** The one currency MyFin deals in. Amounts are rupees; there is no per-account currency. */
+export const CURRENCY_SYMBOL = '₹';
+
+/**
+ * A figure for display, grouped and to two decimals, with no currency symbol ("1,234.50", "-350.00")
+ * — for a column or a sentence that already makes the currency plain, and for the PDF report, whose
+ * built-in font has no rupee glyph. Display only: it divides into a float, so never feed it back into
+ * arithmetic (use `formatMinorUnits` / `parseMoneyToMinorUnits` for that).
+ */
+export function formatAmount(minorUnits: number): string {
+	return (minorUnits / 100).toLocaleString(undefined, {
+		minimumFractionDigits: 2,
+		maximumFractionDigits: 2
+	});
+}
+
+/** A figure for display with the rupee sign: "₹1,234.50", and "-₹350.00" for a negative one. */
+export function formatMoney(minorUnits: number): string {
+	const sign = minorUnits < 0 ? '-' : '';
+	return `${sign}${CURRENCY_SYMBOL}${formatAmount(Math.abs(minorUnits))}`;
+}
+
 /**
  * Renders minor units back to a plain decimal string ("123456" → "1234.56"). Exact: built by
  * integer division, never by dividing into a float.

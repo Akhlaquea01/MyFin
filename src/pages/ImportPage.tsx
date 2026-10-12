@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { Upload, ClipboardCopy } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '../components/ui/button';
@@ -77,6 +77,17 @@ export function ImportPage() {
 	const [rememberMapping, setRememberMapping] = useState(true);
 	const [mappingRemembered, setMappingRemembered] = useState(false);
 	const fileInputRef = useRef<HTMLInputElement>(null);
+	// A statement shared in from another app arrives as router state (see NativeShareBridge).
+	const location = useLocation();
+	useEffect(() => {
+		const shared = (location.state as { sharedFile?: File } | null)?.sharedFile;
+		if (shared) {
+			toast.info(`Opened ${shared.name} from your share.`);
+			void loadFile(shared);
+		}
+		// Once, on arrival: the file is consumed by this visit.
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, []);
 
 	useEffect(() => {
 		// Includes archived accounts: they're valid destinations for column-based resolution
@@ -138,6 +149,11 @@ export function ImportPage() {
 	async function handleFileChange(event: React.ChangeEvent<HTMLInputElement>) {
 		const file = event.target.files?.[0];
 		if (!file) return;
+		await loadFile(file);
+	}
+
+	/** Reads `file` and offers its columns for mapping — whether it was picked here or shared in. */
+	async function loadFile(file: File) {
 		setResult(null);
 		setProgress(null);
 		setMappingRemembered(false);
@@ -279,6 +295,16 @@ export function ImportPage() {
 					<p className="text-sm text-muted-foreground">
 						Import a CSV or XLSX file. Map its columns below — nothing is imported until you
 						confirm.
+					</p>
+					<p className="text-sm text-muted-foreground">
+						Have bank messages instead of a file?{' '}
+						<Link
+							to="/import/bulk-text"
+							className="font-medium text-primary underline underline-offset-2"
+						>
+							Paste several at once
+						</Link>
+						.
 					</p>
 					<div className="flex flex-wrap gap-2">
 						<Button

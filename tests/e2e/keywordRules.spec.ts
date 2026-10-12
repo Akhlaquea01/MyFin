@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
+import { acceptConfirm } from './helpers';
 
 // Keyword ("description contains") auto-categorization rules.
 
@@ -75,12 +76,8 @@ test('a keyword rule previews its matches, files existing entries, and files new
 	await expect(ruleDialog.getByText(/UPI-SWIGGY-88123 Bangalore/)).toBeVisible();
 
 	// Saving offers to file the existing history; accept it.
-	page.once('dialog', (d) => {
-		expect(d.message()).toContain('2 existing uncategorized transactions');
-		expect(d.message()).toContain('description contains "swiggy"');
-		void d.accept();
-	});
 	await ruleDialog.getByRole('button', { name: 'Add rule' }).click();
+	await acceptConfirm(page, /2 existing uncategorized transactions[\s\S]*description contains "swiggy"/);
 	await expect(ruleDialog).not.toBeVisible();
 	await expect(page.getByText('Description contains "swiggy" → Food')).toBeVisible();
 	await expect(page.getByText('Categorized 2 existing transactions')).toBeVisible();

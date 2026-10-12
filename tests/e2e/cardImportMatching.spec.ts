@@ -92,8 +92,8 @@ test.describe('card identifier matching', () => {
 		const hdfcCard = page.locator('[data-slot="card"]').filter({ hasText: 'HDFC Card' });
 		const iciciCard = page.locator('[data-slot="card"]').filter({ hasText: 'ICICI Card' });
 		// HDFC: 500 (single-match) + 300 (mixed) = 800 used. ICICI: 200 (mixed) used.
-		await expect(hdfcCard.getByText('Used 800.00')).toBeVisible();
-		await expect(iciciCard.getByText('Used 200.00')).toBeVisible();
+		await expect(hdfcCard.getByText('Used ₹800.00')).toBeVisible();
+		await expect(iciciCard.getByText('Used ₹200.00')).toBeVisible();
 
 		// --- No match: falls back to the existing manual picker, unchanged and not blocked ---
 		await goTo(page, 'Review', 'Review Queue');
@@ -148,7 +148,7 @@ test.describe('card identifier matching', () => {
 		const iciciCard = page.locator('[data-slot="card"]').filter({ hasText: 'ICICI Card' });
 		// Per-row routing splits correctly even though "HDFC Card" was picked as the file-level
 		// default — the ICICI row is still routed by its own line's identifier.
-		await expect(hdfcCard.getByText('Used 40.00')).toBeVisible();
-		await expect(iciciCard.getByText('Used 30.00')).toBeVisible();
+		await expect(hdfcCard.getByText('Used ₹40.00')).toBeVisible();
+		await expect(iciciCard.getByText('Used ₹30.00')).toBeVisible();
 	});
 });

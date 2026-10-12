@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
-import { NavLink, Outlet, useLocation } from 'react-router-dom';
+import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
 import {
 	ArrowLeftRight,
 	BarChart3,
 	Bell,
+	BellRing,
 	CalendarClock,
 	CreditCard,
 	DatabaseBackup,
@@ -17,6 +18,8 @@ import {
 	LayoutDashboard,
 	LineChart,
 	Menu,
+	MoreHorizontal,
+	Plus,
 	PiggyBank,
 	Repeat,
 	Sparkles,
@@ -33,9 +36,16 @@ import {
 import { cn } from '../lib/utils';
 import { Button } from './ui/button';
 import { Sheet, SheetContent, SheetTrigger } from './ui/sheet';
+import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuItem,
+	DropdownMenuTrigger
+} from './ui/dropdown-menu';
 import { PageErrorBoundary } from './PageErrorBoundary';
 import { CommandPalette } from './CommandPalette';
 import { useQuickTour } from '../hooks/useQuickTour';
+import { useUnreadAlerts } from '../hooks/useUnreadAlerts';
 import { useSession } from '../context/SessionContext';
 import { isNativeApp } from '../lib/native/platform';
 import { TransactionRepository } from '../data/dexie/transactionRepository';
@@ -51,68 +61,205 @@ const SEARCH_INDEX_TRANSACTION_LIMIT = 500;
 /** Tailwind's `md` breakpoint (768px) — the point at which the sidebar replaces this sheet. */
 const MOBILE_BREAKPOINT_QUERY = '(max-width: 767px)';
 
-const NAV_ITEMS = [
-	{ to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true },
-	{ to: '/accounts', label: 'Accounts', icon: Wallet, dataTour: 'accounts-nav' },
+interface NavItem {
+	to: string;
+	label: string;
+	icon: typeof LayoutDashboard;
+	end?: boolean;
+	dataTour?: string;
+	nativeOnly?: boolean;
+}
+
+// Grouped so a menu of this length can be scanned: the everyday screens first, the rarely-opened
+// settings last.
+const NAV_GROUPS: { label: string | null; items: NavItem[] }[] = [
 	{
-		to: '/transactions',
-		label: 'Transactions',
-		icon: ArrowLeftRight,
-		dataTour: 'transactions-nav'
+		label: null,
+		items: [
+			{ to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true },
+			{ to: '/accounts', label: 'Accounts', icon: Wallet, dataTour: 'accounts-nav' },
+			{
+				to: '/transactions',
+				label: 'Transactions',
+				icon: ArrowLeftRight,
+				dataTour: 'transactions-nav'
+			},
+			{ to: '/quick-add', label: 'Quick Add', icon: Sparkles },
+			{ to: '/review', label: 'Review', icon: Inbox },
+			{ to: '/alerts', label: 'Alerts', icon: BellRing }
+		]
 	},
-	{ to: '/quick-add', label: 'Quick Add', icon: Sparkles },
-	{ to: '/review', label: 'Review', icon: Inbox },
-	{ to: '/budgets', label: 'Budgets', icon: PiggyBank, dataTour: 'budgets-nav' },
-	{ to: '/budgets/variance', label: 'Budget vs. Actual', icon: BarChart3 },
-	{ to: '/savings-goals', label: 'Savings Goals', icon: Target },
-	{ to: '/people', label: 'People', icon: Users },
-	{ to: '/recurring', label: 'Recurring', icon: CalendarClock },
-	{ to: '/subscriptions', label: 'Subscriptions', icon: Repeat },
-	{ to: '/forecast', label: 'Forecast', icon: TrendingDown },
-	{ to: '/investments', label: 'Investments', icon: LineChart },
-	{ to: '/liabilities', label: 'Liabilities', icon: CreditCard },
-	{ to: '/liabilities/payoff-planner', label: 'Payoff Planner', icon: Landmark },
-	{ to: '/net-worth', label: 'Net Worth', icon: TrendingUp },
-	{ to: '/financial-health', label: 'Financial Health', icon: HeartPulse },
-	{ to: '/analytics', label: 'Analytics', icon: BarChart3 },
-	{ to: '/import', label: 'Import', icon: Upload },
-	{ to: '/export', label: 'Export', icon: Download },
-	{ to: '/backup', label: 'Backup', icon: DatabaseBackup, dataTour: 'settings-nav' },
-	{ to: '/security', label: 'Security', icon: ShieldCheck },
-	// Reading bank SMS and payment notifications only exists in the Android app.
-	{ to: '/auto-capture', label: 'Auto-capture', icon: Smartphone, nativeOnly: true },
-	{ to: '/notification-settings', label: 'Notifications', icon: Bell },
-	{ to: '/categorization-rules', label: 'Auto-Categorize', icon: Wand2 },
-	{ to: '/categories', label: 'Categories', icon: Tags, dataTour: 'categories-nav' },
-	{ to: '/trash', label: 'Trash', icon: Trash2 },
-	{ to: '/about', label: 'About', icon: Info }
+	{
+		label: 'Planning',
+		items: [
+			{ to: '/budgets', label: 'Budgets', icon: PiggyBank, dataTour: 'budgets-nav' },
+			{ to: '/budgets/variance', label: 'Budget vs. Actual', icon: BarChart3 },
+			{ to: '/savings-goals', label: 'Savings Goals', icon: Target },
+			{ to: '/recurring', label: 'Recurring', icon: CalendarClock },
+			{ to: '/subscriptions', label: 'Subscriptions', icon: Repeat },
+			{ to: '/forecast', label: 'Forecast', icon: TrendingDown }
+		]
+	},
+	{
+		label: 'Wealth',
+		items: [
+			{ to: '/people', label: 'People', icon: Users },
+			{ to: '/investments', label: 'Investments', icon: LineChart },
+			{ to: '/liabilities', label: 'Liabilities', icon: CreditCard },
+			{ to: '/liabilities/payoff-planner', label: 'Payoff Planner', icon: Landmark },
+			{ to: '/net-worth', label: 'Net Worth', icon: TrendingUp }
+		]
+	},
+	{
+		label: 'Insights',
+		items: [
+			{ to: '/financial-health', label: 'Financial Health', icon: HeartPulse },
+			{ to: '/analytics', label: 'Analytics', icon: BarChart3 }
+		]
+	},
+	{
+		label: 'Data & settings',
+		items: [
+			{ to: '/import', label: 'Import', icon: Upload },
+			{ to: '/export', label: 'Export', icon: Download },
+			{ to: '/backup', label: 'Backup', icon: DatabaseBackup, dataTour: 'settings-nav' },
+			{ to: '/security', label: 'Security', icon: ShieldCheck },
+			// Reading bank SMS and payment notifications only exists in the Android app.
+			{ to: '/auto-capture', label: 'Auto-capture', icon: Smartphone, nativeOnly: true },
+			{ to: '/notification-settings', label: 'Notifications', icon: Bell },
+			{ to: '/categorization-rules', label: 'Auto-Categorize', icon: Wand2 },
+			{ to: '/categories', label: 'Categories', icon: Tags, dataTour: 'categories-nav' },
+			{ to: '/trash', label: 'Trash', icon: Trash2 },
+			{ to: '/about', label: 'About', icon: Info }
+		]
+	}
 ];
 
 function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
+	const unreadAlerts = useUnreadAlerts();
 	return (
 		<nav className="flex flex-col gap-1">
-			{NAV_ITEMS.filter((item) => !item.nativeOnly || isNativeApp()).map(
-				({ to, label, icon: Icon, end, dataTour }) => (
-					<NavLink
-						key={to}
-						to={to}
-						end={end}
-						onClick={onNavigate}
-						data-tour={dataTour}
-						className={({ isActive }) =>
-							cn(
-								'flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
-								isActive
-									? 'bg-primary/10 text-primary'
-									: 'text-muted-foreground hover:bg-muted hover:text-foreground'
-							)
-						}
+			{NAV_GROUPS.map((group, index) => {
+				const items = group.items.filter((item) => !item.nativeOnly || isNativeApp());
+				if (items.length === 0) return null;
+				return (
+					<div
+						key={group.label ?? 'main'}
+						className={cn('flex flex-col gap-1', index > 0 && 'mt-3')}
 					>
-						<Icon className="size-4" />
-						{label}
-					</NavLink>
-				)
-			)}
+						{group.label && (
+							<p className="px-3 pb-0.5 text-[11px] font-semibold tracking-wide text-muted-foreground/70 uppercase">
+								{group.label}
+							</p>
+						)}
+						{items.map(({ to, label, icon: Icon, end, dataTour }) => (
+							<NavLink
+								key={to}
+								to={to}
+								end={end}
+								onClick={onNavigate}
+								data-tour={dataTour}
+								className={({ isActive }) =>
+									cn(
+										'flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
+										isActive
+											? 'bg-primary/10 text-primary'
+											: 'text-muted-foreground hover:bg-muted hover:text-foreground'
+									)
+								}
+							>
+								<Icon className="size-4" />
+								{label}
+								{to === '/alerts' && unreadAlerts > 0 && (
+									<span className="ml-auto rounded-full bg-primary px-1.5 py-0.5 text-[10px] leading-none font-semibold text-primary-foreground">
+										{unreadAlerts}
+									</span>
+								)}
+							</NavLink>
+						))}
+					</div>
+				);
+			})}
+		</nav>
+	);
+}
+
+/**
+ * The phone's bottom bar: the four places used every day, a button that adds something, and the
+ * full menu. Labels are drawn with CSS (`data-label`) rather than text nodes so they cannot be
+ * mistaken for page content, and the whole bar is gone from md up, where the sidebar takes over.
+ */
+function BottomBar({ onOpenMenu }: { onOpenMenu: () => void }) {
+	const tab = (isActive: boolean) =>
+		cn(
+			'relative flex flex-1 flex-col items-center justify-center gap-0.5 py-2 text-muted-foreground transition-colors',
+			'after:text-[10px] after:leading-none after:font-medium after:content-[attr(data-label)]',
+			isActive && 'text-primary'
+		);
+	return (
+		<nav
+			aria-label="Primary shortcuts"
+			className="fixed inset-x-0 bottom-0 z-30 flex border-t bg-background/95 pb-[env(safe-area-inset-bottom)] backdrop-blur md:hidden"
+		>
+			<NavLink
+				to="/"
+				end
+				aria-label="Home"
+				data-label="Home"
+				className={({ isActive }) => tab(isActive)}
+			>
+				<LayoutDashboard className="size-5" />
+			</NavLink>
+			<NavLink
+				to="/transactions"
+				end
+				aria-label="Activity"
+				data-label="Activity"
+				className={({ isActive }) => tab(isActive)}
+			>
+				<ArrowLeftRight className="size-5" />
+			</NavLink>
+			<div className="flex flex-1 items-center justify-center">
+				<DropdownMenu>
+					<DropdownMenuTrigger asChild>
+						<button
+							type="button"
+							aria-label="Add"
+							className="-mt-5 flex size-12 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg"
+						>
+							<Plus className="size-6" />
+						</button>
+					</DropdownMenuTrigger>
+					<DropdownMenuContent align="center" side="top" className="w-56">
+						<DropdownMenuItem asChild>
+							<Link to="/transactions/new">New transaction</Link>
+						</DropdownMenuItem>
+						<DropdownMenuItem asChild>
+							<Link to="/quick-add">Paste a bank message</Link>
+						</DropdownMenuItem>
+						<DropdownMenuItem asChild>
+							<Link to="/transactions/transfer">Move money between accounts</Link>
+						</DropdownMenuItem>
+					</DropdownMenuContent>
+				</DropdownMenu>
+			</div>
+			<NavLink
+				to="/review"
+				aria-label="Review queue"
+				data-label="Check"
+				className={({ isActive }) => tab(isActive)}
+			>
+				<Inbox className="size-5" />
+			</NavLink>
+			<button
+				type="button"
+				aria-label="More"
+				data-label="More"
+				className={tab(false)}
+				onClick={onOpenMenu}
+			>
+				<MoreHorizontal className="size-5" />
+			</button>
 		</nav>
 	);
 }
@@ -120,6 +267,7 @@ function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
 export function AppShell() {
 	const [mobileOpen, setMobileOpen] = useState(false);
 	const location = useLocation();
+	const unreadAlerts = useUnreadAlerts();
 	const { isTourActive } = useQuickTour();
 	const { getEncryptionKey } = useSession();
 	// True only when this component itself opened the sheet for the tour, so ending the tour
@@ -211,9 +359,21 @@ export function AppShell() {
 						</SheetContent>
 					</Sheet>
 					<span className="font-semibold">MyFin</span>
+					<Link
+						to="/alerts"
+						aria-label="Open alerts"
+						className="relative ml-auto inline-flex size-9 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted"
+					>
+						<BellRing className="size-5" />
+						{unreadAlerts > 0 && (
+							<span className="absolute top-0.5 right-0.5 min-w-4 rounded-full bg-primary px-1 text-center text-[10px] leading-4 font-semibold text-primary-foreground">
+								{unreadAlerts}
+							</span>
+						)}
+					</Link>
 				</header>
 
-				<main className="min-w-0 flex-1">
+				<main className="min-w-0 flex-1 pb-20 md:pb-0">
 					{/* Keyed by pathname so navigating away from a crashed page fully remounts the
 					    boundary — a stale failure never lingers after the user moves on. */}
 					<PageErrorBoundary key={location.pathname}>
@@ -221,6 +381,7 @@ export function AppShell() {
 					</PageErrorBoundary>
 				</main>
 			</div>
+			<BottomBar onOpenMenu={() => setMobileOpen(true)} />
 		</div>
 	);
 }

@@ -40,7 +40,7 @@ test('an entry in Review can be edited in place, stays in the queue, and can the
 
 	await expect(page.getByRole('heading', { name: 'Review Queue' })).toBeVisible();
 	await expect(page.getByText('Coffee Shop')).toBeVisible();
-	await expect(page.getByText('-250.00')).toBeVisible();
+	await expect(page.getByText('-₹250.00')).toBeVisible();
 	// The old copy promised the entry did not count yet, which was never true.
 	await expect(page.getByText(/already counted in your balances/)).toBeVisible();
 	await expect(page.getByText(/nothing counts in reports/i)).toHaveCount(0);
@@ -56,7 +56,7 @@ test('an entry in Review can be edited in place, stays in the queue, and can the
 	// Still waiting in Review, now showing the corrected values.
 	await expect(page.getByRole('heading', { name: 'Review Queue' })).toBeVisible();
 	await expect(page.getByText('Cafe Nero')).toBeVisible();
-	await expect(page.getByText('-300.00')).toBeVisible();
+	await expect(page.getByText('-₹300.00')).toBeVisible();
 	await expect(page.getByText('2026-10-03')).toBeVisible();
 	await expect(page.getByText('1 waiting')).toBeVisible();
 

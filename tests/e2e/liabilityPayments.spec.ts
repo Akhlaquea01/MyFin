@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
+import { acceptConfirm } from './helpers';
 
 // Loans and cards tracked as liabilities: edit their details, and pay them from an account so the
 // money and the amount owed move together.
@@ -58,7 +59,7 @@ test('pay a loan EMI from an account: the money and the amount owed move togethe
 	await editDialog.getByLabel('Interest rate % per year (optional)').fill('8.5');
 	await editDialog.getByRole('button', { name: 'Save changes' }).click();
 	await expect(editDialog).not.toBeVisible();
-	await expect(loan.getByText('EMI 10,000.00 · due on day 5')).toBeVisible();
+	await expect(loan.getByText('EMI ₹10,000.00 · due on day 5')).toBeVisible();
 
 	// Record the EMI: the amount starts from the EMI.
 	await loan.getByRole('button', { name: 'Record payment' }).click();
@@ -69,7 +70,7 @@ test('pay a loan EMI from an account: the money and the amount owed move togethe
 	await expect(payDialog).not.toBeVisible();
 
 	await expect(loan.getByText('90,000.00').first()).toBeVisible();
-	await expect(loan.getByText(/paid 10,000\.00 from Checking/)).toBeVisible();
+	await expect(loan.getByText(/paid ₹10,000\.00 from Checking/)).toBeVisible();
 
 	await goTo(page, 'Accounts', 'Accounts');
 	await expect(card(page, 'Checking').getByText('40,000.00')).toBeVisible();
@@ -87,9 +88,9 @@ test('pay a loan EMI from an account: the money and the amount owed move togethe
 	await expect(row).toBeVisible(); // nothing was deleted
 
 	// Undo puts both halves back.
-	page.once('dialog', (d) => void d.accept());
 	await goTo(page, 'Liabilities', 'Liabilities');
 	await loan.getByRole('button', { name: 'Undo' }).click();
+	await acceptConfirm(page, 'Undo this payment?');
 	await expect(loan.getByText('100,000.00').first()).toBeVisible();
 	await goTo(page, 'Accounts', 'Accounts');
 	await expect(card(page, 'Checking').getByText('50,000.00')).toBeVisible();
@@ -121,7 +122,7 @@ test('a payment larger than the balance is refused, and paying it off shows "Pai
 	await chooseOption(page, 'Paid from', 'Checking');
 	await payDialog.getByLabel('Amount paid').fill('1500');
 	await payDialog.getByRole('button', { name: 'Record payment' }).click();
-	await expect(page.getByText(/more than the 1000\.00 still owed/)).toBeVisible();
+	await expect(page.getByText(/more than the ₹1,000\.00 still owed/)).toBeVisible();
 	await expect(payDialog).toBeVisible();
 
 	await payDialog.getByRole('button', { name: 'Pay the full balance' }).click();

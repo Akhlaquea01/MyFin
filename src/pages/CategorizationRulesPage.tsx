@@ -45,6 +45,7 @@ import { MIN_KEYWORD_LENGTH, validateKeyword } from '../domain/categorization/ke
 import type { Category, Merchant, MerchantAlias, Tag } from '../domain/entities';
 import { categoryOptions } from '../domain/categories/categoryHierarchy';
 import { buildCategoryLabels } from '../domain/categories/categoryHierarchy';
+import { useConfirm } from '../lib/confirm';
 
 const ruleSchema = z
 	.object({
@@ -88,6 +89,7 @@ const ANY_ALIAS = '';
 export function CategorizationRulesPage() {
 	const { getEncryptionKey } = useSession();
 	const key = getEncryptionKey();
+	const confirm = useConfirm();
 
 	const [merchants, setMerchants] = useState<Merchant[]>([]);
 	const [categories, setCategories] = useState<Category[]>([]);
@@ -230,9 +232,11 @@ export function CategorizationRulesPage() {
 				}
 				return;
 			}
-			const ok = window.confirm(
-				`${count} existing uncategorized ${count === 1 ? 'transaction' : 'transactions'} ${subject} can be filed using this rule. Apply it now? (Transactions that already have a category are left alone.)`
-			);
+			const ok = await confirm({
+				message: `${count} existing uncategorized ${count === 1 ? 'transaction' : 'transactions'} ${subject} can be filed using this rule. Apply it now? (Transactions that already have a category are left alone.)`,
+				confirmLabel: 'Apply now',
+				destructive: false
+			});
 			if (!ok) return;
 			const { updated } = await applyAutoCategorization(key, options);
 			toast.success(

@@ -112,3 +112,18 @@ describe('findCrossedBudgetThresholds', () => {
 		expect(candidates).toHaveLength(0);
 	});
 });
+
+describe('findDueRecurringEvents — local calendar', () => {
+	it('measures the lead time from the local date, not the UTC date', () => {
+		// 01:00 local on 12 Oct. Ahead of UTC, the UTC date is still 11 Oct, which used to make
+		// "due today" look like it was due the day after tomorrow.
+		const asOf = new Date(2026, 9, 12, 1, 0);
+		const events = [
+			{ id: 'a', expectedDate: '2026-10-12', status: 'pending' as const, categoryName: 'Rent' },
+			{ id: 'b', expectedDate: '2026-10-13', status: 'pending' as const, categoryName: 'Bills' },
+			{ id: 'c', expectedDate: '2026-10-14', status: 'pending' as const, categoryName: 'Gym' }
+		];
+		const due = findDueRecurringEvents(events, 1, asOf).map((c) => c.key);
+		expect(due).toEqual(['recurring:a', 'recurring:b']);
+	});
+});

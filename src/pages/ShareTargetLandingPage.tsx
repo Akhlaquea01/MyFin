@@ -47,10 +47,21 @@ export function ShareTargetLandingPage() {
 			return;
 		}
 
-		void readAndClearSharedPayload(id).then(forward);
+		// A share that cannot be read (Cache API unavailable, entry already consumed) must not strand
+		// the user on this blank page: say so and hand them the Quick Add form to paste into.
+		readAndClearSharedPayload(id)
+			.then(forward)
+			.catch(() => {
+				toast.error("Couldn't retrieve the shared content. You can paste it into Quick Add.");
+				navigate('/quick-add', { replace: true });
+			});
 		// Runs once per landing — the `id` identifies a single, one-time-consumable share.
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, []);
 
-	return <div className="min-h-dvh bg-background" />;
+	return (
+		<div className="flex min-h-dvh items-center justify-center bg-background text-sm text-muted-foreground">
+			Opening shared content…
+		</div>
+	);
 }

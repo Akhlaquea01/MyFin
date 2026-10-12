@@ -15,13 +15,7 @@ import { useSession } from '../context/SessionContext';
 import { TransactionEngine } from '../domain/transactions/transactionEngine';
 import { formatTransactionLabel } from '../domain/transactions/transactionLabel';
 import type { Account, Merchant, Transaction } from '../domain/entities';
-
-function formatMoney(paise: number): string {
-	return (paise / 100).toLocaleString(undefined, {
-		minimumFractionDigits: 2,
-		maximumFractionDigits: 2
-	});
-}
+import { formatMoney } from '../domain/shared/money';
 
 const CREATE_NEW = '__create__';
 

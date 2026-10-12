@@ -47,7 +47,7 @@ test('a repeating merchant charge is detected as a subscription with no manual s
 	await expect(page.getByRole('heading', { name: 'Subscriptions' })).toBeVisible();
 	await expect(page.getByText('STREAMFLIX MONTHLY')).toBeVisible();
 	await expect(page.getByText('Monthly', { exact: true })).toBeVisible();
-	await expect(page.getByText('499.00 / mo')).toBeVisible();
+	await expect(page.getByText('₹499.00 / mo')).toBeVisible();
 
 	// Dismiss removes it from the view.
 	await page.getByRole('button', { name: 'Dismiss STREAMFLIX MONTHLY' }).click();

@@ -6,7 +6,10 @@ import {
 	isPositiveMoney,
 	isNonNegativeMoney,
 	isNonZeroMoney,
-	formatMinorUnits
+	formatMinorUnits,
+	formatMoney,
+	formatAmount,
+	CURRENCY_SYMBOL
 } from '../../src/domain/shared/money';
 
 // Constitution Principle VI: money is always an integer in the smallest currency unit.
@@ -152,5 +155,27 @@ describe('formatMinorUnits', () => {
 		for (const minor of [0, 1, 7, 100, 150, 123456, -1, -99999]) {
 			expect(parseMoneyToMinorUnits(formatMinorUnits(minor))).toBe(minor);
 		}
+	});
+});
+
+describe('formatMoney / formatAmount (display)', () => {
+	it('puts the rupee sign on a figure, grouped and to two decimals', () => {
+		expect(formatMoney(123456)).toBe('₹1,234.56');
+		expect(formatMoney(0)).toBe('₹0.00');
+		expect(formatMoney(5)).toBe('₹0.05');
+	});
+
+	it('puts the minus before the sign: -₹350.00, never ₹-350.00', () => {
+		expect(formatMoney(-35000)).toBe('-₹350.00');
+		expect(formatMoney(-1)).toBe('-₹0.01');
+	});
+
+	it('formatAmount is the same figure with no symbol, for columns and the PDF', () => {
+		expect(formatAmount(123456)).toBe('1,234.56');
+		expect(formatAmount(-35000)).toBe('-350.00');
+	});
+
+	it('names the one currency it deals in', () => {
+		expect(CURRENCY_SYMBOL).toBe('₹');
 	});
 });

@@ -347,6 +347,38 @@ export interface NotifiedItem extends Timestamped {
 	key: string;
 }
 
+/** What kind of reminder an inbox entry is — mirrors `NotificationCandidateKind`. */
+export type InboxNotificationKind = 'recurring' | 'budget' | 'personLoan';
+
+/**
+ * A reminder kept in the in-app Alerts list. The OS notification is fleeting (and absent entirely
+ * when the user has not allowed notifications); this is the record that stays until the user clears
+ * it. `dedupeKey` is the same key the notification engine uses, so one occurrence is listed once.
+ */
+export interface InboxNotification extends Timestamped {
+	id: ID;
+	dedupeKey: string;
+	kind: InboxNotificationKind;
+	title: string;
+	body: string;
+	/** App route the entry opens — the bill, the budget, the loan. */
+	route: string;
+	readAt: EpochMillis | null;
+}
+
+/**
+ * A captured bank message that passed the "looks like a transaction" filter but could not be read
+ * into an entry. Kept (encrypted, like everything else) so the user can add it by hand instead of
+ * losing it.
+ */
+export interface UnreadableCapture extends Timestamped {
+	id: ID;
+	channel: CaptureChannel;
+	sender: string;
+	receivedAt: EpochMillis;
+	text: string;
+}
+
 /** A receipt/photo attached to a Transaction (spec 005). No independent soft-delete —
  *  visibility is entirely derived from the parent transaction's deletedAt (research.md §5,
  *  the same precedent GoalContribution already established for a single-parent child). */
@@ -454,6 +486,11 @@ export interface UserProfile {
 	failedUnlockAttempts?: number;
 	lockedOutUntil?: EpochMillis | null;
 	/**
+	 * Opt-in: lock as soon as the app has been out of the foreground for a short grace period,
+	 * instead of waiting out the inactivity timeout. Absent means off.
+	 */
+	lockOnBackground?: boolean;
+	/**
 	 * Present only when biometric unlock (FR-002) is enrolled. The PIN, encrypted with a
 	 * key derived from the WebAuthn PRF extension output, so a successful biometric
 	 * assertion can recover the PIN without the user typing it — the PIN is still what
@@ -524,6 +561,10 @@ export interface AutoBackupSettings {
 	enabled: boolean;
 	intervalDays: number;
 	directoryHandle?: FileSystemDirectoryHandle;
+	/** The Android app's equivalent of `directoryHandle`: the folder the user picked through
+	 *  Android's Storage Access Framework. A plain address and name, so it survives JSON like
+	 *  everything else here. Exactly one of the two is set. */
+	nativeFolder?: { uri: string; name: string };
 	lastBackupAt?: string;
 	lastBackupStatus?: 'success' | 'failed';
 }

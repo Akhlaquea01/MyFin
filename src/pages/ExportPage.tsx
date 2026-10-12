@@ -27,13 +27,8 @@ import { SAMPLE_DATA_TEMPLATE } from '../data/io/sampleTemplate';
 import type { TemplateImportResult } from '../data/io/templateTypes';
 import { generateReportSummary } from '../domain/reports/reportService';
 import { MONTH_NAMES, type ReportPeriod, type ReportSummary } from '../domain/reports/reportEngine';
-
-function formatMoney(paise: number): string {
-	return (paise / 100).toLocaleString(undefined, {
-		minimumFractionDigits: 2,
-		maximumFractionDigits: 2
-	});
-}
+import { todayLocalISO } from '../domain/shared/dateMath';
+import { formatMoney } from '../domain/shared/money';
 
 const CURRENT_YEAR = new Date().getFullYear();
 const REPORT_YEARS = Array.from({ length: 16 }, (_, i) => CURRENT_YEAR - i);
@@ -62,10 +57,9 @@ export function ExportPage() {
 		try {
 			const template = await buildDataTemplate(key);
 			const blob = exportDataTemplateToJsonBlob(template);
-			const date = new Date().toISOString().slice(0, 10);
-			await saveFile(blob, `myfin-template-${date}.json`);
+			await saveFile(blob, `myfin-template-${todayLocalISO()}.json`);
 			toast.success('Exported complete data template');
-		} catch (err) {
+		} catch {
 			toast.error('Failed to export data template');
 		} finally {
 			setExportingTemplate(false);
@@ -117,8 +111,7 @@ export function ExportPage() {
 				return;
 			}
 			const blob = format === 'csv' ? exportToCsvBlob(rows) : await exportToXlsxBlob(rows);
-			const date = new Date().toISOString().slice(0, 10);
-			await saveFile(blob, `myfin-transactions-${date}.${format}`);
+			await saveFile(blob, `myfin-transactions-${todayLocalISO()}.${format}`);
 			toast.success(`Exported ${rows.length} transaction(s)`);
 		} catch (err) {
 			toast.error(err instanceof Error ? err.message : 'Could not export transactions.');

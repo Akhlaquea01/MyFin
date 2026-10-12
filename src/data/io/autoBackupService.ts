@@ -1,19 +1,43 @@
 import { AutoBackupSettingsRepository } from '../dexie/autoBackupSettingsRepository';
 import { createBackup } from './backupService';
 import type { UserProfile } from '../../domain/entities';
+import {
+	isNativeBackupFolderAvailable,
+	nativeBackupFolderHasAccess,
+	pickNativeBackupFolder,
+	writeNativeBackupFile,
+	type NativeBackupFolder
+} from '../../lib/native/nativeBackupFolder';
+import { todayLocalISO } from '../../domain/shared/dateMath';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 /** Feature-detects the File System Access API (Chromium-only today — Safari/iOS and Firefox
  *  don't implement it), gating the whole automatic-backup UI/flow honestly rather than failing
  *  later at write time (FR-028, research.md R5). */
-export function isAutoBackupSupported(): boolean {
+function hasFileSystemAccess(): boolean {
 	return typeof window !== 'undefined' && 'showDirectoryPicker' in window;
+}
+
+/** Whether scheduled backups can work here: through the browser's folder API on the web, or
+ *  through Android's folder picker in the APK. */
+export function isAutoBackupSupported(): boolean {
+	return hasFileSystemAccess() || isNativeBackupFolderAvailable();
+}
+
+/** True in the Android app, where the folder is chosen through Android's own picker. */
+export function usesNativeBackupFolder(): boolean {
+	return isNativeBackupFolderAvailable();
+}
+
+/** Opens Android's folder picker (APK only). */
+export function requestNativeBackupFolder(): Promise<NativeBackupFolder> {
+	return pickNativeBackupFolder();
 }
 
 /** Opens the browser's native folder picker for the user to choose a backup destination. */
 export async function requestBackupFolder(): Promise<FileSystemDirectoryHandle> {
-	if (!isAutoBackupSupported()) {
+	if (!hasFileSystemAccess()) {
 		throw new Error('Automatic backups are not supported in this browser.');
 	}
 	return window.showDirectoryPicker({ mode: 'readwrite' });
@@ -23,12 +47,26 @@ export async function configureAutoBackup(settings: {
 	enabled: boolean;
 	intervalDays: number;
 	directoryHandle?: FileSystemDirectoryHandle;
+	nativeFolder?: NativeBackupFolder;
 }): Promise<void> {
-	await AutoBackupSettingsRepository.update(settings);
+	// Only what was given: an absent folder must not erase the one already chosen.
+	const changes: Parameters<typeof AutoBackupSettingsRepository.update>[0] = {
+		enabled: settings.enabled,
+		intervalDays: settings.intervalDays
+	};
+	if (settings.directoryHandle) {
+		changes.directoryHandle = settings.directoryHandle;
+		changes.nativeFolder = undefined;
+	}
+	if (settings.nativeFolder) {
+		changes.nativeFolder = settings.nativeFolder;
+		changes.directoryHandle = undefined;
+	}
+	await AutoBackupSettingsRepository.update(changes);
 }
 
 function backupFilename(now: Date): string {
-	return `myfin-auto-backup-${now.toISOString().slice(0, 10)}.json`;
+	return `myfin-auto-backup-${todayLocalISO(now)}.json`;
 }
 
 /**
@@ -49,17 +87,22 @@ export async function maybeRunScheduledBackup(
 	if (!isAutoBackupSupported()) return;
 
 	const settings = await AutoBackupSettingsRepository.get();
-	if (!settings.enabled || !settings.directoryHandle) return;
+	if (!settings.enabled || (!settings.directoryHandle && !settings.nativeFolder)) return;
 
 	const lastBackupAtMs = settings.lastBackupAt ? Date.parse(settings.lastBackupAt) : 0;
 	const dueAtMs = lastBackupAtMs + settings.intervalDays * DAY_MS;
 	if (Date.now() < dueAtMs) return;
 
 	try {
-		const handle = settings.directoryHandle;
+		if (settings.nativeFolder) {
+			await runNativeBackup(settings.nativeFolder, pin, key, profile);
+			return;
+		}
+		const handle = settings.directoryHandle!;
 		const existing = await handle.queryPermission({ mode: 'readwrite' });
 		const granted =
-			existing === 'granted' || (await handle.requestPermission({ mode: 'readwrite' })) === 'granted';
+			existing === 'granted' ||
+			(await handle.requestPermission({ mode: 'readwrite' })) === 'granted';
 		if (!granted) throw new Error('Folder access permission was not granted.');
 
 		// Same, unmodified encrypted payload the manual export flow already produces (FR-027) —
@@ -84,4 +127,27 @@ export async function maybeRunScheduledBackup(
 		// failure so BackupSettingsPage can surface it (FR-030).
 		await AutoBackupSettingsRepository.update({ lastBackupStatus: 'failed' });
 	}
+}
+
+/**
+ * The Android app's scheduled backup: the same encrypted file, written into the folder the user
+ * chose through Android's picker. Fails (and is recorded as failed) if Android no longer lets
+ * MyFin write there, rather than silently doing nothing.
+ */
+async function runNativeBackup(
+	folder: NativeBackupFolder,
+	pin: string,
+	key: CryptoKey,
+	profile: UserProfile
+): Promise<void> {
+	if (!(await nativeBackupFolderHasAccess(folder.uri))) {
+		throw new Error('Android no longer lets MyFin write to the backup folder.');
+	}
+	const backup = await createBackup(key, profile.encryptionSalt, pin);
+	const now = new Date();
+	await writeNativeBackupFile(folder, backupFilename(now), JSON.stringify(backup));
+	await AutoBackupSettingsRepository.update({
+		lastBackupAt: now.toISOString(),
+		lastBackupStatus: 'success'
+	});
 }

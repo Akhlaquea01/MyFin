@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { addDaysISO, todayLocalISO } from '../../src/domain/shared/dateMath';
+import { addDaysISO, localDateAsUtc, todayLocalISO } from '../../src/domain/shared/dateMath';
 
 describe('todayLocalISO', () => {
 	it('uses the local calendar date, not the UTC date', () => {
@@ -30,5 +30,21 @@ describe('addDaysISO', () => {
 
 	it('returns an invalid date unchanged', () => {
 		expect(addDaysISO('not-a-date', 3)).toBe('not-a-date');
+	});
+});
+
+describe('localDateAsUtc', () => {
+	it('has the local calendar date in its UTC fields, whatever the time zone', () => {
+		// 01:30 local on 1 January: ahead of UTC the UTC date is still 31 December.
+		const earlyMorning = localDateAsUtc(new Date(2026, 0, 1, 1, 30));
+		expect(earlyMorning.toISOString().slice(0, 10)).toBe('2026-01-01');
+		const lateEvening = localDateAsUtc(new Date(2026, 0, 31, 23, 30));
+		expect(lateEvening.toISOString().slice(0, 10)).toBe('2026-01-31');
+	});
+
+	it('is midnight UTC', () => {
+		expect(localDateAsUtc(new Date(2026, 5, 15, 17, 45)).toISOString()).toBe(
+			'2026-06-15T00:00:00.000Z'
+		);
 	});
 });

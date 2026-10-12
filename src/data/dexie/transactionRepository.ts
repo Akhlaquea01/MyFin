@@ -593,6 +593,22 @@ export const TransactionRepository = {
 	},
 
 	/**
+	 * Which of `ids` the user should look at before confirming in bulk: an entry flagged as a
+	 * possible duplicate, or a captured message filed on a guessed account. Those flags live inside
+	 * the encrypted entry, so this decrypts — callers pass only the candidates they mean to confirm.
+	 */
+	async flaggedAmong(key: CryptoKey, ids: string[]): Promise<Set<string>> {
+		if (ids.length === 0) return new Set();
+		const rows = (await db.transactions.bulkGet(ids)).filter(
+			(row): row is TransactionRow => row !== undefined
+		);
+		const transactions = await decryptRows<TransactionRow, Transaction>(key, rows);
+		return new Set(
+			transactions.filter((t) => t.duplicateOfId || t.capture?.accountCheck).map((t) => t.id)
+		);
+	},
+
+	/**
 	 * Narrows on the indexed structural columns *before* decrypting anything — decryption is by
 	 * far the dominant cost here, so every row an index excludes is a row never decrypted. A
 	 * date range now uses the `date` index instead of a linear scan over the whole table.

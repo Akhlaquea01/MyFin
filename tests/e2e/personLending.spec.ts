@@ -1,5 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
-import { lockAndReload } from './helpers';
+import { lockAndReload, autoAcceptConfirms } from './helpers';
+import { todayLocalISO } from '../../src/domain/shared/dateMath';
 
 // Feature 010 (Personal Lending & Borrowing), User Stories 1-5.
 
@@ -139,7 +140,7 @@ test('partial repayments pay down a loan to settled; overpayment and post-settle
 	await page.getByRole('link', { name: 'People' }).click();
 	const ashaCard = page.locator('[data-slot="card"]').filter({ hasText: 'Asha' });
 	await expect(ashaCard.locator('[data-slot="card-content"] span.font-mono')).toHaveText(
-		'1,000.00'
+		'₹1,000.00'
 	);
 
 	async function logRepayment(amount: string) {
@@ -152,7 +153,7 @@ test('partial repayments pay down a loan to settled; overpayment and post-settle
 	// Partial repayment: 1000 -> 600 remaining.
 	await logRepayment('400');
 	await expect(page.getByRole('dialog')).not.toBeVisible();
-	await expect(ashaCard.locator('[data-slot="card-content"] span.font-mono')).toHaveText('600.00');
+	await expect(ashaCard.locator('[data-slot="card-content"] span.font-mono')).toHaveText('₹600.00');
 	const balanceText = await accountBalanceText(page, 'Cash');
 	expect(balanceText).toContain('4400.00');
 
@@ -162,7 +163,7 @@ test('partial repayments pay down a loan to settled; overpayment and post-settle
 	await logRepayment('700');
 	await expect(page.getByRole('dialog')).toBeVisible();
 	await page.keyboard.press('Escape');
-	await expect(ashaCard.locator('[data-slot="card-content"] span.font-mono')).toHaveText('600.00');
+	await expect(ashaCard.locator('[data-slot="card-content"] span.font-mono')).toHaveText('₹600.00');
 
 	// Exact remaining amount settles the loan.
 	await logRepayment('600');
@@ -212,16 +213,16 @@ test('People list shows net position and flags an overdue balance; Dashboard til
 		direction: 'I lent them money',
 		amount: '300',
 		account: 'Cash',
-		dueDate: yesterday.toISOString().slice(0, 10)
+		dueDate: todayLocalISO(yesterday)
 	});
 
 	await page.getByRole('link', { name: 'People' }).click();
 	const meeraCard = page.locator('[data-slot="card"]').filter({ hasText: 'Meera' });
 	await expect(meeraCard.getByText('Overdue', { exact: true })).toBeVisible();
-	await expect(meeraCard.getByText('Owed to you: 300.00')).toBeVisible();
+	await expect(meeraCard.getByText('Owed to you: ₹300.00')).toBeVisible();
 
 	const rohitCard = page.locator('[data-slot="card"]').filter({ hasText: 'Rohit' });
-	await expect(rohitCard.getByText('You owe: 500.00')).toBeVisible();
+	await expect(rohitCard.getByText('You owe: ₹500.00')).toBeVisible();
 	await expect(rohitCard.getByText('Overdue', { exact: true })).toHaveCount(0);
 
 	await expect(ashaCard.getByText('Overdue', { exact: true })).toHaveCount(0);
@@ -253,7 +254,7 @@ test('an overdue loan reminds once, stays silent on repeat, and stops once settl
 		direction: 'I lent them money',
 		amount: '300',
 		account: 'Cash',
-		dueDate: yesterday.toISOString().slice(0, 10)
+		dueDate: todayLocalISO(yesterday)
 	});
 
 	// First unlock after the overdue loan exists: the reminder should fire.
@@ -289,7 +290,7 @@ test('writing off a loan does not change the account balance and excludes it fro
 	page
 }) => {
 	// Write-off is a one-way action and now asks for confirmation before proceeding.
-	page.on('dialog', (dialog) => dialog.accept());
+	await autoAcceptConfirms(page);
 	await page.goto('/');
 	await page.getByLabel('Create PIN').fill('740361');
 	await page.getByLabel('Confirm PIN').fill('740361');
@@ -367,7 +368,7 @@ test('deleting a person with an open loan is blocked, and undoing a repayment re
 	const balanceAfterRepayment = await accountBalanceText(page, 'Cash');
 	expect(balanceAfterRepayment).not.toBe(balanceAfterLoan);
 	await page.getByRole('link', { name: 'People' }).click();
-	await expect(divyaCard.locator('[data-slot="card-content"] span.font-mono')).toHaveText('900.00');
+	await expect(divyaCard.locator('[data-slot="card-content"] span.font-mono')).toHaveText('₹900.00');
 
 	// Undo the mistaken repayment: balance and pending balance both revert.
 	await divyaCard.getByRole('button', { name: 'Undo' }).click();
@@ -375,7 +376,7 @@ test('deleting a person with an open loan is blocked, and undoing a repayment re
 	expect(balanceAfterUndo).toBe(balanceAfterLoan);
 	await page.getByRole('link', { name: 'People' }).click();
 	await expect(divyaCard.locator('[data-slot="card-content"] span.font-mono')).toHaveText(
-		'1,000.00'
+		'₹1,000.00'
 	);
 
 	// The undone repayment shows up in Trash and can be restored.
@@ -388,5 +389,5 @@ test('deleting a person with an open loan is blocked, and undoing a repayment re
 	await expect(repaymentsSection.getByText('100.00')).toHaveCount(0);
 
 	await page.getByRole('link', { name: 'People' }).click();
-	await expect(divyaCard.locator('[data-slot="card-content"] span.font-mono')).toHaveText('900.00');
+	await expect(divyaCard.locator('[data-slot="card-content"] span.font-mono')).toHaveText('₹900.00');
 });

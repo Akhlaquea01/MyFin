@@ -13,8 +13,9 @@ import {
 	type VarianceStatus
 } from '../domain/budgets/budgetVarianceEngine';
 import type { Category } from '../domain/entities';
-import { formatMinorUnits } from '../domain/shared/money';
+import { formatMoney } from '../domain/shared/money';
 import { buildCategoryLabels } from '../domain/categories/categoryHierarchy';
+import { todayLocalISO } from '../domain/shared/dateMath';
 
 const STATUS_LABELS: Record<VarianceStatus, string> = {
 	unbudgeted: 'Unbudgeted',
@@ -31,7 +32,7 @@ const STATUS_VARIANTS: Record<VarianceStatus, 'default' | 'secondary' | 'destruc
 };
 
 function currentMonth(): string {
-	return new Date().toISOString().slice(0, 7);
+	return todayLocalISO().slice(0, 7);
 }
 
 function monthsBetweenInclusive(from: string, to: string): string[] {
@@ -148,13 +149,13 @@ export function BudgetVarianceReportPage() {
 										<TableCell>{categoryNameById.get(row.categoryId) ?? 'Unknown'}</TableCell>
 										<TableCell>{row.month}</TableCell>
 										<TableCell className="text-right font-mono">
-											{row.budgetedMinor === null ? '—' : formatMinorUnits(row.budgetedMinor)}
+											{row.budgetedMinor === null ? '—' : formatMoney(row.budgetedMinor)}
 										</TableCell>
 										<TableCell className="text-right font-mono">
-											{formatMinorUnits(row.actualMinor)}
+											{formatMoney(row.actualMinor)}
 										</TableCell>
 										<TableCell className="text-right font-mono">
-											{row.varianceMinor === null ? '—' : formatMinorUnits(row.varianceMinor)}
+											{row.varianceMinor === null ? '—' : formatMoney(row.varianceMinor)}
 										</TableCell>
 										<TableCell>
 											<Badge variant={STATUS_VARIANTS[row.status]}>

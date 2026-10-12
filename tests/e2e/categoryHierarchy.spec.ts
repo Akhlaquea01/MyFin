@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
+import { acceptConfirm } from './helpers';
 
 // Categories are a tree: a budget on a parent covers its subcategories, pickers and charts show the
 // full path, and a parent can't be deleted out from under its children.
@@ -61,7 +62,7 @@ test('a budget on a parent counts spending in its subcategories', async ({ page 
 	await budgetDialog.getByRole('button', { name: 'Add budget' }).click();
 	await expect(budgetDialog).not.toBeVisible();
 
-	const budgetCard = page.locator('[data-slot="card"]').filter({ hasText: 'of 100.00' });
+	const budgetCard = page.locator('[data-slot="card"]').filter({ hasText: 'of ₹100.00' });
 	await expect(budgetCard.getByText('Includes 2 subcategories')).toBeVisible();
 
 	// Spend filed under a SUBcategory.
@@ -77,12 +78,12 @@ test('a budget on a parent counts spending in its subcategories', async ({ page 
 	await expect(page.getByRole('heading', { name: 'Transactions' })).toBeVisible();
 	// …and the list names it by its path.
 	await expect(
-		page.getByRole('row').filter({ hasText: '-40.00' }).getByText('Food › Groceries')
+		page.getByRole('row').filter({ hasText: '-₹40.00' }).getByText('Food › Groceries')
 	).toBeVisible();
 
 	await goTo(page, 'Budgets', 'Budgets');
-	const updated = page.locator('[data-slot="card"]').filter({ hasText: 'of 100.00' });
-	await expect(updated.getByText('40.00', { exact: true }).first()).toBeVisible();
+	const updated = page.locator('[data-slot="card"]').filter({ hasText: 'of ₹100.00' });
+	await expect(updated.getByText('₹40.00', { exact: true }).first()).toBeVisible();
 });
 
 test('a parent with subcategories cannot be deleted until they are gone', async ({ page }) => {
@@ -94,8 +95,8 @@ test('a parent with subcategories cannot be deleted until they are gone', async 
 	await expect(page.getByRole('button', { name: 'Delete Groceries' })).toBeVisible(); // still there
 
 	// A category with nothing under it is deleted as before…
-	page.once('dialog', (d) => void d.accept());
 	await page.getByRole('button', { name: 'Delete Groceries' }).click();
+	await acceptConfirm(page);
 	await expect(page.getByRole('button', { name: 'Delete Groceries' })).toHaveCount(0);
 
 	// …and once only one subcategory is left, the message says so.
@@ -120,12 +121,12 @@ test('analytics labels subcategories by path and can group them under their pare
 
 	await goTo(page, 'Analytics', 'Analytics');
 	const chart = page.getByRole('img', { name: /Bar chart of spending by category/ });
-	await expect(chart).toHaveAttribute('aria-label', /Food › Other 75\.00/);
+	await expect(chart).toHaveAttribute('aria-label', /Food › Other ₹75\.00/);
 
 	await page.getByLabel('Group subcategories under their parent').check();
-	await expect(chart).toHaveAttribute('aria-label', /category: Food 75\.00/);
+	await expect(chart).toHaveAttribute('aria-label', /category: Food ₹75\.00/);
 	await page.getByLabel('Group subcategories under their parent').uncheck();
-	await expect(chart).toHaveAttribute('aria-label', /Food › Other 75\.00/);
+	await expect(chart).toHaveAttribute('aria-label', /Food › Other ₹75\.00/);
 });
 
 test('the roll-up option is not offered when there are no subcategories', async ({ page }) => {

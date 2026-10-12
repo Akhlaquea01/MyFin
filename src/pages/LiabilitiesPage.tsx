@@ -38,7 +38,8 @@ import {
 	undoLiabilityPayment
 } from '../domain/wealth/wealthEngine';
 import type { Account, Category, Liability, LiabilityType } from '../domain/entities';
-import { isNonNegativeMoney, parseMoneyOrZero } from '../domain/shared/money';
+import { isNonNegativeMoney, parseMoneyOrZero, formatMoney } from '../domain/shared/money';
+import { useConfirm } from '../lib/confirm';
 
 const liabilitySchema = z.object({
 	name: z.string().trim().min(1, 'Name is required.'),
@@ -49,17 +50,11 @@ const liabilitySchema = z.object({
 });
 type LiabilityFormValues = z.infer<typeof liabilitySchema>;
 
-function formatMoney(paise: number): string {
-	return (paise / 100).toLocaleString(undefined, {
-		minimumFractionDigits: 2,
-		maximumFractionDigits: 2
-	});
-}
-
 // User Story 7 (P7): loans and credit cards, with an outstanding balance (FR-033).
 export function LiabilitiesPage() {
 	const { getEncryptionKey } = useSession();
 	const key = getEncryptionKey();
+	const confirm = useConfirm();
 
 	const [liabilities, setLiabilities] = useState<Liability[]>([]);
 	const [accounts, setAccounts] = useState<Account[]>([]);
@@ -165,9 +160,12 @@ export function LiabilitiesPage() {
 
 	async function undoPayment(liability: Liability, paymentId: string) {
 		if (
-			!window.confirm(
-				'Undo this payment? The amount is owed again and the money goes back into the account it was paid from.'
-			)
+			!(await confirm({
+				message:
+					'Undo this payment? The amount is owed again and the money goes back into the account it was paid from.',
+				confirmLabel: 'Undo payment',
+				destructive: false
+			}))
 		) {
 			return;
 		}

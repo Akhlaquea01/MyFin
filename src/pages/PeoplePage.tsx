@@ -38,18 +38,12 @@ import {
 	isLoanOverdue
 } from '../domain/personLoans/loanProgress';
 import type { Account, LoanDirection, LoanRepayment, Person, PersonLoan } from '../domain/entities';
-import { formatMinorUnits, isPositiveMoney, parseMoneyOrZero } from '../domain/shared/money';
+import { formatMinorUnits, isPositiveMoney, parseMoneyOrZero, formatMoney } from '../domain/shared/money';
 import { todayLocalISO } from '../domain/shared/dateMath';
+import { useConfirm } from '../lib/confirm';
 
 function todayISO(): string {
 	return todayLocalISO();
-}
-
-function formatMoney(paise: number): string {
-	return (paise / 100).toLocaleString(undefined, {
-		minimumFractionDigits: 2,
-		maximumFractionDigits: 2
-	});
 }
 
 const loanSchema = z.object({
@@ -431,6 +425,7 @@ function LoanRow({
 }) {
 	const { getEncryptionKey } = useSession();
 	const key = getEncryptionKey();
+	const confirm = useConfirm();
 	const [repayDialogOpen, setRepayDialogOpen] = useState(false);
 	const [settleDialogOpen, setSettleDialogOpen] = useState(false);
 	const [editDialogOpen, setEditDialogOpen] = useState(false);
@@ -544,9 +539,11 @@ function LoanRow({
 
 	async function onRemoveLoan() {
 		if (
-			!window.confirm(
-				`Remove this loan? It, its repayments and the money movement behind them go to Trash, and the account balance goes back to what it was before. Use this to fix a loan recorded with the wrong amount, date or account.`
-			)
+			!(await confirm({
+				message: `Remove this loan? It, its repayments and the money movement behind them go to Trash, and the account balance goes back to what it was before. Use this to fix a loan recorded with the wrong amount, date or account.`,
+				confirmLabel: 'Remove loan',
+				destructive: true
+			}))
 		) {
 			return;
 		}
@@ -583,9 +580,11 @@ function LoanRow({
 		// Writing off is a one-way decision (no "undo write-off" exists) — once written off,
 		// the loan is settled and this action disappears entirely.
 		if (
-			!window.confirm(
-				`Write off the remaining ${formatMoney(pendingBalance)} on this loan? This forgives the debt and cannot be undone.`
-			)
+			!(await confirm({
+				message: `Write off the remaining ${formatMoney(pendingBalance)} on this loan? This forgives the debt and cannot be undone.`,
+				confirmLabel: 'Write off',
+				destructive: true
+			}))
 		) {
 			return;
 		}

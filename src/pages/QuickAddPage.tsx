@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { AlertTriangle, HandCoins, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '../components/ui/button';
@@ -26,8 +26,9 @@ import { findCardMatches, type CardMatch } from '../domain/parser/cardIdentifier
 import { detectCardPayment } from '../domain/parser/cardPaymentDetector';
 import type { TransferLocationState } from './TransferPage';
 import type { Account, Merchant, Transaction, TransactionType } from '../domain/entities';
-import { formatMinorUnits, parseMoneyToMinorUnits } from '../domain/shared/money';
+import { formatMinorUnits, parseMoneyToMinorUnits, formatMoney } from '../domain/shared/money';
 import { todayLocalISO } from '../domain/shared/dateMath';
+import { useUnsavedChanges } from '../lib/unsavedChanges';
 
 // User Story 4 (P4): paste a payment-notification-style text and get a proposed,
 // reviewable transaction (FR-018). Low-confidence text still routes here for manual
@@ -39,6 +40,9 @@ export function QuickAddPage() {
 	const location = useLocation();
 
 	const [accounts, setAccounts] = useState<Account[]>([]);
+	const [accountsLoaded, setAccountsLoaded] = useState(false);
+	// Whether the date field was filled from the message itself, so the form can say so.
+	const [dateFromMessage, setDateFromMessage] = useState(false);
 	const [rawText, setRawText] = useState('');
 	const [parsed, setParsed] = useState(false);
 	const [confident, setConfident] = useState(true);
@@ -60,6 +64,8 @@ export function QuickAddPage() {
 		matches: Transaction[];
 	} | null>(null);
 	const [merchants, setMerchants] = useState<Merchant[]>([]);
+	// A share from another app must not silently replace what has been typed here.
+	useUnsavedChanges(!submitting && (rawText.trim() !== '' || amountInput !== ''));
 
 	/** Identifies what a duplicate check was run against; null while the amount is not yet valid. */
 	function duplicateKeyFor(): string | null {
@@ -80,6 +86,7 @@ export function QuickAddPage() {
 		void MerchantRepository.list(key).then(setMerchants);
 		void AccountRepository.list(key, false).then((loaded) => {
 			setAccounts(loaded);
+			setAccountsLoaded(true);
 			const sharedText = (location.state as { sharedText?: string } | null)?.sharedText;
 			if (sharedText) {
 				setRawText(sharedText);
@@ -99,9 +106,15 @@ export function QuickAddPage() {
 		const candidate = parseQuickAddText(text);
 		setParsed(true);
 		setConfident(isConfident(candidate));
-		if (candidate.amount !== null) setAmountInput(formatMinorUnits(candidate.amount));
-		if (candidate.type) setType(candidate.type);
-		if (candidate.merchantText) setMerchantName(candidate.merchantText);
+		// Every field is set from THIS message, including to empty: keeping the previous parse's
+		// amount, merchant or type when the new text has none put values from a different message
+		// into the form without a word.
+		setAmountInput(candidate.amount !== null ? formatMinorUnits(candidate.amount) : '');
+		setType(candidate.type ?? 'expense');
+		setMerchantName(candidate.merchantText ?? '');
+		setDate(candidate.date ?? todayLocalISO());
+		setDateFromMessage(candidate.date !== null);
+		setDuplicateWarning(null);
 
 		setCardMatchReason(null);
 		setCardDisambiguation(null);
@@ -218,6 +231,12 @@ export function QuickAddPage() {
 					<Button type="button" onClick={handleParse} disabled={!rawText.trim()}>
 						<Sparkles /> Parse
 					</Button>
+					{parsed && (
+						<p className="text-xs text-muted-foreground">
+							Changed the text? Press Parse again — it re-reads the message and replaces the fields
+							below.
+						</p>
+					)}
 				</CardContent>
 			</Card>
 
@@ -288,6 +307,15 @@ export function QuickAddPage() {
 										))}
 									</SelectContent>
 								</Select>
+								{accountsLoaded && accounts.length === 0 && (
+									<p className="text-xs text-muted-foreground">
+										You have no accounts yet.{' '}
+										<Link to="/accounts" className="underline underline-offset-2">
+											Add an account
+										</Link>{' '}
+										first.
+									</p>
+								)}
 							</div>
 							<div className="flex flex-col gap-1.5">
 								<Label htmlFor="qa-type">Type</Label>
@@ -319,8 +347,14 @@ export function QuickAddPage() {
 									id="qa-date"
 									type="date"
 									value={date}
-									onChange={(e) => setDate(e.target.value)}
+									onChange={(e) => {
+										setDate(e.target.value);
+										setDateFromMessage(false);
+									}}
 								/>
+								{dateFromMessage && (
+									<p className="text-xs text-muted-foreground">Date read from the message.</p>
+								)}
 							</div>
 						</div>
 						<div className="flex flex-col gap-1.5">
@@ -340,7 +374,7 @@ export function QuickAddPage() {
 								<ul className="flex flex-col gap-1 text-xs text-muted-foreground">
 									{activeDuplicateWarning.matches.map((match) => (
 										<li key={match.id}>
-											{match.date} · {formatMinorUnits(Math.abs(match.amount))} ·{' '}
+											{match.date} · {formatMoney(Math.abs(match.amount))} ·{' '}
 											{formatTransactionLabel(match, merchants)}
 											{match.reviewStatus === 'unreviewed' && ' (waiting in Review)'}
 										</li>

@@ -29,9 +29,9 @@ export interface ImportResult {
  * candidate message. Per contracts/csv-import-contract.md, unrecognized lines are reported
  * (never silently dropped) and likely duplicates are flagged, not auto-merged/discarded.
  *
- * Simplification: parsed messages rarely carry a machine-readable date on their own line,
- * so every imported transaction is dated "today" — the user can correct it from the
- * review queue (FR-022) like any other unreviewed transaction.
+ * A line that states its own date ("on 12/10/2026", "12-Oct-26") is filed on that date; a line
+ * that does not is dated "today", and the user can correct it from the review queue (FR-022)
+ * like any other unreviewed transaction. Duplicate checking is relative to each line's own date.
  */
 export async function importBulkText(
 	key: CryptoKey,
@@ -59,20 +59,34 @@ export async function importBulkText(
 	// (mirrors importService.ts's importRows) — most pastes still touch a single account, so this
 	// costs no more than today's one-account case in the common path. Rows created during this
 	// run are added as we go, so a repeated line inside one paste is still flagged.
-	const seenAmountsByAccount = new Map<string, Map<number, string>>();
-	async function seenAmountsFor(forAccountId: string): Promise<Map<number, string>> {
+	type SeenEntry = { id: string; date: string };
+	const seenAmountsByAccount = new Map<string, Map<number, SeenEntry[]>>();
+	async function seenAmountsFor(forAccountId: string): Promise<Map<number, SeenEntry[]>> {
 		let seenAmounts = seenAmountsByAccount.get(forAccountId);
 		if (!seenAmounts) {
 			const existing = await TransactionRepository.search(key, { accountId: forAccountId });
-			seenAmounts = new Map<number, string>();
+			seenAmounts = new Map<number, SeenEntry[]>();
 			for (const tx of existing) {
-				if (Math.abs(new Date(tx.date).getTime() - new Date(today).getTime()) <= ONE_DAY_MS) {
-					seenAmounts.set(tx.amount, tx.id);
-				}
+				const entries = seenAmounts.get(tx.amount) ?? [];
+				entries.push({ id: tx.id, date: tx.date });
+				seenAmounts.set(tx.amount, entries);
 			}
 			seenAmountsByAccount.set(forAccountId, seenAmounts);
 		}
 		return seenAmounts;
+	}
+	/** An entry of the same amount within a day of `date`, if there is one. */
+	function findSeen(
+		seenAmounts: Map<number, SeenEntry[]>,
+		amount: number,
+		date: string
+	): string | null {
+		const wanted = new Date(`${date}T00:00:00Z`).getTime();
+		for (const entry of seenAmounts.get(amount) ?? []) {
+			const at = new Date(`${entry.date}T00:00:00Z`).getTime();
+			if (Math.abs(at - wanted) <= ONE_DAY_MS) return entry.id;
+		}
+		return null;
 	}
 	const touchedAccountIds = new Set<string>();
 	// One resolver for the whole paste — see importService.ts.
@@ -102,8 +116,9 @@ export async function importBulkText(
 			distinctLineAccountIds.length === 1 ? distinctLineAccountIds[0] : accountId;
 
 		const signedAmount = candidate.type === 'expense' ? -candidate.amount : candidate.amount;
+		const lineDate = candidate.date ?? today;
 		const seenAmounts = await seenAmountsFor(lineAccountId);
-		const duplicateOfId = seenAmounts.get(signedAmount) ?? null;
+		const duplicateOfId = findSeen(seenAmounts, signedAmount, lineDate);
 
 		// Normalized before resolving, for the same reason file import normalizes: raw parsed
 		// text carries reference numbers that would mint one Merchant per line.
@@ -116,7 +131,7 @@ export async function importBulkText(
 			key,
 			{
 				accountId: lineAccountId,
-				date: today,
+				date: lineDate,
 				amount: signedAmount,
 				type: candidate.type === 'income' ? 'income' : 'expense',
 				merchantId: resolved?.merchantId ?? null,
@@ -129,7 +144,9 @@ export async function importBulkText(
 			// One recalculation at the end instead of one per line — see importService.ts.
 			{ deferBalance: true, categorizer }
 		);
-		seenAmounts.set(signedAmount, created.id);
+		const entries = seenAmounts.get(signedAmount) ?? [];
+		entries.push({ id: created.id, date: lineDate });
+		seenAmounts.set(signedAmount, entries);
 		touchedAccountIds.add(lineAccountId);
 
 		result.createdCount++;

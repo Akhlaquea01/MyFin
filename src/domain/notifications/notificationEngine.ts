@@ -1,7 +1,9 @@
 import type { NotificationCandidate } from './types';
+import { localDateAsUtc } from '../shared/dateMath';
 
+/** The user's local calendar date `days` from `date`, as "YYYY-MM-DD". */
 function addDaysISO(date: Date, days: number): string {
-	const d = new Date(date);
+	const d = localDateAsUtc(date);
 	d.setUTCDate(d.getUTCDate() + days);
 	return d.toISOString().slice(0, 10);
 }

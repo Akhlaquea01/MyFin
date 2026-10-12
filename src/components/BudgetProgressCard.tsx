@@ -4,13 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Badge } from './ui/badge';
 import { Progress } from './ui/progress';
 import type { BudgetItem } from '../domain/entities';
-
-function formatMoney(paise: number): string {
-	return (paise / 100).toLocaleString(undefined, {
-		minimumFractionDigits: 2,
-		maximumFractionDigits: 2
-	});
-}
+import { formatMoney } from '../domain/shared/money';
 
 /** Actual-vs-planned progress for one budget's current period (User Story 5, FR-024/027). */
 export function BudgetProgressCard({

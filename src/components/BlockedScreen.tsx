@@ -11,8 +11,8 @@ export function BlockedScreen() {
 			</div>
 			<h1 className="text-xl font-semibold">Already open in another tab</h1>
 			<p className="max-w-sm text-sm text-muted-foreground">
-				Personal Finance Manager can only be open in one tab at a time, to keep your balances safe.
-				Close this tab, or close the other one to continue here.
+				MyFin can only be open in one tab at a time, to keep your balances safe. Close this tab, or
+				close the other one to continue here.
 			</p>
 		</div>
 	);

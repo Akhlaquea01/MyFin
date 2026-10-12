@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { Link, useInRouterContext } from 'react-router-dom';
 import { BellRing, CheckCircle2, CircleAlert, MessageSquareText, Smartphone } from 'lucide-react';
 import { toast } from 'sonner';
 import { Badge } from '../components/ui/badge';
@@ -16,6 +17,7 @@ import { Switch } from '../components/ui/switch';
 import { useSession } from '../context/SessionContext';
 import { useAppActive } from '../hooks/useAppActive';
 import { AccountRepository } from '../data/dexie/accountRepository';
+import { UnreadableCaptureRepository } from '../data/dexie/unreadableCaptureRepository';
 import { UserProfileRepository } from '../data/dexie/userProfileRepository';
 import { CaptureSetupError, disableCapture, enableCapture } from '../data/io/captureSetup';
 import { drainCapturedTransactions } from '../data/io/captureDrain';
@@ -25,7 +27,7 @@ import {
 	type CaptureStatus,
 	type PermissionState
 } from '../lib/native/transactionCapture';
-import type { Account, CaptureSettings } from '../domain/entities';
+import type { Account, CaptureSettings, UnreadableCapture } from '../domain/entities';
 
 /** Android 13 added the runtime permission for an app's own notifications. */
 const POST_NOTIFICATIONS_API = 33;
@@ -54,6 +56,8 @@ export function AutoCapturePage() {
 	const key = getEncryptionKey();
 	const { activationCount } = useAppActive();
 	const available = isTransactionCaptureAvailable();
+	// The page is also rendered outside a router in component tests; links only exist inside one.
+	const inRouter = useInRouterContext();
 
 	const [status, setStatus] = useState<CaptureStatus | null>(null);
 	const [settings, setSettings] = useState<CaptureSettings | null>(null);
@@ -64,16 +68,21 @@ export function AutoCapturePage() {
 	const [loaded, setLoaded] = useState(false);
 	const [busy, setBusy] = useState(false);
 	const [blockedHint, setBlockedHint] = useState(false);
+	const [filingNow, setFilingNow] = useState(false);
+	// Messages that looked like transactions but could not be read, kept so they can be added by hand.
+	const [unreadable, setUnreadable] = useState<UnreadableCapture[]>([]);
 
 	const refresh = useCallback(async () => {
 		if (!available) return;
 		try {
-			const [profile, accts, current] = await Promise.all([
+			const [profile, accts, current, kept] = await Promise.all([
 				UserProfileRepository.get(),
 				AccountRepository.list(key, false),
-				TransactionCapture.getStatus()
+				TransactionCapture.getStatus(),
+				UnreadableCaptureRepository.list(key)
 			]);
 			setStatus(current);
+			setUnreadable(kept);
 			setSettings(profile?.capture ?? null);
 			setAccounts(accts);
 			if (!loaded) {
@@ -154,6 +163,52 @@ export function AutoCapturePage() {
 			);
 		} finally {
 			setBusy(false);
+		}
+	}
+
+	/** Tries to file whatever is waiting right now instead of waiting for the next unlock. */
+	async function fileNow() {
+		setFilingNow(true);
+		try {
+			await drainCapturedTransactions(key);
+			await refresh();
+		} catch {
+			toast.error('Could not file the waiting messages.');
+		} finally {
+			setFilingNow(false);
+		}
+	}
+
+	async function dismissUnreadable(id: string) {
+		try {
+			await UnreadableCaptureRepository.remove(id);
+			setUnreadable((prev) => prev.filter((u) => u.id !== id));
+		} catch {
+			toast.error('Could not remove that message.');
+		}
+	}
+
+	async function dismissAllUnreadable() {
+		try {
+			await UnreadableCaptureRepository.clear();
+			setUnreadable([]);
+		} catch {
+			toast.error('Could not clear the list.');
+		}
+	}
+
+	/** The counters only ever grow; this lets the user say "I've seen it". */
+	async function clearNotices() {
+		try {
+			const profile = await UserProfileRepository.get();
+			if (profile?.capture) {
+				await UserProfileRepository.update({
+					capture: { ...profile.capture, unreadableCount: 0, droppedCount: 0 }
+				});
+			}
+			await refresh();
+		} catch {
+			toast.error('Could not clear the notices.');
 		}
 	}
 
@@ -308,6 +363,20 @@ export function AutoCapturePage() {
 							Used when a message does not say which account it is about. Messages name an account
 							by its last digits; add them under Accounts so each one is filed correctly.
 						</p>
+						{eligibleAccounts.length === 0 && (
+							<p className="text-xs text-amber-700 dark:text-amber-400">
+								You have no account to file messages under yet.
+								{inRouter && (
+									<>
+										{' '}
+										<Link to="/accounts" className="font-medium underline underline-offset-2">
+											Add an account
+										</Link>
+										, then come back.
+									</>
+								)}
+							</p>
+						)}
 					</div>
 
 					<div className="flex flex-wrap items-center gap-3">
@@ -340,8 +409,27 @@ export function AutoCapturePage() {
 					<CardContent className="flex flex-col gap-1 text-sm">
 						<p>
 							Waiting to be filed: <strong>{status.pending}</strong>
-							{status.pending > 0 ? ' (filed the next time MyFin is open and unlocked)' : ''}
 						</p>
+						{status.pending > 0 && (
+							<div className="flex flex-col gap-2 rounded-md border border-amber-500/40 bg-amber-500/5 p-3 text-xs text-muted-foreground">
+								<p>
+									MyFin files these each time it is open and unlocked. If the number does not go
+									down, they could not be matched to an account — most often because no default
+									account is chosen, or the one chosen was archived or removed. Pick one above and
+									save, then file them.
+								</p>
+								<div>
+									<Button
+										size="sm"
+										variant="outline"
+										disabled={filingNow}
+										onClick={() => void fileNow()}
+									>
+										{filingNow ? 'Filing…' : 'File them now'}
+									</Button>
+								</div>
+							</div>
+						)}
 						{settings?.lastDrainAt && (
 							<p className="text-muted-foreground">
 								Last checked {new Date(settings.lastDrainAt).toLocaleString()}
@@ -350,7 +438,10 @@ export function AutoCapturePage() {
 						{(settings?.unreadableCount ?? 0) > 0 && (
 							<p className="text-muted-foreground">
 								{settings?.unreadableCount} message(s) looked like transactions but could not be
-								read. They were discarded; add those by hand or with Quick Add.
+								read.
+								{unreadable.length > 0
+									? ' The ones MyFin could open are listed below so you can add them by hand.'
+									: ' Add any you recognise by hand or with Quick Add.'}
 							</p>
 						)}
 						{(settings?.droppedCount ?? 0) + status.dropped > 0 && (
@@ -359,6 +450,54 @@ export function AutoCapturePage() {
 								because too many piled up while MyFin was locked.
 							</p>
 						)}
+						{((settings?.unreadableCount ?? 0) > 0 ||
+							(settings?.droppedCount ?? 0) + status.dropped > 0) && (
+							<div>
+								<Button size="sm" variant="ghost" onClick={() => void clearNotices()}>
+									Clear these notices
+								</Button>
+							</div>
+						)}
+					</CardContent>
+				</Card>
+			)}
+
+			{unreadable.length > 0 && (
+				<Card>
+					<CardHeader>
+						<CardTitle>Messages MyFin could not read</CardTitle>
+						<CardDescription>
+							These looked like bank transactions but their wording was not understood, so no entry
+							was made. Add the ones that matter by hand — Quick Add opens with the text already
+							pasted in.
+						</CardDescription>
+					</CardHeader>
+					<CardContent className="flex flex-col gap-3">
+						{unreadable.map((item) => (
+							<div key={item.id} className="flex flex-col gap-2 rounded-md border p-3 text-sm">
+								<p className="text-xs text-muted-foreground">
+									{item.sender} · {new Date(item.receivedAt).toLocaleString()}
+								</p>
+								<p className="break-words whitespace-pre-wrap">{item.text}</p>
+								<div className="flex flex-wrap gap-2">
+									{inRouter && (
+										<Button size="sm" variant="outline" asChild>
+											<Link to="/quick-add" state={{ sharedText: item.text }}>
+												Add by hand
+											</Link>
+										</Button>
+									)}
+									<Button size="sm" variant="ghost" onClick={() => void dismissUnreadable(item.id)}>
+										Dismiss
+									</Button>
+								</div>
+							</div>
+						))}
+						<div>
+							<Button size="sm" variant="ghost" onClick={() => void dismissAllUnreadable()}>
+								Dismiss all
+							</Button>
+						</div>
 					</CardContent>
 				</Card>
 			)}

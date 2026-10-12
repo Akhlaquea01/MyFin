@@ -14,6 +14,7 @@
 import { AccountRepository } from '../dexie/accountRepository';
 import { MerchantRepository } from '../dexie/merchantRepository';
 import { NotifiedItemRepository } from '../dexie/notificationRepository';
+import { UnreadableCaptureRepository } from '../dexie/unreadableCaptureRepository';
 import { TransactionRepository } from '../dexie/transactionRepository';
 import { getBlindIndexSalt } from '../dexie/blindIndexSalt';
 import { blindIndex } from '../crypto/cryptoService';
@@ -58,7 +59,7 @@ export interface IngestReport {
 	duplicatesFlagged: number;
 	/** Exactly this message was filed before. */
 	alreadyProcessed: number;
-	/** Looked like a transaction but could not be read; the text is discarded. */
+	/** Looked like a transaction but could not be read; kept in the unreadable list. */
 	unreadable: number;
 	ignored: Partial<Record<IgnoreReason, number>>;
 	/** Entries filed on a guessed account (`capture.accountCheck` is set). */
@@ -199,6 +200,16 @@ async function ingestOne(message: IngestMessage, ctx: RunContext): Promise<'done
 	const parsed = parseCapturedMessage(payload);
 	if (!parsed) {
 		report.unreadable += 1;
+		// It passed the "looks like a transaction" filter, so it is probably real money: keep the
+		// text (encrypted, like everything else) for the user to add by hand instead of losing it,
+		// and note it in the ledger so a replayed message is not listed twice.
+		await UnreadableCaptureRepository.add(key, {
+			channel: payload.channel,
+			sender: payload.sender,
+			receivedAt: payload.receivedAt,
+			text
+		});
+		await NotifiedItemRepository.create(key, { key: ledgerKey });
 		return 'done';
 	}
 

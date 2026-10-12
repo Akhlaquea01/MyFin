@@ -11,7 +11,7 @@ import {
 	type DetectedSubscription,
 	type SubscriptionCadence
 } from '../domain/recurring/subscriptionDetectionEngine';
-import { formatMinorUnits } from '../domain/shared/money';
+import { formatMoney } from '../domain/shared/money';
 
 const CADENCE_LABELS: Record<SubscriptionCadence, string> = {
 	weekly: 'Weekly',
@@ -91,7 +91,7 @@ export function SubscriptionsPage() {
 						<CardContent className="flex items-center justify-between py-4">
 							<span className="text-sm text-muted-foreground">Total detected monthly cost</span>
 							<span className="font-mono text-lg font-semibold">
-								{formatMinorUnits(totalMonthlyCost)}
+								{formatMoney(totalMonthlyCost)}
 							</span>
 						</CardContent>
 					</Card>
@@ -115,12 +115,12 @@ export function SubscriptionsPage() {
 							<CardContent className="flex flex-col gap-1 text-sm">
 								<div className="flex items-baseline justify-between">
 									<span className="font-mono text-base font-semibold">
-										{formatMinorUnits(subscription.monthlyCostMinor)} / mo
+										{formatMoney(subscription.monthlyCostMinor)} / mo
 									</span>
 									<Badge variant="secondary">{CADENCE_LABELS[subscription.cadence]}</Badge>
 								</div>
 								<p className="text-muted-foreground">
-									{formatMinorUnits(subscription.averageAmountMinor)} per charge · last charged{' '}
+									{formatMoney(subscription.averageAmountMinor)} per charge · last charged{' '}
 									{formatDate(subscription.lastChargedDate)} · {subscription.chargeCount} charges
 									seen
 								</p>

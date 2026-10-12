@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { saveFile } from '../lib/saveFile';
-import { DatabaseBackup, ShieldAlert, Trash2, Upload, HelpCircle } from 'lucide-react';
+import { DatabaseBackup, ShieldAlert, Trash2, Upload } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -23,9 +23,8 @@ import {
 	DialogTitle
 } from '../components/ui/dialog';
 import { useSession } from '../context/SessionContext';
-import { UserProfileRepository } from '../data/dexie/userProfileRepository';
 import { TransactionRepository } from '../data/dexie/transactionRepository';
-import { verifyPin } from '../data/crypto/cryptoService';
+import { checkPinWithThrottle } from '../data/auth/pinGate';
 import {
 	createBackup,
 	validateAndDecryptBackup,
@@ -35,29 +34,37 @@ import {
 	type BackupFile,
 	type BackupPayload
 } from '../data/io/backupService';
-import { resetAllData } from '../data/io/resetService';
-import { clearNativeBiometric, isNativeBiometricAvailable } from '../lib/native/nativeBiometric';
-import { TransactionCapture, isTransactionCaptureAvailable } from '../lib/native/transactionCapture';
+import { resetEverything } from '../data/io/resetService';
 import {
 	isAutoBackupSupported,
 	requestBackupFolder,
+	requestNativeBackupFolder,
+	usesNativeBackupFolder,
 	configureAutoBackup
 } from '../data/io/autoBackupService';
 import { AutoBackupSettingsRepository } from '../data/dexie/autoBackupSettingsRepository';
 import type { AutoBackupSettings as ScheduledBackupSettings } from '../domain/entities';
-import { useQuickTour } from '../hooks/useQuickTour';
+import { enableBackupReminder, syncBackupReminder } from '../data/io/backupReminderService';
+import { isNativeApp } from '../lib/native/platform';
+import { isFolderPickCancelled } from '../lib/native/nativeBackupFolder';
+import {
+	BACKUP_REMINDER_INTERVAL_DAYS,
+	daysSinceLastBackup,
+	isBackupOverdue,
+	loadBackupReminderSettings,
+	recordManualBackup,
+	saveBackupReminderSettings,
+	type BackupReminderSettings
+} from '../lib/backupReminder';
+import { todayLocalISO } from '../domain/shared/dateMath';
 
-const AUTO_BACKUP_KEY = 'myfin.autoBackup';
-const REMINDER_INTERVAL_DAYS = 7;
 /** Typed by the user to arm the restore / clear-all. Deliberately not a plain "Yes" — this
  *  wipes everything and cannot be undone (Constitution Principle VI). */
 const RESTORE_CONFIRM_WORD = 'REPLACE';
 const CLEAR_ALL_CONFIRM_WORD = 'DELETE EVERYTHING';
-
-interface AutoBackupSettings {
-	enabled: boolean;
-	lastBackupAt: number | null;
-}
+/** Backups embed receipt images as base64, so they can be large — but a file this big is not a
+ *  MyFin backup, and reading it whole into memory would take the WebView down with it. */
+const MAX_RESTORE_FILE_BYTES = 250 * 1024 * 1024;
 
 interface PendingRestore {
 	payload: BackupPayload;
@@ -68,27 +75,15 @@ interface PendingRestore {
 	createdAt: string;
 }
 
-function loadAutoBackupSettings(): AutoBackupSettings {
-	try {
-		const raw = localStorage.getItem(AUTO_BACKUP_KEY);
-		if (!raw) return { enabled: false, lastBackupAt: null };
-		return JSON.parse(raw) as AutoBackupSettings;
-	} catch {
-		return { enabled: false, lastBackupAt: null };
-	}
-}
-
-function saveAutoBackupSettings(settings: AutoBackupSettings) {
-	try {
-		localStorage.setItem(AUTO_BACKUP_KEY, JSON.stringify(settings));
-	} catch {
-		// Best-effort only: a UI reminder preference, not financial data.
-	}
-}
-
 function formatBackupDate(iso: string): string {
 	const date = new Date(iso);
 	return Number.isNaN(date.getTime()) ? 'an unknown date' : date.toLocaleDateString();
+}
+
+function describeLastBackup(days: number | null): string {
+	if (days === null) return 'You have not made a backup on this device yet.';
+	if (days === 0) return 'Last backup: today.';
+	return `Last backup: ${days} day${days === 1 ? '' : 's'} ago.`;
 }
 
 // User Story 9 (P9): create/restore encrypted backups (FR-040-FR-043) and an optional,
@@ -96,10 +91,10 @@ function formatBackupDate(iso: string): string {
 export function BackupSettingsPage() {
 	const { getEncryptionKey } = useSession();
 	const key = getEncryptionKey();
-	const { startTour } = useQuickTour();
+	const native = isNativeApp();
 
 	const [creating, setCreating] = useState(false);
-	const [autoBackup, setAutoBackup] = useState<AutoBackupSettings>(loadAutoBackupSettings);
+	const [autoBackup, setAutoBackup] = useState<BackupReminderSettings>(loadBackupReminderSettings);
 	const [backupPin, setBackupPin] = useState('');
 	const [restorePin, setRestorePin] = useState('');
 	const [restoring, setRestoring] = useState(false);
@@ -118,22 +113,47 @@ export function BackupSettingsPage() {
 	const scheduledSupported = isAutoBackupSupported();
 
 	useEffect(() => {
-		saveAutoBackupSettings(autoBackup);
+		saveBackupReminderSettings(autoBackup);
 	}, [autoBackup]);
 
+	async function handleReminderToggle(enabled: boolean) {
+		const next = { ...autoBackup, enabled };
+		setAutoBackup(next);
+		// Saved before the OS schedule is synced: `syncBackupReminder` reads the saved preference.
+		saveBackupReminderSettings(next);
+		if (!enabled) {
+			await syncBackupReminder();
+			return;
+		}
+		const canNotify = await enableBackupReminder();
+		if (!canNotify) {
+			toast.info(
+				'Notifications are off for MyFin, so the reminder will only show here and on the Dashboard.'
+			);
+		}
+	}
+
 	useEffect(() => {
-		void AutoBackupSettingsRepository.get().then(setScheduled);
+		void AutoBackupSettingsRepository.get()
+			.then(setScheduled)
+			.catch(() => {});
 	}, []);
 
 	async function handleChooseScheduledFolder(intervalDays: number) {
 		setChoosingFolder(true);
 		try {
-			const directoryHandle = await requestBackupFolder();
-			await configureAutoBackup({ enabled: true, intervalDays, directoryHandle });
+			if (usesNativeBackupFolder()) {
+				const nativeFolder = await requestNativeBackupFolder();
+				await configureAutoBackup({ enabled: true, intervalDays, nativeFolder });
+			} else {
+				const directoryHandle = await requestBackupFolder();
+				await configureAutoBackup({ enabled: true, intervalDays, directoryHandle });
+			}
 			setScheduled(await AutoBackupSettingsRepository.get());
 			toast.success('Automatic backups enabled');
 		} catch (err) {
-			// The user cancelling the native folder picker throws too — not a real error.
+			// The user cancelling the folder picker throws too — not a real error.
+			if (isFolderPickCancelled(err)) return;
 			if (err instanceof Error && err.name !== 'AbortError') {
 				toast.error(err.message);
 			}
@@ -142,56 +162,57 @@ export function BackupSettingsPage() {
 		}
 	}
 
-	async function handleToggleScheduled(enabled: boolean) {
+	async function updateScheduled(changes: { enabled?: boolean; intervalDays?: number }) {
 		if (!scheduled) return;
-		await configureAutoBackup({
-			enabled,
-			intervalDays: scheduled.intervalDays,
-			directoryHandle: scheduled.directoryHandle
-		});
-		setScheduled(await AutoBackupSettingsRepository.get());
+		try {
+			await configureAutoBackup({
+				enabled: changes.enabled ?? scheduled.enabled,
+				intervalDays: changes.intervalDays ?? scheduled.intervalDays,
+				directoryHandle: scheduled.directoryHandle,
+				nativeFolder: scheduled.nativeFolder
+			});
+			setScheduled(await AutoBackupSettingsRepository.get());
+		} catch (err) {
+			toast.error(err instanceof Error ? err.message : 'Could not update automatic backups.');
+		}
 	}
 
-	async function handleScheduledIntervalChange(intervalDays: number) {
-		if (!scheduled) return;
-		await configureAutoBackup({
-			enabled: scheduled.enabled,
-			intervalDays,
-			directoryHandle: scheduled.directoryHandle
-		});
-		setScheduled(await AutoBackupSettingsRepository.get());
-	}
-
-	const overdue =
-		autoBackup.enabled &&
-		(!autoBackup.lastBackupAt ||
-			Date.now() - autoBackup.lastBackupAt > REMINDER_INTERVAL_DAYS * 24 * 60 * 60 * 1000);
+	const daysSince = daysSinceLastBackup(autoBackup, scheduled?.lastBackupAt);
+	const overdue = autoBackup.enabled && isBackupOverdue(daysSince);
 
 	/**
 	 * Requires the PIN even though the session is already unlocked. A backup is the one
 	 * artifact that leaves the device, so it is encrypted under a key derived at the much
 	 * higher backup iteration count — which needs the PIN, not the session key. Verifying it
-	 * first also means a typo can't produce a file the user is then unable to open.
+	 * first also means a typo can't produce a file the user is then unable to open. The attempt
+	 * counts toward the same lockout as the lock screen.
 	 */
 	async function handleCreateBackup() {
 		setCreating(true);
 		try {
-			const profile = await UserProfileRepository.get();
-			if (!profile) throw new Error('No profile found.');
-
-			const correct = await verifyPin(backupPin, profile.pinSalt, profile.pinVerifierHash);
-			if (!correct) {
-				toast.error('Incorrect PIN.');
+			const check = await checkPinWithThrottle(backupPin);
+			if (!check.ok) {
+				toast.error(check.message);
 				return;
 			}
+			const { profile } = check;
 
 			const backup = await createBackup(key, profile.encryptionSalt, backupPin);
+			// Prove the file can be opened with this PIN before it is handed over: a backup nobody
+			// can read is worse than none, because it is trusted.
+			await validateAndDecryptBackup(backup, backupPin);
+
 			const blob = new Blob([JSON.stringify(backup)], { type: 'application/json' });
-			const date = new Date().toISOString().slice(0, 10);
-			await saveFile(blob, `myfin-backup-${date}.json`);
-			setAutoBackup((s) => ({ ...s, lastBackupAt: Date.now() }));
+			await saveFile(blob, `myfin-backup-${todayLocalISO()}.json`);
+			recordManualBackup();
+			setAutoBackup(loadBackupReminderSettings());
+			void syncBackupReminder();
 			setBackupPin('');
-			toast.success('Backup created');
+			toast.success(
+				native
+					? 'Backup file created. Check it reached Drive or Files — MyFin cannot see where it went.'
+					: 'Backup created'
+			);
 		} catch (err) {
 			toast.error(err instanceof Error ? err.message : 'Could not create backup.');
 		} finally {
@@ -214,12 +235,17 @@ export function BackupSettingsPage() {
 			toast.error('Enter the PIN this backup was created with.');
 			return;
 		}
+		if (file.size > MAX_RESTORE_FILE_BYTES) {
+			toast.error(
+				`That file is ${(file.size / (1024 * 1024)).toFixed(0)} MB, which is too large to be a MyFin backup.`
+			);
+			return;
+		}
 
 		setRestoring(true);
 		try {
 			const parsedFile = JSON.parse(await file.text()) as BackupFile;
 			const { payload } = await validateAndDecryptBackup(parsedFile, restorePin);
-			const profile = await UserProfileRepository.get();
 			setConfirmWord('');
 			setPendingRestore({
 				payload,
@@ -229,7 +255,6 @@ export function BackupSettingsPage() {
 				currentCount: await TransactionRepository.countActive(),
 				createdAt: parsedFile.createdAt
 			});
-			void profile;
 		} catch (err) {
 			const message =
 				err instanceof BackupValidationError ? err.message : 'Could not read this backup file.';
@@ -262,6 +287,18 @@ export function BackupSettingsPage() {
 		}
 	}
 
+	async function handleClearAll() {
+		setClearing(true);
+		try {
+			await resetEverything();
+			toast.success('All data cleared. Reloading…');
+			window.location.reload();
+		} catch (err) {
+			toast.error(err instanceof Error ? err.message : 'Could not clear data.');
+			setClearing(false);
+		}
+	}
+
 	return (
 		<div className="mx-auto max-w-xl px-4 py-8 sm:px-6">
 			<h1 className="mb-6 text-2xl font-semibold tracking-tight">Backup &amp; Restore</h1>
@@ -271,7 +308,10 @@ export function BackupSettingsPage() {
 					<ShieldAlert />
 					<AlertTitle>Time for a backup</AlertTitle>
 					<AlertDescription>
-						It's been over a week since your last backup. Create one below to keep your data safe.
+						{daysSince === null
+							? 'You have not made a backup yet.'
+							: `It's been ${daysSince} days since your last backup.`}{' '}
+						Create one below to keep your data safe.
 					</AlertDescription>
 				</Alert>
 			)}
@@ -282,9 +322,20 @@ export function BackupSettingsPage() {
 				</CardHeader>
 				<CardContent className="flex flex-col gap-4">
 					<p className="text-sm text-muted-foreground">
-						Downloads a single encrypted file containing your entire local database. Your PIN is the
-						only thing that can open it — if you lose the PIN, the backup is unreadable.
+						{native
+							? 'Creates a single encrypted file containing your entire local database and opens the share sheet so you can save it to Drive, Files or send it to yourself. '
+							: 'Downloads a single encrypted file containing your entire local database. '}
+						Your PIN is the only thing that can open it — if you lose the PIN, the backup is
+						unreadable.
 					</p>
+					{native && (
+						<p className="rounded-md border border-amber-500/40 bg-amber-500/5 p-2 text-xs text-muted-foreground">
+							MyFin keeps your data only on this phone. Uninstalling the app, clearing its storage
+							or changing phones erases it, and Android does not back it up for you — a saved backup
+							file is the only copy.
+						</p>
+					)}
+					<p className="text-sm">{describeLastBackup(daysSince)}</p>
 					<div className="flex flex-col gap-1.5">
 						<Label htmlFor="backup-pin">Confirm your PIN</Label>
 						<Input
@@ -309,13 +360,15 @@ export function BackupSettingsPage() {
 						<div>
 							<Label htmlFor="auto-backup">Remind me to back up weekly</Label>
 							<p className="text-xs text-muted-foreground">
-								Shows a reminder here if it's been a while since your last backup.
+								{native
+									? `Sends a notification (with no financial details) when it has been ${BACKUP_REMINDER_INTERVAL_DAYS} days or more, and shows a reminder on the Dashboard.`
+									: `Shows a reminder on the Dashboard and here when it has been ${BACKUP_REMINDER_INTERVAL_DAYS} days or more.`}
 							</p>
 						</div>
 						<Switch
 							id="auto-backup"
 							checked={autoBackup.enabled}
-							onCheckedChange={(enabled) => setAutoBackup((s) => ({ ...s, enabled }))}
+							onCheckedChange={(enabled) => void handleReminderToggle(enabled)}
 						/>
 					</div>
 				</CardContent>
@@ -328,14 +381,17 @@ export function BackupSettingsPage() {
 				<CardContent className="flex flex-col gap-4">
 					{!scheduledSupported ? (
 						<p className="text-sm text-muted-foreground">
-							Automatic backups aren't available in this browser — it doesn't support saving
-							directly to a folder on this device. Use "Create backup now" above instead.
+							{native
+								? 'Saving automatically to a folder needs a newer version of the Android app. Turn on the weekly reminder above and use "Create backup now" for now.'
+								: 'Automatic backups aren\'t available in this browser — it doesn\'t support saving directly to a folder on this device. Use "Create backup now" above instead.'}
 						</p>
-					) : !scheduled?.directoryHandle ? (
+					) : !scheduled?.directoryHandle && !scheduled?.nativeFolder ? (
 						<>
 							<p className="text-sm text-muted-foreground">
 								Automatically save a new encrypted backup to a folder on this device, checked each
 								time you unlock the app.
+								{native &&
+									' Pick a folder your cloud storage or sync app already watches (for example one inside Documents) and the backups leave the phone on their own.'}
 							</p>
 							<Button
 								type="button"
@@ -359,14 +415,14 @@ export function BackupSettingsPage() {
 								<Switch
 									id="scheduled-backup-enabled"
 									checked={scheduled.enabled}
-									onCheckedChange={(enabled) => void handleToggleScheduled(enabled)}
+									onCheckedChange={(enabled) => void updateScheduled({ enabled })}
 								/>
 							</div>
 							<div className="flex flex-col gap-1.5">
 								<Label htmlFor="scheduled-backup-interval">Interval</Label>
 								<Select
 									value={String(scheduled.intervalDays)}
-									onValueChange={(v) => void handleScheduledIntervalChange(Number(v))}
+									onValueChange={(v) => void updateScheduled({ intervalDays: Number(v) })}
 								>
 									<SelectTrigger id="scheduled-backup-interval" className="w-full">
 										<SelectValue />
@@ -378,6 +434,12 @@ export function BackupSettingsPage() {
 									</SelectContent>
 								</Select>
 							</div>
+							{scheduled.nativeFolder && (
+								<p className="text-sm text-muted-foreground">
+									Saving to <strong>{scheduled.nativeFolder.name}</strong>. Each backup is a new
+									file; old ones are not deleted.
+								</p>
+							)}
 							<p className="text-sm text-muted-foreground">
 								{scheduled.lastBackupAt
 									? `Last successful backup: ${formatBackupDate(scheduled.lastBackupAt)}`
@@ -409,31 +471,13 @@ export function BackupSettingsPage() {
 
 			<Card className="mb-6">
 				<CardHeader>
-					<CardTitle className="text-base">Help & Support</CardTitle>
-				</CardHeader>
-				<CardContent className="flex flex-col gap-4">
-					<p className="text-sm text-muted-foreground">
-						Need a refresher on how to use the app? Replay the introductory quick tour to see the main areas.
-					</p>
-					<Button
-						type="button"
-						variant="outline"
-						onClick={startTour}
-						className="w-fit"
-					>
-						<HelpCircle className="mr-2 h-4 w-4" /> Replay Quick Tour
-					</Button>
-				</CardContent>
-			</Card>
-
-			<Card className="mb-6">
-				<CardHeader>
 					<CardTitle className="text-base">Restore from backup</CardTitle>
 				</CardHeader>
 				<CardContent className="flex flex-col gap-4">
 					<p className="text-sm text-muted-foreground">
 						Restoring replaces everything currently in this app with the contents of the backup
-						file. You'll see what will change before anything is written.
+						file. You'll see what will change before anything is written. Enter the PIN the backup
+						was made with, then choose the file.
 					</p>
 					<div className="flex flex-col gap-1.5">
 						<Label htmlFor="restore-pin">Backup PIN</Label>
@@ -452,7 +496,7 @@ export function BackupSettingsPage() {
 						onClick={() => fileInputRef.current?.click()}
 						className="w-fit"
 					>
-						<Upload /> {restoring ? 'Reading…' : 'Choose backup file…'}
+						<Upload /> {restoring ? 'Reading backup…' : 'Choose backup file…'}
 					</Button>
 					<input
 						ref={fileInputRef}
@@ -473,13 +517,16 @@ export function BackupSettingsPage() {
 					<p className="text-sm text-muted-foreground">
 						Permanently delete all your financial data (accounts, transactions, budgets,
 						investments, categories, tags, recurring rules) <strong>and</strong> your PIN/security
-						setup and app preferences. The app will restart in first-run/onboarding mode.
-						This cannot be undone.
+						setup and app preferences. The app will restart in first-run/onboarding mode. This
+						cannot be undone — create a backup first if there is anything you want to keep.
 					</p>
 					<Button
 						type="button"
 						variant="destructive"
-						onClick={() => { setClearAllConfirm(''); setClearAllOpen(true); }}
+						onClick={() => {
+							setClearAllConfirm('');
+							setClearAllOpen(true);
+						}}
 						className="w-fit"
 					>
 						<Trash2 /> Clear all data
@@ -504,6 +551,11 @@ export function BackupSettingsPage() {
 									{pendingRestore.incomingCount.toLocaleString()} from a backup made on{' '}
 									{formatBackupDate(pendingRestore.createdAt)}. Everything here now — accounts,
 									budgets, goals, attachments — is permanently deleted. This cannot be undone.
+									<br />
+									<br />
+									<strong>Your PIN also changes</strong> to the one the backup was made with, and
+									fingerprint unlock and the auto-lock settings revert to what they were then. You
+									will be asked to unlock again right after.
 								</>
 							)}
 						</DialogDescription>
@@ -539,9 +591,9 @@ export function BackupSettingsPage() {
 						<DialogTitle>Clear all data?</DialogTitle>
 						<DialogDescription>
 							This will permanently delete <strong>all</strong> your financial data (accounts,
-							transactions, budgets, investments, categories, tags, recurring rules) <strong>and
-							your PIN/security setup and preferences</strong>. The app will restart from scratch
-							requiring a new PIN. This cannot be undone.
+							transactions, budgets, investments, categories, tags, recurring rules){' '}
+							<strong>and your PIN/security setup and preferences</strong>. The app will restart
+							from scratch requiring a new PIN. This cannot be undone.
 						</DialogDescription>
 					</DialogHeader>
 					<div className="flex flex-col gap-1.5">
@@ -562,25 +614,7 @@ export function BackupSettingsPage() {
 						<Button
 							variant="destructive"
 							disabled={clearing || clearAllConfirm !== CLEAR_ALL_CONFIRM_WORD}
-							onClick={async () => {
-								setClearing(true);
-								try {
-									await resetAllData();
-									// The fingerprint secret lives outside the database, so wiping the data would
-									// otherwise leave it behind for the next profile to trip over.
-									if (isNativeBiometricAvailable()) await clearNativeBiometric();
-									// Likewise messages already captured and queued natively: they would otherwise
-									// flow into the next profile's ledger.
-									if (isTransactionCaptureAvailable()) {
-										await TransactionCapture.clear().catch(() => {});
-									}
-									toast.success('All data cleared. Reloading…');
-									window.location.reload();
-								} catch (err) {
-									toast.error(err instanceof Error ? err.message : 'Could not clear data.');
-									setClearing(false);
-								}
-							}}
+							onClick={() => void handleClearAll()}
 						>
 							{clearing ? 'Clearing…' : 'Clear everything'}
 						</Button>

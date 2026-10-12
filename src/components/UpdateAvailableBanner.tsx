@@ -14,7 +14,7 @@ export function UpdateAvailableBanner() {
 			className="flex items-start gap-3 border-b border-primary/30 bg-primary/10 px-4 py-2 text-sm text-foreground"
 		>
 			<RefreshCw className="mt-0.5 size-4 shrink-0 text-primary" aria-hidden="true" />
-			<p className="flex-1">A new version of MyFin (v{__APP_VERSION__}) is available.</p>
+			<p className="flex-1">A new version of MyFin is available.</p>
 			<div className="flex gap-2">
 				<Button size="sm" onClick={updateNow}>
 					Update now

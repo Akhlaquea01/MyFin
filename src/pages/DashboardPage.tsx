@@ -1,15 +1,20 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowDownLeft, ArrowUpRight, Wallet, TrendingUp } from 'lucide-react';
+import { ArrowDownLeft, ArrowUpRight, Wallet, TrendingUp, Rocket } from 'lucide-react';
 import { toast } from 'sonner';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
+import { Button } from '../components/ui/button';
+import { BackupNudgeBanner } from '../components/BackupNudgeBanner';
 import { Sparkline } from '../components/Sparkline';
 import { DashboardCustomizeSheet } from '../components/DashboardCustomizeSheet';
 import { useSession } from '../context/SessionContext';
 import { getDashboardSummary, type DashboardSummary } from '../domain/analytics/dashboardService';
 import { PersonLoanRepository, LoanRepaymentRepository } from '../data/dexie/personLoanRepository';
 import { MerchantRepository } from '../data/dexie/merchantRepository';
+import { AccountRepository } from '../data/dexie/accountRepository';
+import { CategoryRepository } from '../data/dexie/categoryRepository';
+import { addStarterCategories } from '../data/io/starterCategories';
 import { UserProfileRepository } from '../data/dexie/userProfileRepository';
 import { computePendingBalance, computeOpenLoanTotals } from '../domain/personLoans/loanProgress';
 import { formatTransactionLabel } from '../domain/transactions/transactionLabel';
@@ -20,13 +25,7 @@ import {
 } from '../domain/analytics/dashboardLayout';
 import type { OpenLoanTotals } from '../domain/personLoans/types';
 import type { Merchant } from '../domain/entities';
-
-function formatMoney(paise: number): string {
-	return (paise / 100).toLocaleString(undefined, {
-		minimumFractionDigits: 2,
-		maximumFractionDigits: 2
-	});
-}
+import { formatMoney } from '../domain/shared/money';
 
 /** Feature 010, User Story 3 (FR-010): "you're owed / you owe" totals across all open loans. */
 async function getLendingSummary(key: CryptoKey): Promise<OpenLoanTotals> {
@@ -59,6 +58,12 @@ export function DashboardPage() {
 	const [merchants, setMerchants] = useState<Merchant[]>([]);
 	const [layout, setLayout] = useState<DashboardWidgetConfig[]>(() => resolveDashboardLayout(undefined));
 	const [loadError, setLoadError] = useState(false);
+	// Bumped by "Try again" and after seeding categories, to load everything afresh.
+	const [reloadToken, setReloadToken] = useState(0);
+	// First-run state: nothing to show yet, so the page offers the next step instead.
+	const [accountCount, setAccountCount] = useState<number | null>(null);
+	const [categoryCount, setCategoryCount] = useState(0);
+	const [seeding, setSeeding] = useState(false);
 
 	useEffect(() => {
 		let cancelled = false;
@@ -67,13 +72,17 @@ export function DashboardPage() {
 			getDashboardSummary(key),
 			getLendingSummary(key),
 			MerchantRepository.list(key),
-			UserProfileRepository.get()
+			UserProfileRepository.get(),
+			AccountRepository.list(key, false),
+			CategoryRepository.list(key)
 		])
-			.then(([nextSummary, nextLending, nextMerchants, profile]) => {
+			.then(([nextSummary, nextLending, nextMerchants, profile, accounts, categories]) => {
 				if (cancelled) return;
 				setSummary(nextSummary);
 				setLending(nextLending);
 				setMerchants(nextMerchants);
+				setAccountCount(accounts.length);
+				setCategoryCount(categories.length);
 				setLayout(resolveDashboardLayout(profile?.dashboardLayout));
 			})
 			.catch((err: unknown) => {
@@ -85,7 +94,20 @@ export function DashboardPage() {
 			cancelled = true;
 		};
 		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, []);
+	}, [reloadToken]);
+
+	async function seedCategories() {
+		setSeeding(true);
+		try {
+			const added = await addStarterCategories(key);
+			toast.success(added > 0 ? `Added ${added} categories` : 'You already have these categories');
+			setReloadToken((n) => n + 1);
+		} catch (err) {
+			toast.error(err instanceof Error ? err.message : 'Could not add categories.');
+		} finally {
+			setSeeding(false);
+		}
+	}
 
 	async function saveLayout(next: DashboardWidgetConfig[]) {
 		// `next` is the raw form to persist (an empty array is "reset to default" — FR-025's
@@ -101,8 +123,11 @@ export function DashboardPage() {
 
 	if (loadError && !summary) {
 		return (
-			<div className="mx-auto max-w-4xl px-4 py-8 text-sm text-destructive sm:px-6">
-				Could not load the dashboard. Try reloading the page.
+			<div className="mx-auto flex max-w-4xl flex-col items-start gap-3 px-4 py-8 sm:px-6">
+				<p className="text-sm text-destructive">Could not load the dashboard.</p>
+				<Button variant="outline" onClick={() => setReloadToken((n) => n + 1)}>
+					Try again
+				</Button>
 			</div>
 		);
 	}
@@ -112,7 +137,8 @@ export function DashboardPage() {
 
 	const widgets: Record<DashboardWidgetId, ReactNode> = {
 		'total-balance': (
-			<Card>
+			<Link to="/accounts">
+				<Card className="h-full transition-colors hover:bg-muted/50">
 				<CardHeader className="pb-2">
 					<CardTitle className="text-sm font-medium text-muted-foreground">
 						Total Balance
@@ -131,7 +157,8 @@ export function DashboardPage() {
 					)}
 					{summary.balanceTrend.length > 1 && <Sparkline values={summary.balanceTrend} />}
 				</CardContent>
-			</Card>
+				</Card>
+			</Link>
 		),
 		lending: (
 			<Link to="/people">
@@ -174,7 +201,7 @@ export function DashboardPage() {
 			</Link>
 		),
 		unreviewed: (
-			<Link to="/transactions">
+			<Link to="/review">
 				<Card className="h-full transition-colors hover:bg-muted/50">
 					<CardHeader className="pb-2">
 						<CardTitle className="text-sm font-medium text-muted-foreground">Unreviewed</CardTitle>
@@ -188,8 +215,11 @@ export function DashboardPage() {
 		),
 		'recent-transactions': (
 			<Card>
-				<CardHeader>
+				<CardHeader className="flex flex-row items-center justify-between">
 					<CardTitle className="text-base">Recent Transactions</CardTitle>
+					<Link to="/transactions" className="text-sm text-primary underline-offset-2 hover:underline">
+						View all
+					</Link>
 				</CardHeader>
 				<CardContent>
 					{summary.recentTransactions.length === 0 ? (
@@ -249,6 +279,58 @@ export function DashboardPage() {
 					onReset={() => void saveLayout([])}
 				/>
 			</div>
+
+			{accountCount === 0 && (
+				<Card className="mb-6 border-primary/40 bg-primary/5">
+					<CardHeader>
+						<CardTitle className="flex items-center gap-2 text-base">
+							<Rocket className="size-4 text-primary" /> Get started
+						</CardTitle>
+					</CardHeader>
+					<CardContent className="flex flex-col gap-3 text-sm">
+						<p className="text-muted-foreground">
+							Three steps and MyFin is useful. Everything stays on this device.
+						</p>
+						<ol className="flex list-decimal flex-col gap-2 pl-5">
+							<li>
+								Add the places your money sits — a bank account, a wallet, a card.{' '}
+								<Link to="/accounts" className="font-medium text-primary underline underline-offset-2">
+									Add an account
+								</Link>
+							</li>
+							<li>
+								{categoryCount === 0 ? (
+									<>
+										Set up categories so spending can be sorted.{' '}
+										<Button
+											variant="link"
+											size="sm"
+											className="h-auto p-0"
+											disabled={seeding}
+											onClick={() => void seedCategories()}
+										>
+											{seeding ? 'Adding…' : 'Add common categories'}
+										</Button>
+									</>
+								) : (
+									<>Categories are set up.</>
+								)}
+							</li>
+							<li>
+								Record your first spend — or paste a bank message and let MyFin read it.{' '}
+								<Link
+									to="/transactions/new"
+									className="font-medium text-primary underline underline-offset-2"
+								>
+									Add your first transaction
+								</Link>
+							</li>
+						</ol>
+					</CardContent>
+				</Card>
+			)}
+
+			<BackupNudgeBanner hasData={(accountCount ?? 0) > 0} />
 
 			{orderedGridWidgets.length > 0 && (
 				<div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">

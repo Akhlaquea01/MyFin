@@ -21,7 +21,7 @@ import {
 } from '../data/dexie/wealthRepository';
 import { editHolding, undoLatestTrade } from '../domain/wealth/wealthEngine';
 import { INVESTMENT_TYPE_LABELS } from '../domain/wealth/investmentTypeLabels';
-import { formatMinorUnits, isNonNegativeMoney, parseMoneyOrZero } from '../domain/shared/money';
+import { formatMinorUnits, isNonNegativeMoney, parseMoneyOrZero, formatMoney } from '../domain/shared/money';
 import type {
 	Account,
 	InvestmentHolding,
@@ -29,13 +29,7 @@ import type {
 	InvestmentType,
 	InvestmentValuation
 } from '../domain/entities';
-
-function formatMoney(paise: number): string {
-	return (paise / 100).toLocaleString(undefined, {
-		minimumFractionDigits: 2,
-		maximumFractionDigits: 2
-	});
-}
+import { useConfirm } from '../lib/confirm';
 
 /**
  * Correct a holding after it was added: its name, type, and the units / price it was entered with —
@@ -57,6 +51,7 @@ export function HoldingEditDialog({
 }) {
 	const { getEncryptionKey } = useSession();
 	const key = getEncryptionKey();
+	const confirm = useConfirm();
 
 	const tracksUnits = holding.units !== undefined && holding.avgPrice !== undefined;
 	const [name, setName] = useState(holding.name);
@@ -108,9 +103,11 @@ export function HoldingEditDialog({
 				? ` and ${formatMoney(trade.amount)} ${trade.kind === 'buy' ? 'goes back into' : 'is taken back out of'} ${accountName(trade.accountId)}`
 				: '';
 		if (
-			!window.confirm(
-				`Undo the ${verb} of ${trade.units.toLocaleString(undefined, { maximumFractionDigits: 4 })} units on ${trade.date}? The holding goes back to ${(trade.before.units ?? 0).toLocaleString(undefined, { maximumFractionDigits: 4 })} units${money}.`
-			)
+			!(await confirm({
+				message: `Undo the ${verb} of ${trade.units.toLocaleString(undefined, { maximumFractionDigits: 4 })} units on ${trade.date}? The holding goes back to ${(trade.before.units ?? 0).toLocaleString(undefined, { maximumFractionDigits: 4 })} units${money}.`,
+				confirmLabel: 'Undo it',
+				destructive: false
+			}))
 		) {
 			return;
 		}
@@ -127,9 +124,11 @@ export function HoldingEditDialog({
 
 	async function removeValuation(valuation: InvestmentValuation) {
 		if (
-			!window.confirm(
-				`Delete the ${formatMoney(valuation.value)} value recorded on ${valuation.date}? The holding goes back to its previous value.`
-			)
+			!(await confirm({
+				message: `Delete the ${formatMoney(valuation.value)} value recorded on ${valuation.date}? The holding goes back to its previous value.`,
+				confirmLabel: 'Delete value',
+				destructive: true
+			}))
 		) {
 			return;
 		}

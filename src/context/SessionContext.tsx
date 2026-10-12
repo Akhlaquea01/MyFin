@@ -15,6 +15,11 @@ import { SessionKeyRepository } from '../data/dexie/sessionKeyRepository';
  *  IndexedDB write on every one of them, only cost. */
 const ACTIVITY_PERSIST_THROTTLE_MS = 15_000;
 
+/** With "lock when I leave the app" on, how long the app may be out of the foreground before the
+ *  next return shows the lock screen. Long enough that a permission dialog, the share sheet or a
+ *  file picker — all of which background the app briefly — do not lock it mid-task. */
+export const BACKGROUND_LOCK_GRACE_MS = 30_000;
+
 interface SessionContextValue {
 	isOnboarded: boolean;
 	isLocked: boolean;
@@ -35,6 +40,14 @@ interface SessionContextValue {
 	 * whenever the app comes back to the foreground.
 	 */
 	lockIfExpired: () => boolean;
+	/**
+	 * Feed this every foreground/background change. Remembers when the app left the foreground,
+	 * and on return locks if the auto-lock deadline passed — or, when "lock when I leave the app"
+	 * is on, if it was away longer than the short grace period. Returns whether it locked.
+	 */
+	handleAppActiveChange: (active: boolean) => boolean;
+	/** Turns "lock when I leave the app" on or off for the running session. */
+	setLockOnBackground: (enabled: boolean) => void;
 	/** Applies a new auto-lock timeout to the running session straight away. */
 	setAutoLockTimeout: (timeoutMs: number) => void;
 	getEncryptionKey: () => CryptoKey;
@@ -165,6 +178,35 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 		return true;
 	}, [lock]);
 
+	const lockOnBackgroundRef = useRef(false);
+	const backgroundedAtRef = useRef<number | null>(null);
+
+	const setLockOnBackground = useCallback((enabled: boolean) => {
+		lockOnBackgroundRef.current = enabled;
+	}, []);
+
+	const handleAppActiveChange = useCallback(
+		(active: boolean): boolean => {
+			if (!active) {
+				backgroundedAtRef.current ??= Date.now();
+				return false;
+			}
+			const leftAt = backgroundedAtRef.current;
+			backgroundedAtRef.current = null;
+			if (isLockedRef.current) return false;
+			if (
+				lockOnBackgroundRef.current &&
+				leftAt !== null &&
+				Date.now() - leftAt >= BACKGROUND_LOCK_GRACE_MS
+			) {
+				lock();
+				return true;
+			}
+			return lockIfExpired();
+		},
+		[lock, lockIfExpired]
+	);
+
 	const getEncryptionKey = useCallback((): CryptoKey => {
 		if (!encryptionKeyRef.current) throw new SessionLockedError();
 		return encryptionKeyRef.current;
@@ -184,6 +226,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 			lock,
 			recordActivity,
 			lockIfExpired,
+			handleAppActiveChange,
+			setLockOnBackground,
 			setAutoLockTimeout,
 			getEncryptionKey
 		}),
@@ -195,6 +239,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 			lock,
 			recordActivity,
 			lockIfExpired,
+			handleAppActiveChange,
+			setLockOnBackground,
 			setAutoLockTimeout,
 			getEncryptionKey
 		]

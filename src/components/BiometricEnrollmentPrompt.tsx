@@ -10,6 +10,7 @@ import {
 } from '../lib/biometric';
 import type { PendingBiometricEnrollment } from '../lib/webauthn';
 import { UserProfileRepository } from '../data/dexie/userProfileRepository';
+import { snoozeBiometricPrompt } from '../lib/biometricPromptSnooze';
 
 /** Reasons that mean "try again" is worth offering, as opposed to a hardware/browser gap. */
 const RETRYABLE: ReadonlySet<BiometricReason> = new Set([
@@ -97,6 +98,8 @@ export function BiometricEnrollmentPrompt({
 	}
 
 	function handleSkip() {
+		// Declining is remembered, or the offer would be back after every PIN unlock.
+		snoozeBiometricPrompt();
 		setDismissed(true);
 		onDone();
 	}

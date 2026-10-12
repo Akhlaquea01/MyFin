@@ -5,6 +5,8 @@ import {
 	NotificationPreferenceRepository,
 	NotifiedItemRepository
 } from '../../data/dexie/notificationRepository';
+import { NotificationInboxRepository } from '../../data/dexie/notificationInboxRepository';
+import { announceAlertsChanged } from '../../lib/alertsEvent';
 import { generateExpectedEvents, markMissedPastDue } from '../recurring/recurringEngine';
 import { ensureCurrentBudgetItem } from '../budgets/budgetEngine';
 import { findDueRecurringEvents, findCrossedBudgetThresholds } from './notificationEngine';
@@ -28,9 +30,25 @@ const RECURRING_LOOKAHEAD_DAYS = 60;
  * suppressed by missing/denied permission stays eligible on the next check rather than being
  * silently marked "handled."
  */
+/** Where tapping a notification of each kind should land in the app. */
+const ROUTE_BY_KIND: Record<NotificationCandidate['kind'], string> = {
+	recurring: '/recurring/upcoming',
+	budget: '/budgets',
+	personLoan: '/people'
+};
+
 async function dispatchAndLog(key: CryptoKey, candidate: NotificationCandidate): Promise<boolean> {
 	if ((await getNotifyPermission()) !== 'granted') return false;
-	if (!(await showNotification(candidate.title, candidate.body, candidate.key))) return false;
+	if (
+		!(await showNotification(
+			candidate.title,
+			candidate.body,
+			candidate.key,
+			ROUTE_BY_KIND[candidate.kind]
+		))
+	) {
+		return false;
+	}
 	await NotifiedItemRepository.create(key, { key: candidate.key });
 	return true;
 }
@@ -112,10 +130,24 @@ export async function runNotificationCheck(
 	);
 	const personLoanCandidates = findOverduePersonLoans(overdueLoanInputs, asOfDate);
 
+	let listed = 0;
 	for (const candidate of [...recurringCandidates, ...budgetCandidates, ...personLoanCandidates]) {
+		// Listed in the in-app Alerts first, whatever the OS permission is: a reminder the system
+		// notification could not show (permission denied, app closed at the time) is still there to
+		// be seen. One entry per occurrence, by the same dedupe key.
+		const entry = await NotificationInboxRepository.addIfMissing(key, {
+			dedupeKey: candidate.key,
+			kind: candidate.kind,
+			title: candidate.title,
+			body: candidate.body,
+			route: ROUTE_BY_KIND[candidate.kind]
+		});
+		if (entry) listed += 1;
+
 		if (await NotifiedItemRepository.exists(key, candidate.key)) continue;
 		if (await dispatchAndLog(key, candidate)) dispatched.push(candidate);
 	}
+	if (listed > 0) announceAlertsChanged();
 
 	return { dispatched };
 }

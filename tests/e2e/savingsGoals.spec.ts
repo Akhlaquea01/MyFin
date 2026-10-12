@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
+import { autoAcceptConfirms } from './helpers';
 import { todayLocalISO } from '../../src/domain/shared/dateMath';
 
 // Feature 003 (Savings Goals), User Stories 1-3, plus Scenario 6 (delete/restore).
@@ -90,7 +91,7 @@ test('goals overview shows mixed statuses and a correct total (Scenario 3), and 
 	page
 }) => {
 	// Deleting a goal asks for confirmation; Playwright dismisses an unhandled dialog.
-	page.on('dialog', (dialog) => void dialog.accept());
+	await autoAcceptConfirms(page);
 	await page.goto('/');
 	await page.getByLabel('Create PIN').fill('202284');
 	await page.getByLabel('Confirm PIN').fill('202284');
@@ -130,7 +131,7 @@ test('goals overview shows mixed statuses and a correct total (Scenario 3), and 
 	await page.getByRole('link', { name: 'Savings Goals' }).click();
 	const restoredCard = page.locator('[data-slot="card"]').filter({ hasText: 'New Laptop' });
 	await expect(restoredCard).toBeVisible();
-	await expect(restoredCard.getByText('500.00', { exact: true })).toBeVisible();
+	await expect(restoredCard.getByText('₹500.00', { exact: true })).toBeVisible();
 });
 
 test('logging a contribution says it only tracks progress, and points to Transfer for moving money', async ({

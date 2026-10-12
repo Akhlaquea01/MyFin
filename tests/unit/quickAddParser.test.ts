@@ -115,3 +115,30 @@ describe('QuickAddParser', () => {
 		});
 	});
 });
+
+describe('parseQuickAddText — date', () => {
+	it('reads a day-first numeric date', () => {
+		expect(parseQuickAddText('Rs.500 debited from A/c XX1234 on 12/10/2026 to AMAZON').date).toBe(
+			'2026-10-12'
+		);
+	});
+
+	it('reads a named-month date', () => {
+		expect(parseQuickAddText('INR 250 spent at SWIGGY on 03-Oct-26').date).toBe('2026-10-03');
+	});
+
+	it('reads an ISO date', () => {
+		expect(parseQuickAddText('Rs 99 paid to NETFLIX 2026-09-30').date).toBe('2026-09-30');
+	});
+
+	it('is null when the message states no date, or one that does not exist', () => {
+		expect(parseQuickAddText('Rs.500 debited from A/c XX1234 to AMAZON').date).toBeNull();
+		expect(parseQuickAddText('Rs.500 debited on 31/02/2026 to AMAZON').date).toBeNull();
+	});
+
+	it('does not change how confident the parse is', () => {
+		const withDate = parseQuickAddText('Rs.500 debited to AMAZON on 12/10/2026');
+		const without = parseQuickAddText('Rs.500 debited to AMAZON');
+		expect(withDate.confidence).toBe(without.confidence);
+	});
+});

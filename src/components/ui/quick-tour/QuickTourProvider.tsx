@@ -1,5 +1,6 @@
 import { createContext, useEffect, useState, type ReactNode } from 'react';
 import { db } from '../../../data/dexie/db';
+import { safeGetItem, safeSetItem } from '../../../lib/safeStorage';
 
 export const APP_QUICK_TOUR_SEEN = 'APP_QUICK_TOUR_SEEN';
 
@@ -21,7 +22,7 @@ export function QuickTourProvider({ children, totalSteps }: { children: ReactNod
 
   useEffect(() => {
     const checkInitialTour = async () => {
-      const seen = localStorage.getItem(APP_QUICK_TOUR_SEEN);
+      const seen = safeGetItem(APP_QUICK_TOUR_SEEN);
       if (seen === 'true') {
         return;
       }
@@ -49,7 +50,7 @@ export function QuickTourProvider({ children, totalSteps }: { children: ReactNod
 
   const skipTour = () => {
     setIsTourActive(false);
-    localStorage.setItem(APP_QUICK_TOUR_SEEN, 'true');
+    safeSetItem(APP_QUICK_TOUR_SEEN, 'true');
   };
 
   const nextStep = () => {

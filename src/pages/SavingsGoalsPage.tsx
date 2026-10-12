@@ -27,8 +27,9 @@ import {
 } from '../data/dexie/savingsGoalRepository';
 import { computeGoalProgress } from '../domain/savingsGoals/goalProgress';
 import type { SavingsGoal, GoalContribution } from '../domain/entities';
-import { isPositiveMoney, isNonZeroMoney, parseMoneyOrZero } from '../domain/shared/money';
+import { isPositiveMoney, isNonZeroMoney, parseMoneyOrZero, formatMoney } from '../domain/shared/money';
 import { todayLocalISO } from '../domain/shared/dateMath';
+import { useConfirm } from '../lib/confirm';
 
 const goalSchema = z.object({
 	name: z.string().trim().min(1, 'Name is required.'),
@@ -43,13 +44,6 @@ const contributionSchema = z.object({
 });
 type ContributionFormValues = z.infer<typeof contributionSchema>;
 
-function formatMoney(paise: number): string {
-	return (paise / 100).toLocaleString(undefined, {
-		minimumFractionDigits: 2,
-		maximumFractionDigits: 2
-	});
-}
-
 function todayISO(): string {
 	return todayLocalISO();
 }
@@ -62,6 +56,7 @@ function formatDate(iso: string): string {
 export function SavingsGoalsPage() {
 	const { getEncryptionKey } = useSession();
 	const key = getEncryptionKey();
+	const confirm = useConfirm();
 
 	const [goals, setGoals] = useState<SavingsGoal[]>([]);
 	const [contributionsByGoal, setContributionsByGoal] = useState<
@@ -128,9 +123,11 @@ export function SavingsGoalsPage() {
 	}
 
 	async function deleteGoal(goal: SavingsGoal) {
-		const confirmed = window.confirm(
-			`Remove the ${goal.name} goal? You can undo this right after.`
-		);
+		const confirmed = await confirm({
+			message: `Remove the ${goal.name} goal? You can undo this right after.`,
+			confirmLabel: 'Remove goal',
+			destructive: true
+		});
 		if (!confirmed) return;
 		try {
 			await SavingsGoalRepository.softDelete(key, goal.id);
@@ -246,6 +243,7 @@ function GoalCard({
 }) {
 	const { getEncryptionKey } = useSession();
 	const key = getEncryptionKey();
+	const confirm = useConfirm();
 	const [contribDialogOpen, setContribDialogOpen] = useState(false);
 
 	const contribForm = useForm<ContributionFormValues>({
@@ -279,7 +277,14 @@ function GoalCard({
 	async function removeContribution(id: string) {
 		// GoalContributionRepository.remove is a permanent hard delete (no Trash entry, no
 		// undo) — unlike most other deletes in this app, it needs its own confirmation.
-		if (!window.confirm('Permanently remove this contribution? This cannot be undone.')) return;
+		if (
+			!(await confirm({
+				message: 'Permanently remove this contribution? This cannot be undone.',
+				confirmLabel: 'Remove contribution',
+				destructive: true
+			}))
+		)
+			return;
 		try {
 			await GoalContributionRepository.remove(key, id);
 			await onContributionsChanged();

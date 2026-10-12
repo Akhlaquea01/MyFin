@@ -45,8 +45,8 @@ test('investment portfolio aggregate totals, by-type breakdown, and estimated ba
 	// away from the Investments page.
 	const summaryCard = page.locator('[data-slot="card"]').filter({ hasText: 'Portfolio Summary' });
 	await expect(summaryCard).toContainText('1,700.00'); // 1200 (BEL) + 500 (Gold, cost basis)
-	await expect(summaryCard).toContainText('Invested 1,500.00'); // 1000 (BEL) + 500 (Gold)
-	await expect(summaryCard).toContainText('200.00 (+13.33%)'); // gain
+	await expect(summaryCard).toContainText('Invested ₹1,500.00'); // 1000 (BEL) + 500 (Gold)
+	await expect(summaryCard).toContainText('₹200.00 (+13.33%)'); // gain
 	await expect(summaryCard).toContainText('+13.33%');
 	await expect(summaryCard.getByText('Stock')).toBeVisible();
 	await expect(summaryCard.getByText('Other')).toBeVisible();

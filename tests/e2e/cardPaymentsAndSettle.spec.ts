@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
+import { acceptConfirm } from './helpers';
 
 // Credit card bill payments as ONE action, settling loans in one click, editing transactions,
 // and the Auto-Categorize clarity fixes.
@@ -58,7 +59,7 @@ test('a pasted card-payment message is recorded as one transfer, not an expense 
 
 	// Entering what is owed as a positive number makes it a debt, not an asset.
 	await goTo(page, 'Accounts', 'Accounts');
-	await expect(accountCard(page, 'HDFC Card').getByText('Used 8,000.00')).toBeVisible();
+	await expect(accountCard(page, 'HDFC Card').getByText('Used ₹8,000.00')).toBeVisible();
 
 	await goTo(page, 'Quick Add', 'Quick Add');
 	await page
@@ -79,7 +80,7 @@ test('a pasted card-payment message is recorded as one transfer, not an expense 
 
 	await goTo(page, 'Accounts', 'Accounts');
 	await expect(accountCard(page, 'Checking').getByText('47,000.00')).toBeVisible();
-	await expect(accountCard(page, 'HDFC Card').getByText('Used 5,000.00')).toBeVisible();
+	await expect(accountCard(page, 'HDFC Card').getByText('Used ₹5,000.00')).toBeVisible();
 });
 
 test('the New Transaction type picker leads to transfers, card payments and people', async ({
@@ -96,7 +97,7 @@ test('the New Transaction type picker leads to transfers, card payments and peop
 
 	// The card is chosen here, so it is selectable (not locked), and shows what is owed.
 	await chooseOption(page, 'To', 'Visa');
-	await expect(page.getByText('Outstanding on Visa: 500.00')).toBeVisible();
+	await expect(page.getByText('Outstanding on Visa: ₹500.00')).toBeVisible();
 	await page.getByRole('button', { name: 'Pay full outstanding' }).click();
 	await expect(page.getByLabel('Amount')).toHaveValue('500.00');
 	await chooseOption(page, 'From', 'Checking');
@@ -105,7 +106,7 @@ test('the New Transaction type picker leads to transfers, card payments and peop
 
 	await goTo(page, 'Accounts', 'Accounts');
 	await expect(accountCard(page, 'Checking').getByText('500.00').first()).toBeVisible();
-	await expect(accountCard(page, 'Visa').getByText('Used 0.00')).toBeVisible();
+	await expect(accountCard(page, 'Visa').getByText('Used ₹0.00')).toBeVisible();
 });
 
 test('a card payment imported as a plain expense can be recorded as a transfer from Review', async ({
@@ -137,7 +138,7 @@ test('a card payment imported as a plain expense can be recorded as a transfer f
 
 	await goTo(page, 'Accounts', 'Accounts');
 	await expect(accountCard(page, 'Checking').getByText('17,500.00')).toBeVisible();
-	await expect(accountCard(page, 'ICICI Card').getByText('Used 3,500.00')).toBeVisible();
+	await expect(accountCard(page, 'ICICI Card').getByText('Used ₹3,500.00')).toBeVisible();
 });
 
 test('deleting one side of a transfer removes both, and Undo brings both back', async ({ page }) => {
@@ -154,9 +155,9 @@ test('deleting one side of a transfer removes both, and Undo brings both back', 
 	await expect(page.getByRole('heading', { name: 'Transactions' })).toBeVisible();
 	await expect(page.getByRole('row')).toHaveCount(3); // header + both legs
 
-	page.on('dialog', (d) => void d.accept());
 	await page.getByRole('row').nth(1).getByRole('button', { name: 'Delete' }).click();
-	await expect(page.getByText('No transactions match.')).toBeVisible();
+	await acceptConfirm(page);
+	await expect(page.getByText('No transactions yet.')).toBeVisible();
 
 	await goTo(page, 'Accounts', 'Accounts');
 	await expect(accountCard(page, 'Checking').getByText('10,000.00')).toBeVisible();
@@ -180,12 +181,12 @@ test('settle a loan in one click, with the right wording for who owes whom', asy
 	await expect(dialog).not.toBeVisible();
 
 	const card = page.locator('[data-slot="card"]').filter({ hasText: 'Rohit' });
-	await expect(card.getByText('You owe: 1,200.00')).toBeVisible();
+	await expect(card.getByText('You owe: ₹1,200.00')).toBeVisible();
 	await card.getByRole('button', { name: 'Settle in full' }).click();
 
 	// Wording follows the direction: this is money I owe, so I am paying it back.
 	const settle = page.getByRole('dialog');
-	await expect(settle.getByRole('heading', { name: 'Pay back 1,200.00 to Rohit' })).toBeVisible();
+	await expect(settle.getByRole('heading', { name: 'Pay back ₹1,200.00 to Rohit' })).toBeVisible();
 	await settle.getByRole('button', { name: 'Settle loan' }).click();
 	await expect(settle).not.toBeVisible();
 
@@ -208,9 +209,9 @@ test('a mis-recorded loan can be removed, restoring the account balance', async 
 	await dialog.getByRole('button', { name: 'Record loan' }).click();
 	await expect(dialog).not.toBeVisible();
 
-	page.on('dialog', (d) => void d.accept());
 	const card = page.locator('[data-slot="card"]').filter({ hasText: 'Meera' });
 	await card.getByRole('button', { name: 'Remove loan' }).click();
+	await acceptConfirm(page);
 	await expect(card.getByText('No loans yet.')).toBeVisible();
 
 	await goTo(page, 'Accounts', 'Accounts');
@@ -245,7 +246,7 @@ test('a transaction can be edited in place, including its category', async ({ pa
 	await expect(edit).not.toBeVisible();
 
 	const row = page.getByRole('row').filter({ hasText: 'Weekly shop' });
-	await expect(row.getByText('-350.00')).toBeVisible();
+	await expect(row.getByText('-₹350.00')).toBeVisible();
 	await expect(row.getByText('Groceries')).toBeVisible();
 	await goTo(page, 'Accounts', 'Accounts');
 	await expect(accountCard(page, 'Checking').getByText('9,650.00')).toBeVisible();
@@ -286,11 +287,8 @@ test('a merchant with a rule is not offered back as a suggestion, and a rule can
 	await page.getByRole('option', { name: 'Dining', exact: true }).click();
 
 	// Creating the rule offers to file the two existing, still-uncategorized Swiggy entries.
-	page.once('dialog', (d) => {
-		expect(d.message()).toContain('2 existing uncategorized transactions from Swiggy');
-		void d.accept();
-	});
 	await ruleDialog.getByRole('button', { name: 'Add rule' }).click();
+	await acceptConfirm(page, '2 existing uncategorized transactions from Swiggy');
 	await expect(page.getByText('Any alias → Dining')).toBeVisible();
 	await expect(page.getByText('Categorized 2 existing transactions')).toBeVisible();
 

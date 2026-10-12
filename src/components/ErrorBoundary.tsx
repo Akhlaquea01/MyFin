@@ -57,9 +57,11 @@ export class ErrorBoundary extends Component<Props, State> {
 					Your data is still on this device and has not been changed. Unlocking again resolves most
 					problems — you'll be asked for your PIN.
 				</p>
-				<p className="max-w-sm font-mono text-xs break-words text-muted-foreground">
-					{error.message}
-				</p>
+				{/* The raw message is for whoever is diagnosing it, not for the person reading the screen. */}
+				<details className="max-w-sm text-xs text-muted-foreground">
+					<summary className="cursor-pointer">Technical details</summary>
+					<p className="mt-1 font-mono break-words">{error.message}</p>
+				</details>
 				<Button onClick={this.handleReset}>Back to lock screen</Button>
 			</div>
 		);

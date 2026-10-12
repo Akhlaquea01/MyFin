@@ -26,6 +26,7 @@ import {
 import { useSession } from '../context/SessionContext';
 import { CategoryRepository } from '../data/dexie/categoryRepository';
 import type { Category } from '../domain/entities';
+import { useConfirm } from '../lib/confirm';
 
 const categorySchema = z.object({
 	name: z.string().trim().min(1, 'Category name is required.'),
@@ -37,6 +38,7 @@ type CategoryFormValues = z.infer<typeof categorySchema>;
 export function CategoriesPage() {
 	const { getEncryptionKey } = useSession();
 	const key = getEncryptionKey();
+	const confirm = useConfirm();
 
 	const [categories, setCategories] = useState<Category[]>([]);
 	const [loading, setLoading] = useState(true);
@@ -127,7 +129,11 @@ export function CategoriesPage() {
 			);
 			return;
 		}
-		const confirmed = window.confirm(`Remove the ${category.name} category? You can undo this right after.`);
+		const confirmed = await confirm({
+			message: `Remove the ${category.name} category? You can undo this right after.`,
+			confirmLabel: 'Remove category',
+			destructive: true
+		});
 		if (!confirmed) return;
 		try {
 			await CategoryRepository.softDelete(key, category.id);

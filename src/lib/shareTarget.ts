@@ -27,11 +27,14 @@ export function parseSharedText(fields: {
 export interface SharedPayload {
 	sharedText: string | null;
 	file: File | null;
+	/** A bank statement (CSV or Excel) shared in from another app — Android only. */
+	statement?: File | null;
 }
 
-/** Where a share goes: a file to the new-transaction screen, text to Quick Add. */
+/** Where a share goes: a photo to the new-transaction screen, a statement to Import, text to
+ *  Quick Add. */
 export interface ShareDestination {
-	to: '/transactions/new' | '/quick-add';
+	to: '/transactions/new' | '/import' | '/quick-add';
 	state: { sharedFile: File } | { sharedText: string };
 }
 
@@ -42,6 +45,7 @@ export interface ShareDestination {
  */
 export function resolveShareDestination(payload: SharedPayload): ShareDestination | null {
 	if (payload.file) return { to: '/transactions/new', state: { sharedFile: payload.file } };
+	if (payload.statement) return { to: '/import', state: { sharedFile: payload.statement } };
 	if (payload.sharedText) return { to: '/quick-add', state: { sharedText: payload.sharedText } };
 	return null;
 }
@@ -49,12 +53,15 @@ export function resolveShareDestination(payload: SharedPayload): ShareDestinatio
 /** Turns what the Android app handed over into the same shape the web share path produces. */
 export function sharedPayloadFromNative(native: NativeSharePayload): SharedPayload {
 	const sharedText = parseSharedText({ text: native.text, title: native.subject });
-	let file: File | null = null;
-	if (native.image) {
-		const bytes = Uint8Array.from(atob(native.image.base64), (c) => c.charCodeAt(0));
-		file = new File([bytes], native.image.name, { type: native.image.mimeType });
-	}
-	return { sharedText, file };
+	const toFile = (shared: { name: string; mimeType: string; base64: string }) =>
+		new File([Uint8Array.from(atob(shared.base64), (c) => c.charCodeAt(0))], shared.name, {
+			type: shared.mimeType
+		});
+	return {
+		sharedText,
+		file: native.image ? toFile(native.image) : null,
+		statement: native.file ? toFile(native.file) : null
+	};
 }
 
 /**

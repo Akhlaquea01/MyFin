@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
+import { acceptConfirm } from './helpers';
 
 // Buying and selling units moves a holding's recorded value with them.
 
@@ -96,7 +97,7 @@ test('a purchase and a sale can move money through an account, and the latest tr
 	await buy.getByLabel('Price / unit').fill('120');
 	await pick(page, 'Paid from (optional)', 'Checking');
 	await buy.getByRole('button', { name: 'Record purchase' }).click();
-	await expect(page.getByText(/600\.00 taken from Checking/)).toBeVisible();
+	await expect(page.getByText(/₹600\.00 taken from Checking/)).toBeVisible();
 	await expect(card).toContainText('15 units');
 
 	await page.getByRole('link', { name: 'Accounts', exact: true }).click();
@@ -105,7 +106,7 @@ test('a purchase and a sale can move money through an account, and the latest tr
 	// The entry is in the ledger but belongs to the holding: it cannot be deleted on its own.
 	await page.getByRole('link', { name: 'Transactions', exact: true }).click();
 	const row = page.getByRole('row', { name: /Bought 5 units of BEL/ });
-	await expect(row).toContainText('-600.00');
+	await expect(row).toContainText('-₹600.00');
 	await row.getByRole('button', { name: 'Delete' }).click();
 	await expect(page.getByText(/managed there/)).toBeVisible();
 	await expect(row).toBeVisible();
@@ -115,13 +116,10 @@ test('a purchase and a sale can move money through an account, and the latest tr
 	await page.getByRole('button', { name: 'Edit BEL' }).click();
 	const edit = page.getByRole('dialog');
 	await expect(edit.getByText('Purchases and sales')).toBeVisible();
-	await expect(edit.getByText(/Bought 5 units @ 120\.00/)).toBeVisible();
+	await expect(edit.getByText(/Bought 5 units @ ₹120\.00/)).toBeVisible();
 	await expect(edit.getByText(/paid from Checking/)).toBeVisible();
-	page.once('dialog', (d) => {
-		expect(d.message()).toContain('600.00 goes back into Checking');
-		void d.accept();
-	});
 	await edit.getByRole('button', { name: 'Undo latest trade' }).click();
+	await acceptConfirm(page, '600.00 goes back into Checking');
 	await expect(edit).not.toBeVisible();
 	await expect(cardFor(page, 'BEL')).toContainText('10 units');
 	await page.getByRole('link', { name: 'Accounts', exact: true }).click();
@@ -138,7 +136,7 @@ test('a purchase and a sale can move money through an account, and the latest tr
 	await expect(sell.getByText(/Enter the sale price per unit/)).toBeVisible();
 	await sell.getByLabel('Sale price / unit').fill('150');
 	await sell.getByRole('button', { name: 'Record sale' }).click();
-	await expect(page.getByText(/600\.00 added to Checking/)).toBeVisible();
+	await expect(page.getByText(/₹600\.00 added to Checking/)).toBeVisible();
 	await expect(cardFor(page, 'BEL')).toContainText('6 units');
 	await page.getByRole('link', { name: 'Accounts', exact: true }).click();
 	await expect(checking()).toContainText('5,600.00');

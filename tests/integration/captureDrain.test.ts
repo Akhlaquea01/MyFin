@@ -67,6 +67,7 @@ import {
 	hashPin,
 	randomSaltBase64
 } from '../../src/data/crypto/cryptoService';
+import { UnreadableCaptureRepository } from '../../src/data/dexie/unreadableCaptureRepository';
 import { drainCapturedTransactions } from '../../src/data/io/captureDrain';
 import { CaptureSetupError, disableCapture, enableCapture } from '../../src/data/io/captureSetup';
 import type { CapturePayload } from '../../src/domain/capture/captureTypes';
@@ -219,12 +220,16 @@ describe('capture setup and drain', () => {
 			expect(settings.sealing?.keyId).toBe(native.keyId);
 		});
 
-		it('counts messages that look like transactions but cannot be read, and discards their text', async () => {
+		it('counts messages that look like transactions but cannot be read, and keeps their text to add by hand', async () => {
 			await enableCapture(key, choices());
 			native.queue = [await seal('odd', payload('Your credit limit is Rs.50,000'))];
 			await drainCapturedTransactions(key);
 			expect((await UserProfileRepository.get())?.capture?.unreadableCount).toBe(1);
 			expect(native.queue).toEqual([]);
+			const kept = await UnreadableCaptureRepository.list(key);
+			expect(kept.map((u) => u.text)).toEqual([
+				expect.stringContaining('credit limit is Rs.50,000')
+			]);
 		});
 
 		it('leaves a message queued, and the alert up, when it could not be filed', async () => {

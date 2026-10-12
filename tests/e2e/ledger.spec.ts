@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
+import { autoAcceptConfirms } from './helpers';
 
 // User Story 2 (P2): the core ledger end-to-end — accounts, transactions, transfer,
 // and soft-delete/restore via trash.
@@ -79,7 +80,7 @@ test.describe('Core Ledger', () => {
 		page
 	}) => {
 		// Deleting asks for confirmation; Playwright dismisses an unhandled dialog, which cancelled it.
-		page.on('dialog', (dialog) => void dialog.accept());
+		await autoAcceptConfirms(page);
 		await onboard(page, '222284');
 
 		await goTo(page, 'Accounts', 'Accounts');
@@ -99,7 +100,7 @@ test.describe('Core Ledger', () => {
 			.getByRole('row', { name: /Snacks/ })
 			.getByRole('button', { name: 'Delete' })
 			.click();
-		await expect(page.getByText('No transactions match.')).toBeVisible();
+		await expect(page.getByText('No transactions yet.')).toBeVisible();
 
 		await goTo(page, 'Trash', 'Trash');
 		await expect(page.getByText('Snacks')).toBeVisible();

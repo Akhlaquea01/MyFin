@@ -12,6 +12,7 @@ import type {
 	ValidateWriteOffAmountInput,
 	ValidationResult
 } from './types';
+import { todayLocalISO } from '../shared/dateMath';
 
 /** Pure — per contracts/loan-progress-engine.md. Never clamps; every write path that could
  *  drive this negative rejects the write before it happens (see validate* below). */
@@ -30,7 +31,7 @@ export function deriveLoanStatus(input: DeriveLoanStatusInput): LoanStatus {
  *  matching the existing convention in notificationEngine.ts. */
 export function isLoanOverdue(input: IsLoanOverdueInput, asOfDate: Date): boolean {
 	if (input.dueDate === null || input.pendingBalance <= 0) return false;
-	const asOfIso = asOfDate.toISOString().slice(0, 10);
+	const asOfIso = todayLocalISO(asOfDate);
 	return input.dueDate < asOfIso;
 }
 

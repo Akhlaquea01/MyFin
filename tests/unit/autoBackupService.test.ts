@@ -1,7 +1,27 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+
+const nativeFolder = vi.hoisted(() => ({
+	available: false,
+	hasAccess: true,
+	written: [] as { folder: unknown; filename: string; text: string }[],
+	failWrite: false
+}));
+vi.mock('../../src/lib/native/nativeBackupFolder', () => ({
+	isNativeBackupFolderAvailable: () => nativeFolder.available,
+	nativeBackupFolderHasAccess: async () => nativeFolder.hasAccess,
+	pickNativeBackupFolder: async () => ({ uri: 'content://tree/backups', name: 'Backups' }),
+	isFolderPickCancelled: () => false,
+	writeNativeBackupFile: async (folder: unknown, filename: string, text: string) => {
+		if (nativeFolder.failWrite) throw new Error('write-failed');
+		nativeFolder.written.push({ folder, filename, text });
+	}
+}));
 import { db } from '../../src/data/dexie/db';
 import { AutoBackupSettingsRepository } from '../../src/data/dexie/autoBackupSettingsRepository';
-import { maybeRunScheduledBackup, isAutoBackupSupported } from '../../src/data/io/autoBackupService';
+import {
+	maybeRunScheduledBackup,
+	isAutoBackupSupported
+} from '../../src/data/io/autoBackupService';
 import { deriveEncryptionKey, randomSaltBase64 } from '../../src/data/crypto/cryptoService';
 import type { UserProfile, AutoBackupSettings } from '../../src/domain/entities';
 
@@ -166,5 +186,115 @@ describe('Auto backup service', () => {
 		expect(getFileHandle).not.toHaveBeenCalled();
 		expect(write).not.toHaveBeenCalled();
 		expect(getCurrent().lastBackupStatus).toBe('failed');
+	});
+});
+
+describe('Auto backup service — Android folder', () => {
+	let key: CryptoKey;
+	let profile: UserProfile;
+	const pin = '5555';
+	const folder = { uri: 'content://tree/backups', name: 'Backups' };
+
+	beforeEach(async () => {
+		await db.delete();
+		await db.open();
+		const salt = randomSaltBase64();
+		key = await deriveEncryptionKey(pin, salt);
+		profile = {
+			id: 'local-user',
+			pinVerifierHash: 'x',
+			pinSalt: 'x',
+			encryptionSalt: salt,
+			biometricEnabled: false,
+			autoLockTimeoutMs: 300000,
+			storagePersisted: false
+		};
+		nativeFolder.available = true;
+		nativeFolder.hasAccess = true;
+		nativeFolder.failWrite = false;
+		nativeFolder.written = [];
+	});
+
+	afterEach(() => {
+		nativeFolder.available = false;
+		vi.restoreAllMocks();
+	});
+
+	it('is supported through the Android folder picker even though the web view has no folder API', () => {
+		expect(isAutoBackupSupported()).toBe(true);
+	});
+
+	it('writes an encrypted backup into the chosen folder when one is due, and records success', async () => {
+		const { updateSpy } = stubSettings({
+			id: 'local-user',
+			enabled: true,
+			intervalDays: 7,
+			nativeFolder: folder
+		});
+
+		await maybeRunScheduledBackup(pin, key, profile);
+
+		expect(nativeFolder.written).toHaveLength(1);
+		const [written] = nativeFolder.written;
+		expect(written.folder).toEqual(folder);
+		expect(written.filename).toMatch(/^myfin-auto-backup-\d{4}-\d{2}-\d{2}\.json$/);
+		// What reaches Android is the encrypted container, never the financial data itself.
+		const backup = JSON.parse(written.text);
+		expect(backup).toMatchObject({ container: 'personal-finance-manager-backup' });
+		expect(written.text).not.toContain('accounts');
+		expect(updateSpy).toHaveBeenCalledWith(
+			expect.objectContaining({ lastBackupStatus: 'success' })
+		);
+	});
+
+	it('does nothing when the backup is not yet due', async () => {
+		stubSettings({
+			id: 'local-user',
+			enabled: true,
+			intervalDays: 7,
+			nativeFolder: folder,
+			lastBackupAt: new Date().toISOString()
+		});
+
+		await maybeRunScheduledBackup(pin, key, profile);
+
+		expect(nativeFolder.written).toHaveLength(0);
+	});
+
+	it('records a failure — and writes nothing — when Android has revoked access to the folder', async () => {
+		const { updateSpy } = stubSettings({
+			id: 'local-user',
+			enabled: true,
+			intervalDays: 7,
+			nativeFolder: folder
+		});
+		nativeFolder.hasAccess = false;
+
+		await maybeRunScheduledBackup(pin, key, profile);
+
+		expect(nativeFolder.written).toHaveLength(0);
+		expect(updateSpy).toHaveBeenCalledWith({ lastBackupStatus: 'failed' });
+	});
+
+	it('records a failure when the write itself fails', async () => {
+		const { updateSpy } = stubSettings({
+			id: 'local-user',
+			enabled: true,
+			intervalDays: 7,
+			nativeFolder: folder
+		});
+		nativeFolder.failWrite = true;
+
+		await maybeRunScheduledBackup(pin, key, profile);
+
+		expect(updateSpy).toHaveBeenCalledWith({ lastBackupStatus: 'failed' });
+	});
+
+	it('does nothing when automatic backups are switched off', async () => {
+		stubSettings({ id: 'local-user', enabled: false, intervalDays: 7, nativeFolder: folder });
+
+		await maybeRunScheduledBackup(pin, key, profile);
+
+		expect(nativeFolder.written).toHaveLength(0);
 	});
 });

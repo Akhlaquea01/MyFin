@@ -1,17 +1,11 @@
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import type { ReportSummary } from '../../domain/reports/reportEngine';
+import { formatAmount as formatMoney } from '../../domain/shared/money';
 
 // jspdf-autotable sets `doc.lastAutoTable` as a side effect of autoTable() but does not
 // augment jsPDF's own type declarations for it.
 type DocWithAutoTable = jsPDF & { lastAutoTable?: { finalY: number } };
-
-function formatMoney(paise: number): string {
-	return (paise / 100).toLocaleString(undefined, {
-		minimumFractionDigits: 2,
-		maximumFractionDigits: 2
-	});
-}
 
 function formatNetWorth(value: number | null): string {
 	return value === null ? 'Not available' : formatMoney(value);

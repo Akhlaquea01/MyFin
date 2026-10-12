@@ -1,5 +1,5 @@
 import { formatTransactionLabel } from '../transactions/transactionLabel';
-import { formatMinorUnits } from '../shared/money';
+import { formatMoney } from '../shared/money';
 import type { Transaction, Merchant, Account } from '../entities';
 
 export type SearchIndexEntryType = 'transaction' | 'payee' | 'account';
@@ -36,7 +36,7 @@ export function buildSearchIndex(
 			type: 'transaction',
 			id: tx.id,
 			label: formatTransactionLabel(tx, merchants),
-			secondaryLabel: `${formatMinorUnits(tx.amount)} · ${tx.date}`,
+			secondaryLabel: `${formatMoney(tx.amount)} · ${tx.date}`,
 			route: '/transactions',
 			sortKey: Date.parse(tx.date) || 0
 		});
@@ -59,7 +59,7 @@ export function buildSearchIndex(
 			type: 'account',
 			id: account.id,
 			label: account.name,
-			secondaryLabel: formatMinorUnits(account.currentBalance),
+			secondaryLabel: formatMoney(account.currentBalance),
 			route: '/accounts',
 			sortKey: account.updatedAt
 		});

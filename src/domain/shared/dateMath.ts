@@ -18,6 +18,15 @@ export function todayLocalISO(now: Date = new Date()): string {
 	return `${year}-${month}-${day}`;
 }
 
+/**
+ * A `Date` at UTC midnight on the user's *local* calendar date. The recurring engines do their
+ * calendar arithmetic with the UTC accessors, so handing them a plain `new Date()` made "today"
+ * the UTC date — yesterday, for the first 5½ hours of every day in India.
+ */
+export function localDateAsUtc(now: Date = new Date()): Date {
+	return new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
+}
+
 /** `iso` shifted by `deltaDays` whole days (negative = earlier). Calendar arithmetic only — no
  *  timezone is involved, so it cannot drift across a DST change. Returns `iso` unchanged if it
  *  is not a valid date. */

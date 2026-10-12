@@ -17,9 +17,9 @@ test.describe('Quick Tour', () => {
 	test('replaying the tour highlights the desktop sidebar nav item', async ({ page }) => {
 		await onboard(page, '740261');
 
-		await page.getByRole('link', { name: 'Backup' }).click();
-		await expect(page.getByRole('heading', { name: 'Backup & Restore' })).toBeVisible();
-		await page.getByRole('button', { name: /Replay Quick Tour/i }).click();
+		await page.getByRole('link', { name: 'About' }).click();
+		await expect(page.getByRole('heading', { name: 'About' })).toBeVisible();
+		await page.getByRole('button', { name: /Replay quick tour/i }).click();
 
 		const dialog = page.getByRole('dialog');
 		await expect(dialog).toBeVisible();

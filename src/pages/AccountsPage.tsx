@@ -36,7 +36,7 @@ import { useSession } from '../context/SessionContext';
 import { AccountRepository } from '../data/dexie/accountRepository';
 import { TransactionEngine } from '../domain/transactions/transactionEngine';
 import type { Account, AccountType } from '../domain/entities';
-import { isValidMoney, parseMoneyOrZero } from '../domain/shared/money';
+import { isValidMoney, parseMoneyOrZero, formatMoney } from '../domain/shared/money';
 import { computeCardUtilization } from '../domain/wealth/wealthEngine';
 import { todayLocalISO } from '../domain/shared/dateMath';
 
@@ -119,13 +119,6 @@ const TYPE_LABELS: Record<AccountType, string> = {
 	wallet: 'Wallet',
 	credit_card: 'Credit Card'
 };
-
-function formatMoney(paise: number): string {
-	return (paise / 100).toLocaleString(undefined, {
-		minimumFractionDigits: 2,
-		maximumFractionDigits: 2
-	});
-}
 
 // User Story 2 (P2): full account CRUD (FR-007).
 export function AccountsPage() {
@@ -302,7 +295,7 @@ export function AccountsPage() {
 		if (!account.isArchived && account.currentBalance !== 0) {
 			toast.error(
 				`${account.name} still has a balance of ${formatMoney(account.currentBalance)}. ` +
-					'Move or clear the balance before archiving it.'
+					'Move the money out with a transfer, or use "Adjust balance" to bring it to zero, then archive it.'
 			);
 			return;
 		}
@@ -318,6 +311,7 @@ export function AccountsPage() {
 		try {
 			await AccountRepository.softDelete(key, account.id);
 			toast.success(`${account.name} moved to trash`, {
+				duration: 10_000,
 				action: {
 					label: 'Undo',
 					onClick: () => {
@@ -327,7 +321,16 @@ export function AccountsPage() {
 			});
 			await refresh();
 		} catch (err) {
-			toast.error(err instanceof Error ? err.message : 'Could not delete account.');
+			const message = err instanceof Error ? err.message : 'Could not delete account.';
+			if (/active transactions/i.test(message)) {
+				// A bare refusal is a dead end; say what the way out is.
+				toast.error(
+					`${account.name} still has transactions, so it can't be deleted. Delete or move them first — or, if its balance is zero, archive it instead.`,
+					{ action: { label: 'Open Transactions', onClick: () => navigate('/transactions') } }
+				);
+			} else {
+				toast.error(message);
+			}
 		}
 	}
 

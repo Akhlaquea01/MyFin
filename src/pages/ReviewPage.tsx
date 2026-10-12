@@ -56,6 +56,8 @@ import {
 import { TransactionEngine } from '../domain/transactions/transactionEngine';
 import { formatTransactionLabel } from '../domain/transactions/transactionLabel';
 import { createRuleFromTransaction } from '../domain/recurring/recurringEngine';
+import { DAY_RANGE, clampDay, defaultDayFor } from '../domain/recurring/recurringDay';
+import { isNativeApp } from '../lib/native/platform';
 import { originalMessageOf } from '../domain/capture/originalMessage';
 import { REVIEW_CHANGED_EVENT } from '../data/io/captureDrain';
 import type {
@@ -69,6 +71,8 @@ import type {
 	TransactionSplit
 } from '../domain/entities';
 import { categoryOptions } from '../domain/categories/categoryHierarchy';
+import { useConfirm } from '../lib/confirm';
+import { formatMoney } from '../domain/shared/money';
 
 /** How many waiting entries are loaded, decrypted and drawn at a time. */
 const PAGE_SIZE = 50;
@@ -99,13 +103,6 @@ function describeCaptureSource(capture: CaptureInfo): string {
 	return parts.join(' · ');
 }
 
-function formatMoney(paise: number): string {
-	return (paise / 100).toLocaleString(undefined, {
-		minimumFractionDigits: 2,
-		maximumFractionDigits: 2
-	});
-}
-
 // User Story 4 (P4): review queue for unreviewed/unconfirmed transactions from Quick Add
 // and bulk import (FR-022). Entries here already count in balances and reports; confirming one
 // marks it as checked. Every field can be corrected first with the pencil (Edit).
@@ -114,6 +111,7 @@ function formatMoney(paise: number): string {
 export function ReviewPage() {
 	const { getEncryptionKey } = useSession();
 	const key = getEncryptionKey();
+	const confirm = useConfirm();
 
 	const [accounts, setAccounts] = useState<Account[]>([]);
 	const [merchants, setMerchants] = useState<Merchant[]>([]);
@@ -139,6 +137,15 @@ export function ReviewPage() {
 	const [convertTarget, setConvertTarget] = useState<Transaction | null>(null);
 	const [editTarget, setEditTarget] = useState<Transaction | null>(null);
 	const [working, setWorking] = useState(false);
+	// Entries with a Confirm/Discard already in flight. A ref guards against a second tap landing
+	// before React has re-rendered the button disabled; the state is what the buttons read.
+	const [busyIds, setBusyIds] = useState<Set<string>>(new Set());
+	const busyRef = useRef<Set<string>>(new Set());
+	// The category/tags each row was last LOADED with, so a reload can tell a row the user has
+	// edited (keep their choice) from one they have not (take what was just filed — a new rule may
+	// have categorized it).
+	const loadedCategoryRef = useRef<Record<string, string>>({});
+	const loadedTagsRef = useRef<Record<string, string>>({});
 	// "Account not matched" is only a useful hint when there is more than one account to choose from.
 	const hasAccountChoice =
 		accounts.filter((a) => !a.isArchived && a.type !== 'credit_card').length >= 2;
@@ -172,17 +179,30 @@ export function ReviewPage() {
 				.filter((name): name is string => Boolean(name))
 				.join(', ');
 		}
-		const keepOnScreen = <T,>(next: Record<string, T>, prev: Record<string, T>) =>
+		const keepOnScreen = (
+			next: Record<string, string>,
+			prev: Record<string, string>,
+			loaded: Record<string, string>
+		): Record<string, string> =>
 			keepEdits
-				? { ...next, ...Object.fromEntries(Object.entries(prev).filter(([id]) => id in next)) }
+				? Object.fromEntries(
+						Object.entries(next).map(([id, value]) => [
+							id,
+							id in prev && prev[id] !== loaded[id] ? prev[id] : value
+						])
+					)
 				: next;
+		const previouslyLoadedCategory = loadedCategoryRef.current;
+		const previouslyLoadedTags = loadedTagsRef.current;
+		loadedCategoryRef.current = nextCategoryChoice;
+		loadedTagsRef.current = nextTagsInput;
 
 		setItems(unreviewed);
 		setHidden(Math.max(0, waiting - unreviewed.length));
 		setPageLimit(limit);
 		setFirstSplit(nextFirstSplit);
-		setCategoryChoice((prev) => keepOnScreen(nextCategoryChoice, prev));
-		setTagsInput((prev) => keepOnScreen(nextTagsInput, prev));
+		setCategoryChoice((prev) => keepOnScreen(nextCategoryChoice, prev, previouslyLoadedCategory));
+		setTagsInput((prev) => keepOnScreen(nextTagsInput, prev, previouslyLoadedTags));
 	}
 
 	async function refresh() {
@@ -230,14 +250,16 @@ export function ReviewPage() {
 	 *  discarding the categories and tags already chosen on the cards on screen. */
 	async function refreshQuietly() {
 		try {
-			const [accts, allMerchants, allTags] = await Promise.all([
+			const [accts, allMerchants, allTags, allRules] = await Promise.all([
 				AccountRepository.list(key),
 				MerchantRepository.list(key),
-				TagRepository.list(key)
+				TagRepository.list(key),
+				CategorizationRuleRepository.list(key)
 			]);
 			setAccounts(accts);
 			setMerchants(allMerchants);
 			setTags(allTags);
+			setRules(allRules);
 			await loadQueue(Math.max(pageLimit, items.length), allTags, true);
 		} catch {
 			// The next visit loads the queue afresh.
@@ -283,18 +305,16 @@ export function ReviewPage() {
 			const first = splitsByTx.get(id)?.[0];
 			const tagNames = new Map(allTags.map((t) => [t.id, t.name]));
 			setItems((prev) => prev.map((t) => (t.id === id ? tx : t)));
+			const loadedCategory = first?.categoryId ?? UNCATEGORIZED_CATEGORY_ID;
+			const loadedTags = (tagIdsByTx.get(id) ?? [])
+				.map((tagId) => tagNames.get(tagId))
+				.filter((name): name is string => Boolean(name))
+				.join(', ');
+			loadedCategoryRef.current = { ...loadedCategoryRef.current, [id]: loadedCategory };
+			loadedTagsRef.current = { ...loadedTagsRef.current, [id]: loadedTags };
 			setFirstSplit((prev) => ({ ...prev, [id]: first }));
-			setCategoryChoice((prev) => ({
-				...prev,
-				[id]: first?.categoryId ?? UNCATEGORIZED_CATEGORY_ID
-			}));
-			setTagsInput((prev) => ({
-				...prev,
-				[id]: (tagIdsByTx.get(id) ?? [])
-					.map((tagId) => tagNames.get(tagId))
-					.filter((name): name is string => Boolean(name))
-					.join(', ')
-			}));
+			setCategoryChoice((prev) => ({ ...prev, [id]: loadedCategory }));
+			setTagsInput((prev) => ({ ...prev, [id]: loadedTags }));
 		} catch (err) {
 			toast.error(err instanceof Error ? err.message : 'Could not reload the edited entry.');
 		}
@@ -349,7 +369,30 @@ export function ReviewPage() {
 		await TransactionEngine.confirmTransaction(key, tx.id, splits, tagIds);
 	}
 
-	async function accept(tx: Transaction) {
+	/**
+	 * Runs one Confirm/Discard for an entry at most once at a time and reports a failure instead of
+	 * letting it vanish as an unhandled rejection. A double-tap used to confirm twice (counting the
+	 * merchant-learning streak twice) or fail silently.
+	 */
+	async function runForRow(id: string, failureMessage: string, action: () => Promise<void>) {
+		if (busyRef.current.has(id)) return;
+		busyRef.current.add(id);
+		setBusyIds(new Set(busyRef.current));
+		try {
+			await action();
+		} catch (err) {
+			toast.error(`${failureMessage}: ${err instanceof Error ? err.message : 'unknown error'}`);
+		} finally {
+			busyRef.current.delete(id);
+			setBusyIds(new Set(busyRef.current));
+		}
+	}
+
+	function accept(tx: Transaction): Promise<void> {
+		return runForRow(tx.id, 'Could not confirm this entry', () => acceptOne(tx));
+	}
+
+	async function acceptOne(tx: Transaction) {
 		const categoryId = categoryChoice[tx.id] ?? UNCATEGORIZED_CATEGORY_ID;
 		await confirmOne(tx);
 
@@ -368,7 +411,10 @@ export function ReviewPage() {
 						? `Confirmed. Rule saved — ${updated} more waiting ${updated === 1 ? 'entry was' : 'entries were'} categorized.`
 						: 'Confirmed. Rule saved for next time.'
 				);
-				await refresh();
+				removeFromPage(tx.id);
+				// Quietly: a full refresh would throw away the categories and tags typed on every
+				// other card. Rows nobody has touched pick up what the new rule just filed.
+				await refreshQuietly();
 				return;
 			} catch (err) {
 				toast.error(
@@ -393,7 +439,7 @@ export function ReviewPage() {
 					? `Categorized ${updated} ${updated === 1 ? 'entry' : 'entries'} using your rules and suggestions.`
 					: 'Nothing to categorize — no rule or suggestion applies to the uncategorized entries.'
 			);
-			await refresh();
+			await refreshQuietly();
 		} catch (err) {
 			toast.error(err instanceof Error ? err.message : 'Could not categorize the queue.');
 		} finally {
@@ -408,16 +454,27 @@ export function ReviewPage() {
 	 * prompt says how many of those there are.
 	 */
 	async function confirmAllCategorized() {
-		const shownReady = items.filter(
+		const isFlagged = (tx: Transaction) => !!tx.duplicateOfId || !!tx.capture?.accountCheck;
+		const shownCategorized = items.filter(
 			(tx) => (categoryChoice[tx.id] ?? UNCATEGORIZED_CATEGORY_ID) !== UNCATEGORIZED_CATEGORY_ID
 		);
+		// Entries flagged as a possible duplicate, or filed on a guessed account, are exactly the
+		// ones that need a human look — bulk-confirming them would defeat the flag.
+		const shownReady = shownCategorized.filter((tx) => !isFlagged(tx));
 		const shownIds = new Set(items.map((tx) => tx.id));
-		const unseenReady = (await TransactionRepository.categorizedUnreviewedIds()).filter(
+		const unseenCategorized = (await TransactionRepository.categorizedUnreviewedIds()).filter(
 			(id) => !shownIds.has(id)
 		);
+		const flaggedUnseen = await TransactionRepository.flaggedAmong(key, unseenCategorized);
+		const unseenReady = unseenCategorized.filter((id) => !flaggedUnseen.has(id));
+		const skippedFlagged = shownCategorized.length - shownReady.length + flaggedUnseen.size;
 		const count = shownReady.length + unseenReady.length;
 		if (count === 0) {
-			toast.info('Nothing to confirm yet — no waiting entry has a category.');
+			toast.info(
+				skippedFlagged > 0
+					? `Nothing to confirm in bulk — the ${skippedFlagged} categorized ${skippedFlagged === 1 ? 'entry is' : 'entries are'} flagged (possible duplicate or account not matched) and need a look.`
+					: 'Nothing to confirm yet — no waiting entry has a category.'
+			);
 			return;
 		}
 		const noun = count === 1 ? 'entry' : 'entries';
@@ -425,10 +482,12 @@ export function ReviewPage() {
 			unseenReady.length > 0
 				? `, including ${unseenReady.length} not shown on this page, exactly as filed`
 				: ' as shown';
+		const flaggedNote =
+			skippedFlagged > 0
+				? ` ${skippedFlagged} flagged ${skippedFlagged === 1 ? 'entry' : 'entries'} (possible duplicate or account not matched) will stay for you to check.`
+				: '';
 		if (
-			!window.confirm(
-				`Confirm ${count} categorized ${noun}${scope}? Anything still "Uncategorized" stays in the queue.`
-			)
+			!(await confirm({ message: `Confirm ${count} categorized ${noun}${scope}? Anything still "Uncategorized" stays in the queue.${flaggedNote}`, confirmLabel: 'Confirm entries', destructive: false }))
 		) {
 			return;
 		}
@@ -442,7 +501,7 @@ export function ReviewPage() {
 			toast.error(err instanceof Error ? err.message : 'Could not confirm every entry.');
 		} finally {
 			setWorking(false);
-			await refresh();
+			await refreshQuietly();
 		}
 	}
 
@@ -450,16 +509,22 @@ export function ReviewPage() {
 		// tx.date is a plain "YYYY-MM-DD" string; parsing it with `new Date(...)` reads it as
 		// UTC midnight and `.getDate()` then returns the *local* day, which can be off by one
 		// depending on the viewer's timezone. Read the day-of-month directly from the string.
-		const dayOfMonth = Number(tx.date.slice(8, 10)) || 1;
-		setRecurringDay(String(dayOfMonth));
+		setRecurringDay(String(defaultDayFor('monthly', tx.date)));
 		setRecurringFrequency('monthly');
 		setRecurringTarget(tx);
+	}
+
+	/** Switching frequency changes what the day number means, so it is re-derived from the
+	 *  transaction's own date rather than carried over. */
+	function changeRecurringFrequency(frequency: RecurringFrequency) {
+		setRecurringFrequency(frequency);
+		if (recurringTarget) setRecurringDay(String(defaultDayFor(frequency, recurringTarget.date)));
 	}
 
 	async function confirmRecurring() {
 		if (!recurringTarget) return;
 		try {
-			const day = Math.max(1, Math.min(31, parseInt(recurringDay) || 1));
+			const day = clampDay(recurringFrequency, recurringDay);
 			const rule = await createRuleFromTransaction(key, recurringTarget, {
 				frequency: recurringFrequency,
 				dayOfPeriod: day,
@@ -476,16 +541,24 @@ export function ReviewPage() {
 		}
 	}
 
-	async function reject(tx: Transaction) {
+	function reject(tx: Transaction): Promise<void> {
+		return runForRow(tx.id, 'Could not discard this entry', () => rejectOne(tx));
+	}
+
+	async function rejectOne(tx: Transaction) {
 		await TransactionEngine.deleteTransaction(key, tx.id);
 		// This page exists for fast triage of many transactions, with Confirm/Discard sitting
 		// right next to each other — an undo path matters more here than on a page where
 		// deletion is a slower, more deliberate action.
 		toast.success('Discarded', {
+			duration: 10_000,
 			action: {
 				label: 'Undo',
 				onClick: () => {
-					void TransactionEngine.restoreTransaction(key, tx.id).then(refresh);
+					// Quietly, so bringing the entry back does not wipe edits typed on other cards.
+					void TransactionEngine.restoreTransaction(key, tx.id).then(() =>
+						refreshQuietlyRef.current()
+					);
 				}
 			}
 		});
@@ -547,6 +620,23 @@ export function ReviewPage() {
 					<CardContent className="flex flex-col items-center gap-2 py-10 text-center">
 						<Inbox className="size-8 text-muted-foreground" />
 						<p className="text-sm text-muted-foreground">Nothing to review.</p>
+						<p className="max-w-sm text-xs text-muted-foreground">
+							New entries land here when you use Quick Add, import a statement
+							{isNativeApp() ? ' or let Auto-capture read your bank messages' : ''}.
+						</p>
+						<div className="mt-1 flex flex-wrap justify-center gap-2">
+							<Button size="sm" variant="outline" asChild>
+								<Link to="/quick-add">Paste a bank message</Link>
+							</Button>
+							<Button size="sm" variant="outline" asChild>
+								<Link to="/import">Upload a statement file</Link>
+							</Button>
+							{isNativeApp() && (
+								<Button size="sm" variant="outline" asChild>
+									<Link to="/auto-capture">Read bank messages automatically</Link>
+								</Button>
+							)}
+						</div>
 					</CardContent>
 				</Card>
 			) : (
@@ -606,6 +696,7 @@ export function ReviewPage() {
 											size="icon-sm"
 											variant="ghost"
 											aria-label="Edit transaction"
+											disabled={busyIds.has(tx.id)}
 											onClick={() => setEditTarget(tx)}
 										>
 											<Pencil />
@@ -722,7 +813,8 @@ export function ReviewPage() {
 										size="sm"
 										variant="secondary"
 										aria-label="Confirm transaction"
-										onClick={() => accept(tx)}
+										disabled={busyIds.has(tx.id)}
+										onClick={() => void accept(tx)}
 									>
 										<CheckCircle2 className="text-emerald-600 dark:text-emerald-400" />
 										Confirm
@@ -736,7 +828,8 @@ export function ReviewPage() {
 										variant="ghost"
 										className="ml-4"
 										aria-label="Discard transaction"
-										onClick={() => reject(tx)}
+										disabled={busyIds.has(tx.id)}
+										onClick={() => void reject(tx)}
 									>
 										<Trash2 className="text-destructive" />
 									</Button>
@@ -799,7 +892,7 @@ export function ReviewPage() {
 								<Label htmlFor="recurring-frequency">Frequency</Label>
 								<Select
 									value={recurringFrequency}
-									onValueChange={(v) => setRecurringFrequency(v as RecurringFrequency)}
+									onValueChange={(v) => changeRecurringFrequency(v as RecurringFrequency)}
 								>
 									<SelectTrigger id="recurring-frequency" className="w-full">
 										<SelectValue />
@@ -812,15 +905,18 @@ export function ReviewPage() {
 								</Select>
 							</div>
 							<div className="flex flex-col gap-1.5">
-								<Label htmlFor="recurring-day">Day of period</Label>
+								<Label htmlFor="recurring-day">{DAY_RANGE[recurringFrequency].label}</Label>
 								<Input
 									id="recurring-day"
 									type="number"
-									min={1}
-									max={31}
+									min={DAY_RANGE[recurringFrequency].min}
+									max={DAY_RANGE[recurringFrequency].max}
 									value={recurringDay}
 									onChange={(e) => setRecurringDay(e.target.value)}
 								/>
+								<p className="text-xs text-muted-foreground">
+									{DAY_RANGE[recurringFrequency].hint}
+								</p>
 							</div>
 						</div>
 					</div>

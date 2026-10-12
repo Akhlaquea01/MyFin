@@ -4,7 +4,15 @@ import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
+import {
+	Dialog,
+	DialogContent,
+	DialogDescription,
+	DialogHeader,
+	DialogTitle
+} from './ui/dialog';
 import { UserProfileRepository } from '../data/dexie/userProfileRepository';
+import { resetEverything } from '../data/io/resetService';
 import { verifyPin, deriveEncryptionKey } from '../data/crypto/cryptoService';
 import {
 	describeBiometricReason,
@@ -41,6 +49,11 @@ export function LockScreen({ onunlock }: { onunlock: (pin: string) => void }) {
 	const [retryToken, setRetryToken] = useState(0);
 	// Drives the countdown on the disabled button while a lockout is in effect.
 	const [now, setNow] = useState(() => Date.now());
+	// "Forgot PIN": the only exit from a lock screen that has no recovery, an explicit erase.
+	const [forgotOpen, setForgotOpen] = useState(false);
+	const [eraseConfirm, setEraseConfirm] = useState('');
+	const [erasing, setErasing] = useState(false);
+	const [eraseError, setEraseError] = useState<string | null>(null);
 
 	useEffect(() => {
 		let cancelled = false;
@@ -201,6 +214,18 @@ export function LockScreen({ onunlock }: { onunlock: (pin: string) => void }) {
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [canAutoPrompt, activationCount]);
 
+	async function handleErase() {
+		setErasing(true);
+		setEraseError(null);
+		try {
+			await resetEverything();
+			window.location.reload();
+		} catch {
+			setEraseError('Could not erase the data on this device. Nothing was changed.');
+			setErasing(false);
+		}
+	}
+
 	const lockoutNotice = gate.allowed
 		? null
 		: `Too many attempts. Try again in ${formatRemaining(gate.remainingMs)}.`;
@@ -235,7 +260,7 @@ export function LockScreen({ onunlock }: { onunlock: (pin: string) => void }) {
 						</div>
 						{loadError && (
 							<p role="alert" className="text-sm text-destructive">
-								Could not load your profile. Check your connection and try again.
+								Could not load your profile from this device. Try again.
 							</p>
 						)}
 						{!loadError && error && (
@@ -283,8 +308,67 @@ export function LockScreen({ onunlock }: { onunlock: (pin: string) => void }) {
 							<Fingerprint /> Use biometric unlock
 						</Button>
 					)}
+					<div className="mt-4 text-center">
+						<Button
+							type="button"
+							variant="link"
+							size="sm"
+							className="h-auto p-0 text-muted-foreground"
+							onClick={() => {
+								setEraseConfirm('');
+								setEraseError(null);
+								setForgotOpen(true);
+							}}
+						>
+							Forgot your PIN?
+						</Button>
+					</div>
 				</CardContent>
 			</Card>
+
+			<Dialog open={forgotOpen} onOpenChange={(open) => !erasing && setForgotOpen(open)}>
+				<DialogContent>
+					<DialogHeader>
+						<DialogTitle>Forgot your PIN?</DialogTitle>
+						<DialogDescription>
+							Your data is encrypted with your PIN, so MyFin cannot recover it or reset it for you.
+							If you have a backup file and remember the PIN it was made with, erase this device,
+							set a new PIN, then restore the backup from Backup &amp; Restore. If not, erasing
+							starts you fresh. Either way, <strong>everything now on this device is permanently
+							deleted</strong>.
+						</DialogDescription>
+					</DialogHeader>
+					<div className="flex flex-col gap-1.5">
+						<Label htmlFor="erase-confirm">
+							Type <span className="font-mono font-bold">DELETE EVERYTHING</span> to confirm
+						</Label>
+						<Input
+							id="erase-confirm"
+							value={eraseConfirm}
+							onChange={(e) => setEraseConfirm(e.target.value)}
+							autoComplete="off"
+							disabled={erasing}
+						/>
+					</div>
+					{eraseError && (
+						<p role="alert" className="text-sm text-destructive">
+							{eraseError}
+						</p>
+					)}
+					<div className="flex flex-wrap justify-end gap-2">
+						<Button variant="outline" disabled={erasing} onClick={() => setForgotOpen(false)}>
+							Cancel
+						</Button>
+						<Button
+							variant="destructive"
+							disabled={erasing || eraseConfirm !== 'DELETE EVERYTHING'}
+							onClick={() => void handleErase()}
+						>
+							{erasing ? 'Erasing…' : 'Erase and start over'}
+						</Button>
+					</div>
+				</DialogContent>
+			</Dialog>
 		</div>
 	);
 }

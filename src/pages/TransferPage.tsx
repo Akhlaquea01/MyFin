@@ -19,7 +19,13 @@ import { useSession } from '../context/SessionContext';
 import { AccountRepository } from '../data/dexie/accountRepository';
 import { TransactionEngine } from '../domain/transactions/transactionEngine';
 import type { Account } from '../domain/entities';
-import { formatMinorUnits, isPositiveMoney, parseMoneyOrZero } from '../domain/shared/money';
+import {
+	formatMinorUnits,
+	isPositiveMoney,
+	parseMoneyOrZero,
+	formatMoney
+} from '../domain/shared/money';
+import { useUnsavedChanges } from '../lib/unsavedChanges';
 import { todayLocalISO } from '../domain/shared/dateMath';
 import { computeCardUtilization } from '../domain/wealth/wealthEngine';
 
@@ -38,13 +44,6 @@ export interface TransferLocationState {
 	/** Whether `toAccountId` is fixed. Defaults to true for a "pay-bill" seed that names a card
 	 *  (the card's own "Pay bill" button); entry points that merely *suggest* a card pass false. */
 	lockDestination?: boolean;
-}
-
-function formatMoney(paise: number): string {
-	return (paise / 100).toLocaleString(undefined, {
-		minimumFractionDigits: 2,
-		maximumFractionDigits: 2
-	});
 }
 
 const formSchema = z
@@ -93,6 +92,8 @@ export function TransferPage() {
 			notes: seed.notes ?? ''
 		}
 	});
+	// A share from another app must not silently replace what has been typed here.
+	useUnsavedChanges(form.formState.isDirty && !form.formState.isSubmitting);
 
 	const toAccountId = form.watch('toAccountId');
 	const fromAccountId = form.watch('fromAccountId');

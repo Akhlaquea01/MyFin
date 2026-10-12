@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
+import { autoAcceptConfirms } from './helpers';
 
 // Holdings, liabilities and budgets are deleted with an Undo toast. Once the toast is gone, Trash is
 // the way back — it used to list none of them.
@@ -59,7 +60,7 @@ test('a deleted holding, liability and budget can each be restored from Trash', 
 	await expect(budgetDialog).not.toBeVisible();
 
 	// --- delete them (the Undo toasts are left alone) ---
-	page.on('dialog', (d) => void d.accept());
+	await autoAcceptConfirms(page);
 	await page.getByRole('button', { name: 'Dining budget actions' }).click();
 	await page.getByRole('menuitem', { name: 'Delete' }).click();
 	await expect(page.getByText('Dining budget deleted')).toBeVisible();
@@ -77,7 +78,7 @@ test('a deleted holding, liability and budget can each be restored from Trash', 
 	await goTo(page, 'Trash', 'Trash');
 	await expect(trashSection(page, 'Investments')).toContainText('BEL');
 	await expect(trashSection(page, 'Liabilities')).toContainText('Car Loan');
-	await expect(trashSection(page, 'Liabilities')).toContainText('300.00 owed');
+	await expect(trashSection(page, 'Liabilities')).toContainText('₹300.00 owed');
 	await expect(trashSection(page, 'Budgets')).toContainText('Dining');
 	await expect(trashSection(page, 'Budgets')).toContainText('200.00');
 

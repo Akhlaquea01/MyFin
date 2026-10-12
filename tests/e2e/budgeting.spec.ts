@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { acceptConfirm } from './helpers';
 
 // User Story 5 (P5): set a budget, record matching spend, verify actual-vs-planned.
 
@@ -35,7 +36,7 @@ test('setting a budget and recording spend updates actual-vs-planned', async ({ 
 	await expect(budgetDialog).not.toBeVisible();
 
 	await expect(page.getByText('0.00').first()).toBeVisible();
-	await expect(page.getByText('of 100.00')).toBeVisible();
+	await expect(page.getByText('of ₹100.00')).toBeVisible();
 
 	await page.getByRole('link', { name: 'Transactions' }).click();
 	await page.getByRole('link', { name: 'New transaction' }).click();
@@ -82,7 +83,7 @@ test('editing and deleting a budget behaves correctly, including the past-month 
 	await dialog.getByLabel('Amount', { exact: true }).fill('100');
 	await dialog.getByRole('button', { name: 'Add budget' }).click();
 	await expect(dialog).not.toBeVisible();
-	await expect(page.getByText('of 100.00')).toBeVisible();
+	await expect(page.getByText('of ₹100.00')).toBeVisible();
 
 	// FR-015: a second budget for the same category is blocked, not silently allowed.
 	await page.getByRole('button', { name: 'Add budget' }).click();
@@ -96,7 +97,7 @@ test('editing and deleting a budget behaves correctly, including the past-month 
 
 	// Navigate to the previous month — creates a fresh BudgetItem there using today's amount.
 	await page.getByRole('button', { name: 'Previous month' }).click();
-	await expect(page.getByText('of 100.00')).toBeVisible();
+	await expect(page.getByText('of ₹100.00')).toBeVisible();
 
 	// Back to the current month, edit the budget's amount.
 	await page.getByRole('button', { name: 'Today' }).click();
@@ -107,23 +108,23 @@ test('editing and deleting a budget behaves correctly, including the past-month 
 	await dialog.getByLabel('Amount', { exact: true }).fill('200');
 	await dialog.getByRole('button', { name: 'Save changes' }).click();
 	await expect(dialog).not.toBeVisible();
-	await expect(page.getByText('of 200.00')).toBeVisible();
+	await expect(page.getByText('of ₹200.00')).toBeVisible();
 
 	// FR-012 regression case: the previous month's already-closed figure must stay 100.00, not
 	// silently follow today's edit to 200.00 (research.md §4).
 	await page.getByRole('button', { name: 'Previous month' }).click();
-	await expect(page.getByText('of 100.00')).toBeVisible();
-	await expect(page.getByText('of 200.00')).toHaveCount(0);
+	await expect(page.getByText('of ₹100.00')).toBeVisible();
+	await expect(page.getByText('of ₹200.00')).toHaveCount(0);
 
 	// Back to today: delete with confirm, then undo.
 	await page.getByRole('button', { name: 'Today' }).click();
-	page.once('dialog', (d) => d.accept());
 	await page.getByRole('button', { name: 'Dining budget actions' }).click();
 	await page.getByRole('menuitem', { name: 'Delete' }).click();
-	await expect(page.getByText('of 200.00')).toHaveCount(0);
+	await acceptConfirm(page);
+	await expect(page.getByText('of ₹200.00')).toHaveCount(0);
 
 	await page.getByRole('button', { name: 'Undo' }).click();
-	await expect(page.getByText('of 200.00')).toBeVisible();
+	await expect(page.getByText('of ₹200.00')).toBeVisible();
 });
 
 // User Story 4 (spec 019, P2): envelope rollover 'full' mode carries an overspend deficit into
@@ -182,11 +183,11 @@ test('envelope rollover in full mode carries an overspend deficit into the next 
 	await expect(page).toHaveURL(/\/transactions$/);
 
 	await page.getByRole('link', { name: 'Budgets', exact: true }).click();
-	await expect(page.getByText('of 100.00')).toBeVisible(); // this month: 150 actual, still 100 planned
+	await expect(page.getByText('of ₹100.00')).toBeVisible(); // this month: 150 actual, still 100 planned
 
 	// Next month's BudgetItem is created for the first time now, reading this month's
 	// already-recalculated actualAmount: rollover = 100 planned - 150 actual = -50.
 	await page.getByRole('button', { name: 'Next month' }).click();
-	await expect(page.getByText('of 50.00')).toBeVisible();
+	await expect(page.getByText('of ₹50.00')).toBeVisible();
 	await expect(page.getByText(/deficit carried over from last period/)).toBeVisible();
 });

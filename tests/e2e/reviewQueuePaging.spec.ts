@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
+import { acceptConfirm } from './helpers';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -109,13 +110,9 @@ test('"Confirm all categorized" confirms the entries that are not on the page to
 	await seedLongQueue(page, '505052');
 	await expect(page.getByRole('button', { name: 'Confirm transaction' })).toHaveCount(PAGE);
 
-	page.once('dialog', (d) => {
-		// All of the queue, and an honest note of how many of those the user has not seen.
-		expect(d.message()).toContain(`Confirm ${WAITING} categorized entries`);
-		expect(d.message()).toContain(`including ${WAITING - PAGE} not shown on this page`);
-		void d.accept();
-	});
 	await page.getByRole('button', { name: 'Confirm all categorized' }).click();
+	// All of the queue, and an honest note of how many of those the user has not seen.
+	await acceptConfirm(page, `Confirm ${WAITING} categorized entries`);
 
 	await expect(page.getByText(`Confirmed ${WAITING} entries`)).toBeVisible();
 	await expect(page.getByText('Nothing to review.')).toBeVisible();

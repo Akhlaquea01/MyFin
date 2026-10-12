@@ -46,6 +46,8 @@ import {
 	isPositiveMoney,
 	parseMoneyOrZero
 } from '../domain/shared/money';
+import { useConfirm } from '../lib/confirm';
+import { formatMoney } from '../domain/shared/money';
 
 function isPositiveUnits(raw: string): boolean {
 	const n = Number(raw);
@@ -113,13 +115,6 @@ const saleDefaults = (): SaleFormValues => ({
 	accountId: NO_ACCOUNT
 });
 
-function formatMoney(paise: number): string {
-	return (paise / 100).toLocaleString(undefined, {
-		minimumFractionDigits: 2,
-		maximumFractionDigits: 2
-	});
-}
-
 function formatUnits(units: number): string {
 	return units.toLocaleString(undefined, { maximumFractionDigits: 4 });
 }
@@ -135,6 +130,7 @@ function formatPercent(percent: number | null): string {
 export function InvestmentsPage() {
 	const { getEncryptionKey } = useSession();
 	const key = getEncryptionKey();
+	const confirm = useConfirm();
 
 	const [holdings, setHoldings] = useState<InvestmentHolding[]>([]);
 	// Where a trade's money can come from or go to: never a credit card.
@@ -296,9 +292,11 @@ export function InvestmentsPage() {
 
 	async function remove(holding: InvestmentHolding) {
 		if (
-			!window.confirm(
-				`Delete ${holding.name}? It stops counting toward your portfolio and net worth. You can undo it right after.`
-			)
+			!(await confirm({
+				message: `Delete ${holding.name}? It stops counting toward your portfolio and net worth. You can undo it right after.`,
+				confirmLabel: 'Delete holding',
+				destructive: true
+			}))
 		) {
 			return;
 		}

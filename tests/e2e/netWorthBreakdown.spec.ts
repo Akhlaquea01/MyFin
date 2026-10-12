@@ -71,7 +71,7 @@ test('net worth breakdown sums exactly, drills down, and resolves a duplicate cr
 	// FR-006: drill-down shows the contributing account.
 	await netWorthCard.getByRole('button', { name: /Credit card debt/ }).click();
 	await expect(netWorthCard.getByText('HDFC Card')).toBeVisible();
-	await expect(netWorthCard.getByText('350.00', { exact: true })).toBeVisible();
+	await expect(netWorthCard.getByText('₹350.00', { exact: true })).toBeVisible();
 
 	// FR-008/FR-009: a manual liability whose name matches the tracked card is flagged, and
 	// linking it stops it from double-counting.

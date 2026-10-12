@@ -92,7 +92,7 @@ describe('paying a loan or card liability from an account', () => {
 		await pay(400_000);
 		await pay(600_000);
 		expect(await owed()).toBe(0);
-		await expect(pay(1)).rejects.toThrow(/more than the 0\.00 still owed/);
+		await expect(pay(1)).rejects.toThrow(/more than the ₹0\.00 still owed/);
 		expect((await LiabilityRepository.getById(key, loanId))!.payments).toHaveLength(2);
 	});
 
@@ -110,7 +110,7 @@ describe('paying a loan or card liability from an account', () => {
 		});
 
 		it('more than is owed', async () => {
-			await expect(pay(1_000_001)).rejects.toThrow(/more than the 10000\.00 still owed/);
+			await expect(pay(1_000_001)).rejects.toThrow(/more than the ₹10,000\.00 still owed/);
 			await expectUntouched();
 		});
 

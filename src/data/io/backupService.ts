@@ -43,7 +43,9 @@ import type {
 	PersonRow,
 	PersonLoanRow,
 	PersonLoanRepaymentRow,
-	SavedFilterViewRow
+	SavedFilterViewRow,
+	NotificationInboxRow,
+	UnreadableCaptureRow
 } from '../dexie/db';
 import type {
 	Account,
@@ -73,7 +75,9 @@ import type {
 	Person,
 	PersonLoan,
 	LoanRepayment,
-	SavedFilterView
+	SavedFilterView,
+	InboxNotification,
+	UnreadableCapture
 } from '../../domain/entities';
 
 const CONTAINER = 'personal-finance-manager-backup';
@@ -120,6 +124,9 @@ export interface BackupPayload {
 		personLoanRepayments: LoanRepayment[];
 		savedFilterViews: SavedFilterView[];
 		userProfile: UserProfile | null;
+		/** Added after schema 1.4.0 as optional fields, so older backups simply lack them. */
+		notificationInbox?: InboxNotification[];
+		unreadableCaptures?: UnreadableCapture[];
 	};
 }
 
@@ -142,8 +149,9 @@ const MIGRATIONS: Record<string, (payload: BackupPayload) => BackupPayload> = {
 	'1.4.0': migrateFromV1_4
 };
 
-/** Gathers every entity behind the encryption boundary into one plaintext payload. */
-async function collectPayload(key: CryptoKey): Promise<BackupPayload> {
+/** Gathers every entity behind the encryption boundary into one plaintext payload. Exported for
+ *  `changePinService`, which re-encrypts the whole database under a key derived from a new PIN. */
+export async function collectPayload(key: CryptoKey): Promise<BackupPayload> {
 	const [
 		accounts,
 		categories,
@@ -226,6 +234,11 @@ async function collectPayload(key: CryptoKey): Promise<BackupPayload> {
 		db.userProfile.get('local-user')
 	]);
 
+	const [notificationInbox, unreadableCaptures] = await Promise.all([
+		decryptRows<NotificationInboxRow, InboxNotification>(key, await db.notificationInbox.toArray()),
+		decryptRows<UnreadableCaptureRow, UnreadableCapture>(key, await db.unreadableCaptures.toArray())
+	]);
+
 	return {
 		schemaVersion: CURRENT_SCHEMA_VERSION,
 		exportedEntities: {
@@ -257,7 +270,9 @@ async function collectPayload(key: CryptoKey): Promise<BackupPayload> {
 			personLoans,
 			personLoanRepayments,
 			savedFilterViews,
-			userProfile: userProfile ?? null
+			userProfile: userProfile ?? null,
+			notificationInbox,
+			unreadableCaptures
 		}
 	};
 }
@@ -597,6 +612,24 @@ export async function restoreBackup(key: CryptoKey, payload: BackupPayload): Pro
 		)
 	]);
 
+	// Optional in the payload: a backup made before these existed has neither.
+	const [notificationInboxRows, unreadableCaptureRows] = await Promise.all([
+		Promise.all(
+			(e.notificationInbox ?? []).map((n) =>
+				encryptRow<NotificationInboxRow, InboxNotification>(key, n, {
+					dedupeKey: n.dedupeKey,
+					createdAt: n.createdAt,
+					isRead: n.readAt === null ? 0 : 1
+				})
+			)
+		),
+		Promise.all(
+			(e.unreadableCaptures ?? []).map((u) =>
+				encryptRow<UnreadableCaptureRow, UnreadableCapture>(key, u, { receivedAt: u.receivedAt })
+			)
+		)
+	]);
+
 	const transactionTagRows: TransactionTagRow[] = e.transactionTags.map((t) => ({
 		id: t.id,
 		transactionId: t.transactionId,
@@ -627,6 +660,8 @@ export async function restoreBackup(key: CryptoKey, payload: BackupPayload): Pro
 			db.goalContributions,
 			db.notificationPreferences,
 			db.notifiedItems,
+			db.notificationInbox,
+			db.unreadableCaptures,
 			db.attachments,
 			db.categorizationRules,
 			db.merchantCategorySignals,
@@ -665,6 +700,8 @@ export async function restoreBackup(key: CryptoKey, payload: BackupPayload): Pro
 				db.savingsGoals.bulkPut(savingsGoalRows),
 				db.goalContributions.bulkPut(goalContributionRows),
 				db.notifiedItems.bulkPut(notifiedItemRows),
+				db.notificationInbox.bulkPut(notificationInboxRows),
+				db.unreadableCaptures.bulkPut(unreadableCaptureRows),
 				db.attachments.bulkPut(attachmentRows),
 				db.categorizationRules.bulkPut(categorizationRuleRows),
 				db.merchantCategorySignals.bulkPut(merchantCategorySignalRows),

@@ -13,7 +13,7 @@ import {
 import { computePendingBalance } from '../personLoans/loanProgress';
 import { TransactionEngine } from '../transactions/transactionEngine';
 import { todayLocalISO } from '../shared/dateMath';
-import { formatMinorUnits } from '../shared/money';
+import { formatMoney } from '../shared/money';
 import type {
 	Account,
 	InvestmentHolding,
@@ -307,7 +307,7 @@ export async function recordLiabilityPayment(
 	}
 	if (input.amount > liability.outstandingBalance) {
 		throw new Error(
-			`That is more than the ${formatMinorUnits(liability.outstandingBalance)} still owed. Enter the amount actually paid, or at most the balance.`
+			`That is more than the ${formatMoney(liability.outstandingBalance)} still owed. Enter the amount actually paid, or at most the balance.`
 		);
 	}
 	const account = await AccountRepository.getById(key, input.accountId);

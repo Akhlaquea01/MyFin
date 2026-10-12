@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
+import { acceptConfirm, autoAcceptConfirms } from './helpers';
 
 // Feature 005 (Receipt & Photo Attachments). Covers quickstart.md Scenarios 1, 2, 4, 5, 6.
 // Scenario 3 (compression bound) is folded into the Scenario 1 test since it needs the same
@@ -105,7 +106,7 @@ test('attach, view, and remove a receipt; rejects unsupported/oversized files; c
 	page
 }) => {
 	// Removing an attachment is a permanent hard delete and now asks for confirmation.
-	page.on('dialog', (dialog) => dialog.accept());
+	await autoAcceptConfirms(page);
 	await onboard(page, '500184');
 
 	await goTo(page, 'Accounts', 'Accounts');
@@ -179,7 +180,7 @@ test('soft-delete/restore keeps attachments, and up to 5 independent attachments
 	page
 }) => {
 	// Removing an attachment is a permanent hard delete and now asks for confirmation.
-	page.on('dialog', (dialog) => dialog.accept());
+	await autoAcceptConfirms(page);
 	await onboard(page, '500284');
 
 	await goTo(page, 'Accounts', 'Accounts');
@@ -203,7 +204,7 @@ test('soft-delete/restore keeps attachments, and up to 5 independent attachments
 		.getByRole('row', { name: /Pharmacy/ })
 		.getByRole('button', { name: 'Delete' })
 		.click();
-	await expect(page.getByText('No transactions match.')).toBeVisible();
+	await expect(page.getByText('No transactions yet.')).toBeVisible();
 
 	await goTo(page, 'Trash', 'Trash');
 	await page
@@ -257,22 +258,22 @@ test('permanent purge from Trash removes the transaction and its attachments ent
 	await expect(dialog.getByAltText('Receipt attachment')).toHaveCount(1);
 	await page.keyboard.press('Escape');
 
-	// Moving a transaction to Trash asks for confirmation; Playwright dismisses an unhandled dialog.
-	page.once('dialog', (d) => void d.accept());
+	// Moving a transaction to Trash asks for confirmation.
 	await page
 		.getByRole('row', { name: /Coffee/ })
 		.getByRole('button', { name: 'Delete' })
 		.click();
-	await expect(page.getByText('No transactions match.')).toBeVisible();
+	await acceptConfirm(page);
+	await expect(page.getByText('No transactions yet.')).toBeVisible();
 
 	await goTo(page, 'Trash', 'Trash');
 	await expect(page.getByText('Coffee')).toBeVisible();
 
-	page.once('dialog', (d) => void d.accept());
 	await page
 		.locator('div.rounded-lg.border', { hasText: 'Coffee' })
 		.getByRole('button', { name: 'Delete forever' })
 		.click();
+	await acceptConfirm(page);
 
 	// Gone from Trash entirely (not just hidden) — the underlying cascade delete of
 	// transactionSplits/transactionTags/attachments is covered by

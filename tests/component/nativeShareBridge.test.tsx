@@ -1,6 +1,7 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
+import { useUnsavedChanges } from '../../src/lib/unsavedChanges';
 
 const native = vi.hoisted(() => ({
 	available: true,
@@ -9,7 +10,7 @@ const native = vi.hoisted(() => ({
 	remove: vi.fn()
 }));
 
-vi.mock('sonner', () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
+vi.mock('sonner', () => ({ toast: { error: vi.fn(), success: vi.fn(), info: vi.fn() } }));
 vi.mock('../../src/lib/native/appState', () => ({ subscribeAppActive: () => () => {} }));
 vi.mock('../../src/lib/native/nativeShare', () => ({
 	isNativeShareAvailable: () => native.available,
@@ -41,13 +42,19 @@ function Where() {
 	);
 }
 
-function App({ start = '/dashboard' }: { start?: string }) {
+/** A screen with something typed into it, as Quick Add is once a message is pasted. */
+function HalfFilledForm() {
+	useUnsavedChanges(true);
+	return <Where />;
+}
+
+function App({ start = '/dashboard', dirty = false }: { start?: string; dirty?: boolean }) {
 	return (
 		<MemoryRouter initialEntries={[start]}>
 			<NativeShareBridge />
 			<Routes>
 				<Route path="/share-target-landing" element={<ShareTargetLandingPage />} />
-				<Route path="*" element={<Where />} />
+				<Route path="*" element={dirty ? <HalfFilledForm /> : <Where />} />
 			</Routes>
 		</MemoryRouter>
 	);
@@ -91,6 +98,62 @@ describe('NativeShareBridge', () => {
 
 		await waitFor(() => expect(screen.getByTestId('path')).toHaveTextContent('/transactions/new'));
 		expect(screen.getByTestId('sharedFile')).toHaveTextContent('bill.png');
+	});
+
+	it('takes a shared statement and opens Import with the file', async () => {
+		native.queue = [
+			{ file: { name: 'statement.csv', mimeType: 'text/csv', base64: btoa('date,amount') } }
+		];
+		render(<App />);
+
+		await waitFor(() => expect(screen.getByTestId('path')).toHaveTextContent('/import'));
+		expect(screen.getByTestId('sharedFile')).toHaveTextContent('statement.csv');
+	});
+
+	it('tells the user when a shared statement could not be taken', async () => {
+		native.queue = [{ fileProblem: 'too-large' }];
+		render(<App />);
+
+		await waitFor(() =>
+			expect(toast.error).toHaveBeenCalledWith('That file is too large to import.')
+		);
+		expect(screen.getByTestId('path')).toHaveTextContent('/dashboard');
+	});
+
+	describe('when the current screen holds something half-typed', () => {
+		afterEach(() => vi.restoreAllMocks());
+
+		it('asks before replacing it, and opens the share when the user agrees', async () => {
+			const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+			native.queue = [{ text: 'Rs.5 debited' }];
+			render(<App start="/transactions/new" dirty />);
+
+			await waitFor(() => expect(screen.getByTestId('path')).toHaveTextContent('/quick-add'));
+			expect(confirm).toHaveBeenCalledTimes(1);
+		});
+
+		it('leaves the screen alone when the user declines, and offers to open the share later', async () => {
+			vi.spyOn(window, 'confirm').mockReturnValue(false);
+			native.queue = [{ text: 'Rs.5 debited' }];
+			render(<App start="/transactions/new" dirty />);
+
+			await waitFor(() =>
+				expect(toast.info).toHaveBeenCalledWith(
+					'The shared content was not opened.',
+					expect.objectContaining({ action: expect.objectContaining({ label: 'Open it' }) })
+				)
+			);
+			expect(screen.getByTestId('path')).toHaveTextContent('/transactions/new');
+		});
+
+		it('does not ask at all when nothing is half-typed', async () => {
+			const confirm = vi.spyOn(window, 'confirm');
+			native.queue = [{ text: 'Rs.5 debited' }];
+			render(<App />);
+
+			await waitFor(() => expect(screen.getByTestId('path')).toHaveTextContent('/quick-add'));
+			expect(confirm).not.toHaveBeenCalled();
+		});
 	});
 
 	it('picks up a share that arrives while the app is open, even when already on Quick Add', async () => {

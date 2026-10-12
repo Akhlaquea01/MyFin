@@ -5,13 +5,17 @@ import { TooltipProvider } from './components/ui/tooltip';
 import { SessionProvider, useSession } from './context/SessionContext';
 import { acquireSingleInstanceLock, type InstanceRole } from './lib/singleInstance';
 import { subscribeAppActive } from './lib/native/appState';
+import { isNativeApp } from './lib/native/platform';
 import { isBiometricEnrolled } from './lib/biometric';
+import { isBiometricPromptSnoozed } from './lib/biometricPromptSnooze';
+import { useQuickTour } from './hooks/useQuickTour';
 import { syncCapturedTransactions, useCaptureSync } from './hooks/useCaptureSync';
 import { UserProfileRepository } from './data/dexie/userProfileRepository';
 import { runNotificationCheck } from './domain/notifications/runNotificationCheck';
 import { ensureDailyNetWorthSnapshot } from './domain/wealth/wealthEngine';
 import { runBlindIndexMaintenance } from './data/dexie/blindIndexMaintenance';
 import { maybeRunScheduledBackup } from './data/io/autoBackupService';
+import { syncBackupReminder } from './data/io/backupReminderService';
 import { isStoragePersisted } from './data/storage/persistence';
 import { OnboardingScreen } from './components/OnboardingScreen';
 import { LockScreen } from './components/LockScreen';
@@ -22,7 +26,11 @@ import { UpdateAvailableBanner } from './components/UpdateAvailableBanner';
 import { BiometricEnrollmentPrompt } from './components/BiometricEnrollmentPrompt';
 import { NotificationPermissionPrompt } from './components/NotificationPermissionPrompt';
 import { NativeShareBridge } from './components/NativeShareBridge';
+import { AndroidBackHandler } from './components/AndroidBackHandler';
+import { NotificationTapHandler } from './components/NotificationTapHandler';
+import { CaptureHealthBanner } from './components/CaptureHealthBanner';
 import { AppShell } from './components/AppShell';
+import { ConfirmProvider } from './components/ConfirmProvider';
 import { DashboardPage } from './pages/DashboardPage';
 import { AccountsPage } from './pages/AccountsPage';
 import { TransactionsPage } from './pages/TransactionsPage';
@@ -56,6 +64,8 @@ import { BudgetVarianceReportPage } from './pages/BudgetVarianceReportPage';
 import { AboutPage } from './pages/AboutPage';
 import { SecurityPage } from './pages/SecurityPage';
 import { AutoCapturePage } from './pages/AutoCapturePage';
+import { NotFoundPage } from './pages/NotFoundPage';
+import { AlertsPage } from './pages/AlertsPage';
 import { QuickTourProvider } from './components/ui/quick-tour/QuickTourProvider';
 import { QuickTourOverlay } from './components/ui/quick-tour/QuickTourOverlay';
 import { QUICK_TOUR_STEPS } from './components/ui/quick-tour/tour-steps';
@@ -90,6 +100,31 @@ async function afterUnlock(key: CryptoKey): Promise<void> {
 	} catch (err) {
 		console.warn('[afterUnlock] net worth snapshot failed', err);
 	}
+	// Keeps the weekly backup reminder scheduled against the last backup. Never throws.
+	await syncBackupReminder();
+}
+
+/**
+ * First-run and housekeeping prompts, shown one at a time: the tour first, then the offer to turn
+ * on fingerprint unlock, then the offer to turn on notifications. Shown together they pushed the
+ * page down while the tour was trying to spotlight things on it.
+ */
+function StartupPrompts({
+	showEnrollPrompt,
+	getPin,
+	onEnrollDone
+}: {
+	showEnrollPrompt: boolean;
+	getPin: () => string | null;
+	onEnrollDone: () => void;
+}) {
+	const { isTourActive } = useQuickTour();
+	if (isTourActive) return null;
+	return showEnrollPrompt ? (
+		<BiometricEnrollmentPrompt getPin={getPin} onDone={onEnrollDone} />
+	) : (
+		<NotificationPermissionPrompt />
+	);
 }
 
 // Root security/availability gate (Constitution Principles I & II, FR-001–006, FR-044,
@@ -97,8 +132,15 @@ async function afterUnlock(key: CryptoKey): Promise<void> {
 // then onboarded, then unlocked. Nothing below this gate can run before those resolve.
 function Gate() {
 	const session = useSession();
-	const { recordActivity, restoreSession, setOnboarded, getEncryptionKey, lock, lockIfExpired } =
-		session;
+	const {
+		recordActivity,
+		restoreSession,
+		setOnboarded,
+		getEncryptionKey,
+		lock,
+		handleAppActiveChange,
+		setLockOnBackground
+	} = session;
 	// 'checking' is distinct from 'secondary': initialising to 'secondary' rendered
 	// BlockedScreen for a frame on every cold start, before the async lock request resolved.
 	const [role, setRole] = useState<InstanceRole | 'checking'>('checking');
@@ -117,7 +159,12 @@ function Gate() {
 
 	useEffect(() => {
 		const stopLock = acquireSingleInstanceLock(setRole);
-		void isStoragePersisted().then((persisted) => setShowStorageWarning(!persisted));
+		// The Android app keeps its data in the WebView's private storage, which the system does not
+		// evict the way a browser can, and which never reports "persisted" — the browser wording
+		// would be wrong there.
+		if (!isNativeApp()) {
+			void isStoragePersisted().then((persisted) => setShowStorageWarning(!persisted));
+		}
 
 		// Spec 008: registered independently of (and at a narrower scope than) the
 		// vite-plugin-pwa-managed root service worker, so it never affects offline asset
@@ -135,7 +182,7 @@ function Gate() {
 		// coming back, enforce the auto-lock deadline directly: away longer than the timeout
 		// means the lock screen (and the fingerprint prompt) appears; a quick switch does not.
 		const stopAppState = subscribeAppActive((active) => {
-			if (active) lockIfExpired();
+			handleAppActiveChange(active);
 		});
 
 		// Before ever falling back to LockScreen, try to silently resume a session persisted
@@ -146,6 +193,7 @@ function Gate() {
 			setProfileExists(!!p);
 			setOnboarded(!!p);
 			if (p) {
+				setLockOnBackground(!!p.lockOnBackground);
 				const restored = await restoreSession(p.autoLockTimeoutMs);
 				if (restored) void afterUnlock(getEncryptionKey());
 			}
@@ -157,7 +205,14 @@ function Gate() {
 			stopAppState();
 			for (const evt of activityEvents) window.removeEventListener(evt, onActivity);
 		};
-	}, [recordActivity, restoreSession, setOnboarded, getEncryptionKey, lockIfExpired]);
+	}, [
+		recordActivity,
+		restoreSession,
+		setOnboarded,
+		getEncryptionKey,
+		handleAppActiveChange,
+		setLockOnBackground
+	]);
 
 	function handleUnlock(pin: string) {
 		transientPinRef.current = pin;
@@ -167,7 +222,9 @@ function Gate() {
 		void UserProfileRepository.get().then(async (p) => {
 			setProfileExists(!!p);
 			setOnboarded(!!p);
-			const needsEnrollPrompt = !(await isBiometricEnrolled(p));
+			setLockOnBackground(!!p?.lockOnBackground);
+			// A user who already said "not now" is not asked again after every PIN unlock.
+			const needsEnrollPrompt = !(await isBiometricEnrolled(p)) && !isBiometricPromptSnoozed();
 			setShowEnrollPrompt(needsEnrollPrompt);
 			// With no enrollment prompt to hand it to, nothing else will ever clear the PIN, so
 			// drop it now rather than keeping it in memory for the whole session.
@@ -197,17 +254,18 @@ function Gate() {
 				<ErrorBoundary onReset={lock}>
 					<UpdateAvailableBanner />
 					{showStorageWarning && <StorageWarningBanner />}
-					{showEnrollPrompt && (
-						<BiometricEnrollmentPrompt
-							getPin={() => transientPinRef.current}
-							onDone={() => {
-								transientPinRef.current = null;
-								setShowEnrollPrompt(false);
-							}}
-						/>
-					)}
-					<NotificationPermissionPrompt />
+					<CaptureHealthBanner />
+					<StartupPrompts
+						showEnrollPrompt={showEnrollPrompt}
+						getPin={() => transientPinRef.current}
+						onEnrollDone={() => {
+							transientPinRef.current = null;
+							setShowEnrollPrompt(false);
+						}}
+					/>
 					<NativeShareBridge />
+					<AndroidBackHandler />
+					<NotificationTapHandler />
 					<QuickTourOverlay />
 					<Routes>
 						<Route element={<AppShell />}>
@@ -243,6 +301,8 @@ function Gate() {
 							<Route path="about" element={<AboutPage />} />
 							<Route path="security" element={<SecurityPage />} />
 							<Route path="auto-capture" element={<AutoCapturePage />} />
+							<Route path="alerts" element={<AlertsPage />} />
+							<Route path="*" element={<NotFoundPage />} />
 						</Route>
 						{/* Spec 008: a pure redirect, deliberately outside AppShell — no nav shell needed
 						    for what's only ever a brief loading state before navigating onward. */}
@@ -258,7 +318,9 @@ export default function App() {
 	return (
 		<SessionProvider>
 			<TooltipProvider>
-				<Gate />
+				<ConfirmProvider>
+					<Gate />
+				</ConfirmProvider>
 				<Toaster />
 			</TooltipProvider>
 		</SessionProvider>

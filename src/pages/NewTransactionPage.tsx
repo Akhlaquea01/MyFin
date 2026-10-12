@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { Controller, useFieldArray, useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { Plus, Sparkles, X } from 'lucide-react';
+import { Plus, Sparkles, Trash2, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -29,10 +29,12 @@ import { TransactionEngine } from '../domain/transactions/transactionEngine';
 import { AttachmentRepository } from '../data/dexie/attachmentRepository';
 import { validateAttachmentFile, compressImage } from '../lib/imageAttachment';
 import type { Account, Category } from '../domain/entities';
-import { isPositiveMoney, parseMoneyOrZero } from '../domain/shared/money';
+import { isPositiveMoney, parseMoneyOrZero, formatMoney } from '../domain/shared/money';
+import { allocatedMinor, analyzeSplits } from '../domain/transactions/splitInput';
 import { todayLocalISO } from '../domain/shared/dateMath';
 import { categoryOptions } from '../domain/categories/categoryHierarchy';
 import { buildCategoryLabels } from '../domain/categories/categoryHierarchy';
+import { useUnsavedChanges } from '../lib/unsavedChanges';
 
 const formSchema = z.object({
 	accountId: z.string().min(1, 'Choose an account.'),
@@ -73,7 +75,11 @@ export function NewTransactionPage() {
 	const location = useLocation();
 
 	const [accounts, setAccounts] = useState<Account[]>([]);
+	const [accountsLoaded, setAccountsLoaded] = useState(false);
 	const [categories, setCategories] = useState<Category[]>([]);
+	// Why the category rows cannot be saved, shown under them after a failed save and cleared as
+	// soon as they or the total change.
+	const [splitError, setSplitError] = useState<string | null>(null);
 	// Spec 008, User Story 2 (FR-004): set only when this page is reached via a share
 	// carrying an image (ShareTargetLandingPage's router state) — the ordinary manual
 	// "add a new transaction" flow never sets this and is otherwise unchanged.
@@ -109,7 +115,9 @@ export function NewTransactionPage() {
 		defaultValues: {
 			accountId: '',
 			type: 'expense',
-			amount: '0',
+			// Empty rather than "0": a pre-filled zero has to be deleted before typing, and an
+			// untouched one fails validation anyway.
+			amount: '',
 			date: todayLocalISO(),
 			merchantName: '',
 			notes: '',
@@ -118,12 +126,15 @@ export function NewTransactionPage() {
 		}
 	});
 	const { fields, append, remove } = useFieldArray({ control: form.control, name: 'splits' });
+	// A share from another app must not silently replace what has been typed here.
+	useUnsavedChanges(form.formState.isDirty && !form.formState.isSubmitting);
 
 	useEffect(() => {
 		void Promise.all([AccountRepository.list(key, false), CategoryRepository.list(key)]).then(
 			([accts, cats]) => {
 				setAccounts(accts);
 				setCategories(cats);
+				setAccountsLoaded(true);
 			}
 		);
 		// eslint-disable-next-line react-hooks/exhaustive-deps
@@ -131,7 +142,15 @@ export function NewTransactionPage() {
 
 	const merchantNameValue = form.watch('merchantName');
 	const notesValue = form.watch('notes');
-	const hasExplicitCategory = form.watch('splits').some((s) => s.categoryId);
+	const watchedSplits = form.watch('splits');
+	const watchedAmount = form.watch('amount');
+	const hasExplicitCategory = watchedSplits.some((s) => s.categoryId);
+	const splitsSignature = JSON.stringify(watchedSplits) + '|' + watchedAmount;
+	useEffect(() => {
+		setSplitError(null);
+	}, [splitsSignature]);
+	const totalMinor = isPositiveMoney(watchedAmount) ? parseMoneyOrZero(watchedAmount) : 0;
+	const allocated = allocatedMinor(watchedSplits);
 	useEffect(() => {
 		const name = merchantNameValue.trim();
 		const notes = notesValue.trim();
@@ -170,14 +189,23 @@ export function NewTransactionPage() {
 	}, [merchantNameValue, notesValue, hasExplicitCategory, categories]);
 
 	async function onSubmit(values: FormValues) {
-		const signedTotal =
-			values.type === 'expense' ? -toPaise(values.amount) : toPaise(values.amount);
-		const usableSplits = values.splits.filter((s) => s.categoryId && s.amountInput);
-		const splitInputs = usableSplits.map((s) => ({
+		const total = toPaise(values.amount);
+		const sign = values.type === 'expense' ? -1 : 1;
+		const signedTotal = sign * total;
+		// A category picked without an amount is honoured (it gets the whole total) rather than
+		// silently dropped, and totals that do not match are explained here in rupees instead of
+		// failing later in the storage layer.
+		const analysis = analyzeSplits(values.splits, total);
+		if (!analysis.ok) {
+			setSplitError(analysis.message);
+			return;
+		}
+		const splitInputs = analysis.splits.map((s) => ({
 			categoryId: s.categoryId,
-			amount: values.type === 'expense' ? -toPaise(s.amountInput) : toPaise(s.amountInput)
+			amount: sign * s.amount
 		}));
 
+		let tx: Awaited<ReturnType<typeof TransactionEngine.recordTransaction>>;
 		try {
 			// Reuse the merchant if this name (or a known alias of it) has been seen before. This used
 			// to create a brand-new Merchant row on EVERY save, so "Swiggy" typed twice produced two
@@ -191,7 +219,7 @@ export function NewTransactionPage() {
 				merchantAliasId = resolved.aliasId;
 			}
 
-			const tx = await TransactionEngine.recordTransaction(
+			tx = await TransactionEngine.recordTransaction(
 				key,
 				{
 					accountId: values.accountId,
@@ -204,40 +232,65 @@ export function NewTransactionPage() {
 				},
 				splitInputs
 			);
+		} catch (err) {
+			toast.error(err instanceof Error ? err.message : 'Could not save transaction.');
+			return;
+		}
 
-			const tagNames = values.tagsInput
-				.split(',')
-				.map((t) => t.trim())
-				.filter(Boolean);
-			if (tagNames.length > 0) {
+		// The transaction now exists. Anything that goes wrong from here is reported as exactly
+		// that — "saved, but…" — and the page moves on, because staying on the form invites a
+		// second submit and a duplicate.
+		const incomplete: string[] = [];
+
+		const tagNames = values.tagsInput
+			.split(',')
+			.map((t) => t.trim())
+			.filter(Boolean);
+		if (tagNames.length > 0) {
+			try {
 				const tags = await Promise.all(tagNames.map((n) => TagRepository.getOrCreate(key, n)));
 				await TransactionTagRepository.setTags(
 					tx.id,
 					tags.map((t) => t.id)
 				);
+			} catch {
+				incomplete.push('the tags');
 			}
+		}
 
-			// Spec 008, User Story 2 (FR-004): a shared image is attached only after the
-			// transaction itself saves successfully, reusing spec 005's exact validation/
-			// compression/storage path — an unsupported/oversized shared image does not
-			// block the save; it only fails to attach, with its own explanation.
-			if (sharedFile) {
-				const validation = validateAttachmentFile(sharedFile);
-				if (validation.ok) {
+		// Spec 008, User Story 2 (FR-004): a shared image is attached only after the
+		// transaction itself saves successfully, reusing spec 005's exact validation/
+		// compression/storage path — an unsupported/oversized shared image does not
+		// block the save; it only fails to attach, with its own explanation.
+		if (sharedFile) {
+			const validation = validateAttachmentFile(sharedFile);
+			if (validation.ok) {
+				try {
 					const compressed = await compressImage(sharedFile);
 					await AttachmentRepository.create(key, { transactionId: tx.id, ...compressed });
-				} else {
-					toast.error(
-						`Transaction saved, but the shared image couldn't be attached: ${validation.reason}`
-					);
+				} catch {
+					incomplete.push('the shared photo');
 				}
+			} else {
+				toast.error(
+					`Transaction saved, but the shared image couldn't be attached: ${validation.reason}`
+				);
 			}
-
-			toast.success('Transaction saved');
-			navigate('/transactions');
-		} catch (err) {
-			toast.error(err instanceof Error ? err.message : 'Could not save transaction.');
 		}
+
+		if (incomplete.length > 0) {
+			toast.warning(
+				`Transaction saved, but ${incomplete.join(' and ')} could not be added. Open the transaction to add ${incomplete.length > 1 ? 'them' : 'it'} again.`
+			);
+		} else {
+			toast.success('Transaction saved');
+		}
+		navigate('/transactions');
+	}
+
+	function removeSharedFile() {
+		setSharedFile(null);
+		setSharedFilePreviewUrl(null);
 	}
 
 	return (
@@ -252,10 +305,19 @@ export function NewTransactionPage() {
 							alt="Shared photo preview"
 							className="size-16 rounded-md object-cover"
 						/>
-						<div className="text-sm">
+						<div className="min-w-0 flex-1 text-sm">
 							<p className="font-medium">Shared photo</p>
-							<p className="text-muted-foreground">{sharedFile.name}</p>
+							<p className="truncate text-muted-foreground">{sharedFile.name}</p>
 						</div>
+						<Button
+							type="button"
+							variant="ghost"
+							size="icon-sm"
+							aria-label="Remove shared image"
+							onClick={removeSharedFile}
+						>
+							<Trash2 />
+						</Button>
 					</CardContent>
 				</Card>
 			)}
@@ -289,6 +351,15 @@ export function NewTransactionPage() {
 										{form.formState.errors.accountId.message}
 									</p>
 								)}
+								{accountsLoaded && accounts.length === 0 && (
+									<p className="text-xs text-muted-foreground">
+										You have no accounts yet.{' '}
+										<Link to="/accounts" className="underline underline-offset-2">
+											Add an account
+										</Link>{' '}
+										first.
+									</p>
+								)}
 							</div>
 							<div className="flex flex-col gap-1.5">
 								<Label htmlFor="type">Type</Label>
@@ -301,7 +372,20 @@ export function NewTransactionPage() {
 											onValueChange={(value) => {
 												if (isRoutedType(value)) {
 													const route = ROUTED_TYPES[value];
-													navigate(route.path, route.state ? { state: route.state } : undefined);
+													// Carry over what was already typed so switching screens does not
+													// throw it away.
+													const typed = form.getValues();
+													const carried =
+														route.path === '/transactions/transfer'
+															? {
+																	...route.state,
+																	...(isPositiveMoney(typed.amount)
+																		? { amount: typed.amount }
+																		: {}),
+																	...(typed.notes.trim() ? { notes: typed.notes.trim() } : {})
+																}
+															: route.state;
+													navigate(route.path, carried ? { state: carried } : undefined);
 													return;
 												}
 												field.onChange(value);
@@ -390,8 +474,19 @@ export function NewTransactionPage() {
 								<Plus className="size-3.5" /> Add split
 							</Button>
 							<p className="mt-1 text-xs text-muted-foreground">
-								Leave blank to record the full amount uncategorized.
+								Choose one category to file the whole amount under it, or split it across several.
+								Leave blank to record it uncategorized.
 							</p>
+							{allocated > 0 && totalMinor > 0 && (
+								<p className="mt-1 text-xs text-muted-foreground">
+									Allocated {formatMoney(allocated)} of {formatMoney(totalMinor)}
+								</p>
+							)}
+							{splitError && (
+								<p role="alert" className="mt-1 text-sm text-destructive">
+									{splitError}
+								</p>
+							)}
 						</fieldset>
 
 						<div className="flex flex-col gap-1.5">
@@ -417,9 +512,19 @@ export function NewTransactionPage() {
 							<Textarea id="notes" {...form.register('notes')} />
 						</div>
 
-						<Button type="submit" disabled={form.formState.isSubmitting}>
-							{form.formState.isSubmitting ? 'Saving…' : 'Save transaction'}
-						</Button>
+						<div className="flex flex-wrap items-center gap-3">
+							<Button type="submit" disabled={form.formState.isSubmitting}>
+								{form.formState.isSubmitting ? 'Saving…' : 'Save transaction'}
+							</Button>
+							<Button
+								type="button"
+								variant="ghost"
+								disabled={form.formState.isSubmitting}
+								onClick={() => navigate('/transactions')}
+							>
+								Cancel
+							</Button>
+						</div>
 					</form>
 				</CardContent>
 			</Card>

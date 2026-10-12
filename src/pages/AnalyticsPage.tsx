@@ -33,6 +33,7 @@ import {
 	type NetWorthTrendPoint
 } from '../domain/analytics/analyticsEngine';
 import { todayLocalISO } from '../domain/shared/dateMath';
+import { formatMoney } from '../domain/shared/money';
 
 Chart.register(
 	BarController,
@@ -45,13 +46,6 @@ Chart.register(
 	Tooltip,
 	Legend
 );
-
-function formatMoney(paise: number): string {
-	return (paise / 100).toLocaleString(undefined, {
-		minimumFractionDigits: 2,
-		maximumFractionDigits: 2
-	});
-}
 
 function defaultRange(): DateRange {
 	const now = new Date();

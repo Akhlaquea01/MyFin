@@ -1,11 +1,14 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
-const plugin = vi.hoisted(() => ({
-	checkPermissions: vi.fn(),
-	requestPermissions: vi.fn(),
-	createChannel: vi.fn(),
-	schedule: vi.fn()
-}));
+const plugin = vi.hoisted(
+	() =>
+		({
+			checkPermissions: vi.fn(),
+			requestPermissions: vi.fn(),
+			createChannel: vi.fn(),
+			schedule: vi.fn()
+		}) as Record<string, ReturnType<typeof vi.fn>>
+);
 const platform = vi.hoisted(() => ({ native: false }));
 
 vi.mock('@capacitor/local-notifications', () => ({ LocalNotifications: plugin }));
@@ -15,9 +18,13 @@ vi.mock('../../src/lib/native/platform', () => ({
 }));
 
 import {
+	BACKUP_REMINDER_TAG,
+	cancelBackupReminder,
 	getNotifyPermission,
 	notificationId,
+	onNotificationTapped,
 	requestNotifyPermission,
+	scheduleBackupReminder,
 	showNotification
 } from '../../src/lib/notify';
 
@@ -139,5 +146,66 @@ describe('notificationId', () => {
 
 	it('differs between different reminders', () => {
 		expect(notificationId('recurring:1')).not.toBe(notificationId('recurring:2'));
+	});
+});
+
+describe('notify — tap routes and the backup reminder', () => {
+	beforeEach(() => {
+		vi.resetAllMocks();
+		platform.native = true;
+		plugin.createChannel.mockResolvedValue(undefined);
+		plugin.schedule.mockResolvedValue({ notifications: [] });
+	});
+
+	it('attaches the route to an immediate notification only when one is given', async () => {
+		await showNotification('Rent due', 'Tomorrow', 'recurring:1', '/recurring/upcoming');
+		const { notifications } = plugin.schedule.mock.calls[0][0];
+		expect(notifications[0].extra).toEqual({ route: '/recurring/upcoming' });
+		expect(notifications[0]).not.toHaveProperty('schedule');
+	});
+
+	it('schedules the weekly backup reminder with fixed, content-free text', async () => {
+		const at = new Date('2026-10-19T09:00:00Z');
+		expect(await scheduleBackupReminder(at)).toBe(true);
+		const { notifications } = plugin.schedule.mock.calls[0][0];
+		expect(notifications).toHaveLength(1);
+		expect(notifications[0]).toMatchObject({
+			id: notificationId(BACKUP_REMINDER_TAG),
+			schedule: { at, repeats: true, every: 'week' },
+			extra: { route: '/backup' }
+		});
+		// Nothing about the user's money is ever handed to the OS scheduler.
+		expect(`${notifications[0].title} ${notifications[0].body}`).not.toMatch(/\d{2,}|₹|Rs/);
+	});
+
+	it('does nothing outside the Android app', async () => {
+		platform.native = false;
+		expect(await scheduleBackupReminder(new Date())).toBe(false);
+		await cancelBackupReminder();
+		expect(plugin.schedule).not.toHaveBeenCalled();
+	});
+
+	it('cancels by the same stable id', async () => {
+		plugin.cancel = vi.fn().mockResolvedValue(undefined);
+		await cancelBackupReminder();
+		expect(plugin.cancel).toHaveBeenCalledWith({
+			notifications: [{ id: notificationId(BACKUP_REMINDER_TAG) }]
+		});
+	});
+
+	it('hands a tapped notification’s route to the app, ignoring anything that is not an app path', async () => {
+		let listener: (action: { notification: { extra?: unknown } }) => void = () => {};
+		plugin.addListener = vi.fn(async (_name: string, cb: typeof listener) => {
+			listener = cb;
+			return { remove: vi.fn() };
+		});
+		const seen: string[] = [];
+		await onNotificationTapped((route) => seen.push(route));
+
+		listener({ notification: { extra: { route: '/budgets' } } });
+		listener({ notification: { extra: { route: 'https://evil.example' } } });
+		listener({ notification: {} });
+
+		expect(seen).toEqual(['/budgets']);
 	});
 });

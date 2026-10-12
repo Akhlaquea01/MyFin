@@ -65,7 +65,7 @@ test('pasting the same message twice warns, and "Add anyway" saves it flagged as
 	await pasteAndParse(page, message, 'Checking');
 	await page.getByRole('button', { name: 'Confirm & add to review queue' }).click();
 	await expect(page.getByText('This looks like something you already have.')).toBeVisible();
-	await expect(page.getByText(/250\.00.*SWIGGY.*waiting in Review/)).toBeVisible();
+	await expect(page.getByText(/₹250\.00.*SWIGGY.*waiting in Review/)).toBeVisible();
 	await expect(page.getByRole('heading', { name: 'Quick Add' })).toBeVisible(); // nothing saved yet
 
 	// Changing the amount makes the warning irrelevant, so it goes away.

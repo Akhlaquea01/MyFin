@@ -5,6 +5,7 @@
 // (FR-021) rather than guess.
 
 import { parseMoneyToMinorUnits } from '../shared/money';
+import { parseDateFromText } from './dateText';
 
 export type ParsedType = 'income' | 'expense' | null;
 
@@ -13,6 +14,9 @@ export interface ParsedCandidate {
 	amount: number | null;
 	merchantText: string | null;
 	type: ParsedType;
+	/** A date the message states ("12/10/2026", "12-Oct-26"), day-first, or null — callers fall
+	 *  back to today. Does not affect confidence: most bank messages state none. */
+	date: string | null;
 	confidence: number; // 0..1
 }
 
@@ -101,7 +105,7 @@ export function parseQuickAddText(rawText: string): ParsedCandidate {
 	if (type !== null) confidence += 0.3;
 	if (merchantText !== null) confidence += 0.2;
 
-	return { amount, merchantText, type, confidence };
+	return { amount, merchantText, type, date: parseDateFromText(text), confidence };
 }
 
 export function isConfident(candidate: ParsedCandidate): boolean {

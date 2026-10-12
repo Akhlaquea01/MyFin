@@ -1,4 +1,4 @@
-import type { Page } from '@playwright/test';
+import { expect, type Page } from '@playwright/test';
 
 /**
  * Deletes the persisted session handle (spec 009) so the next load goes through the lock
@@ -42,4 +42,34 @@ export async function clearSessionKey(page: Page): Promise<void> {
 export async function lockAndReload(page: Page): Promise<void> {
 	await clearSessionKey(page);
 	await page.reload();
+}
+
+/**
+ * Presses the action button of the app's own confirmation dialog (it replaced the browser's
+ * `window.confirm`, so Playwright's `page.on('dialog')` no longer sees it). Optionally checks what
+ * the dialog says first.
+ */
+export async function acceptConfirm(page: Page, text?: string | RegExp): Promise<void> {
+	const dialog = page.getByRole('alertdialog');
+	if (text !== undefined) await expect(dialog).toContainText(text);
+	await dialog.locator('[data-slot="alert-dialog-action"]').click();
+	await expect(dialog).not.toBeVisible();
+}
+
+/** Presses Cancel on the confirmation dialog. */
+export async function dismissConfirm(page: Page, text?: string | RegExp): Promise<void> {
+	const dialog = page.getByRole('alertdialog');
+	if (text !== undefined) await expect(dialog).toContainText(text);
+	await dialog.locator('[data-slot="alert-dialog-cancel"]').click();
+	await expect(dialog).not.toBeVisible();
+}
+
+/**
+ * For tests that confirm many prompts in a row and do not care about each one: answers every
+ * confirmation dialog that appears with its action button.
+ */
+export async function autoAcceptConfirms(page: Page): Promise<void> {
+	await page.addLocatorHandler(page.getByRole('alertdialog'), async (dialog) => {
+		await dialog.locator('[data-slot="alert-dialog-action"]').click();
+	});
 }

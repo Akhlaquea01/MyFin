@@ -65,6 +65,33 @@ describe('Bulk text import (User Story 4)', () => {
 		expect(transactions.some((tx) => tx.duplicateOfId !== null)).toBe(true);
 	});
 
+	it('files a line on the date it states, and dates one that states none as today', async () => {
+		const fileText = [
+			'Rs.500.00 debited from A/c XX1234 on 05-Jan-26 to AMAZON',
+			'Rs.80 debited at Cafe'
+		].join('\n');
+
+		await importBulkText(key, fileText, accountId);
+
+		const transactions = await TransactionRepository.search(key, { accountId });
+		const dated = transactions.find((tx) => tx.amount === -500_00)!;
+		const undated = transactions.find((tx) => tx.amount === -80_00)!;
+		expect(dated.date).toBe('2026-01-05');
+		expect(undated.date).not.toBe('2026-01-05');
+	});
+
+	it('judges duplicates against each line’s own date, not today’s', async () => {
+		const line = 'Rs.300 debited at Cafe on 05-Jan-26';
+
+		await importBulkText(key, line, accountId);
+		const sameDay = await importBulkText(key, line, accountId);
+		expect(sameDay.flaggedDuplicates).toHaveLength(1);
+
+		// Same amount, but months apart: two genuine purchases, not a duplicate.
+		const later = await importBulkText(key, 'Rs.300 debited at Cafe on 05-Mar-26', accountId);
+		expect(later.flaggedDuplicates).toHaveLength(0);
+	});
+
 	it('ignores blank lines', async () => {
 		const fileText = ['', 'Rs.50 debited at Shop', '', ''].join('\n');
 		const result = await importBulkText(key, fileText, accountId);

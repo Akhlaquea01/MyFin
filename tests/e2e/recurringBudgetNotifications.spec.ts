@@ -47,7 +47,7 @@ async function unlock(page: Page, pin: string) {
 
 function tomorrowWeekday(): number {
 	const d = new Date();
-	return (d.getUTCDay() + 1) % 7;
+	return (d.getDay() + 1) % 7;
 }
 
 test('recurring reminder fires once per occurrence, then stays silent on the next unlock', async ({
@@ -310,7 +310,7 @@ test('a widened reminder lead time picks up a previously out-of-window event', a
 	await expect(categoryDialog).not.toBeVisible();
 
 	// Due in 2 days: outside the old 1-day default, inside the new 3-day lead time.
-	const twoDaysFromNow = (new Date().getUTCDay() + 2) % 7;
+	const twoDaysFromNow = (new Date().getDay() + 2) % 7;
 	await page.getByRole('link', { name: 'Recurring', exact: true }).click();
 	await page.getByRole('button', { name: 'Add rule' }).click();
 	const ruleDialog = page.getByRole('dialog');

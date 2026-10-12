@@ -1,6 +1,7 @@
 import { incomeExpenseTrend, categoryBreakdown } from '../analytics/analyticsEngine';
 import { NetWorthSnapshotRepository } from '../../data/dexie/wealthRepository';
 import { resolveReportPeriodRange, buildReportSummary, type ReportPeriod, type ReportSummary } from './reportEngine';
+import { todayLocalISO } from '../shared/dateMath';
 
 /**
  * Builds a full ReportSummary for a user-chosen period. Every figure comes from the existing
@@ -25,7 +26,7 @@ export async function generateReportSummary(
 	return buildReportSummary({
 		period,
 		range,
-		today: new Date().toISOString().slice(0, 10),
+		today: todayLocalISO(),
 		income,
 		expense,
 		categoryBreakdown: breakdown,

@@ -3,14 +3,16 @@ import { RecurringRepository, ExpectedEventRepository } from '../../data/dexie/r
 import { TransactionRepository } from '../../data/dexie/transactionRepository';
 import { generateExpectedEvents } from '../recurring/recurringEngine';
 import type { BalanceForecast, ForecastHorizonDays, ForecastPoint, ForecastWarning } from './types';
+import { todayLocalISO } from '../shared/dateMath';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const DRIFT_LOOKBACK_DAYS = 90;
 const MIN_EVENTS_FOR_CONFIDENCE = 2;
 const MIN_TRANSACTIONS_FOR_CONFIDENCE = 10;
 
+/** The user's local calendar date for the instant `d`. */
 function toDateOnly(d: Date): string {
-	return d.toISOString().slice(0, 10);
+	return todayLocalISO(d);
 }
 
 /**

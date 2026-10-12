@@ -30,21 +30,12 @@ import { AccountRepository } from '../data/dexie/accountRepository';
 import { CategoryRepository } from '../data/dexie/categoryRepository';
 import { RecurringRepository } from '../data/dexie/recurringRepository';
 import type { Account, Category, RecurringFrequency, RecurringRule } from '../domain/entities';
-import { isPositiveMoney, parseMoneyOrZero, formatMinorUnits } from '../domain/shared/money';
+import { isPositiveMoney, parseMoneyOrZero, formatMoney } from '../domain/shared/money';
 import { categoryOptions } from '../domain/categories/categoryHierarchy';
 import { buildCategoryLabels } from '../domain/categories/categoryHierarchy';
-
-/**
- * Valid `dayOfPeriod` range per frequency, matching what recurringEngine actually does with
- * the value. Weekly starts at 0 because the engine reads it as `dayOfPeriod % 7` against
- * `getUTCDay()`, where 0 is Sunday — the previous blanket `> 0` rule made Sunday unreachable
- * and, because this field rendered no error, simply refused to submit with nothing shown.
- */
-const DAY_RANGE: Record<RecurringFrequency, { min: number; max: number; hint: string }> = {
-	weekly: { min: 0, max: 6, hint: 'Day of week, 0 (Sunday) to 6 (Saturday).' },
-	monthly: { min: 1, max: 31, hint: 'Day of month, 1 to 31.' },
-	yearly: { min: 1, max: 366, hint: 'Day of year, 1 to 366.' }
-};
+// The valid `dayOfPeriod` range per frequency lives with the engine's other recurring rules, so
+// this page and the Review screen's "Mark as recurring" dialog cannot disagree about it.
+import { DAY_RANGE } from '../domain/recurring/recurringDay';
 
 const ruleSchema = z
 	.object({
@@ -327,7 +318,7 @@ export function RecurringPage() {
 										}
 									>
 										{rule.amount < 0 ? '-' : '+'}
-										{formatMinorUnits(Math.abs(rule.amount))}
+										{formatMoney(Math.abs(rule.amount))}
 									</span>
 									<Badge variant={rule.isActive ? 'secondary' : 'outline'}>
 										{rule.isActive ? 'Active' : 'Paused'}

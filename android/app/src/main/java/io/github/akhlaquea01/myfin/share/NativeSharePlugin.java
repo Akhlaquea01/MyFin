@@ -19,10 +19,11 @@ import com.getcapacitor.annotation.CapacitorPlugin;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.Locale;
 
 /**
  * Receives what other apps share into MyFin through Android's share sheet (text such as a bank
- * SMS, or an image such as a receipt). The PWA does this with a service worker, which does not
+ * SMS, an image such as a receipt, or a CSV/Excel bank statement). The PWA does this with a service worker, which does not
  * exist inside the Android app, so the share arrives here as an ACTION_SEND intent instead.
  *
  * The share is held in memory only — never written to disk — until the web layer takes it with
@@ -34,6 +35,9 @@ import java.io.InputStream;
 public class NativeSharePlugin extends Plugin {
     /** Larger than any receipt photo worth keeping; the web layer compresses what it accepts. */
     private static final long MAX_IMAGE_BYTES = 10L * 1024L * 1024L;
+
+    /** The import screen refuses files above this size anyway; stop reading well before memory hurts. */
+    private static final long MAX_STATEMENT_BYTES = 10L * 1024L * 1024L;
 
     /**
      * Set by MainActivity when it is being recreated after the system killed it. The intent it
@@ -91,9 +95,15 @@ public class NativeSharePlugin extends Plugin {
         if (taken.text != null) payload.put("text", taken.text);
         if (taken.subject != null) payload.put("subject", taken.subject);
         if (taken.stream != null) {
-            ImageRead image = readImage(taken.stream, taken.mimeType);
-            if (image.payload != null) payload.put("image", image.payload);
-            else payload.put("imageProblem", image.problem);
+            if (isStatementType(taken.mimeType)) {
+                ImageRead file = readStatement(taken.stream, taken.mimeType);
+                if (file.payload != null) payload.put("file", file.payload);
+                else payload.put("fileProblem", file.problem);
+            } else {
+                ImageRead image = readImage(taken.stream, taken.mimeType);
+                if (image.payload != null) payload.put("image", image.payload);
+                else payload.put("imageProblem", image.problem);
+            }
         }
         result.put("pending", true);
         result.put("payload", payload);
@@ -109,7 +119,8 @@ public class NativeSharePlugin extends Plugin {
         CharSequence text = intent.getCharSequenceExtra(Intent.EXTRA_TEXT);
         CharSequence subject = intent.getCharSequenceExtra(Intent.EXTRA_SUBJECT);
         String type = intent.getType();
-        Uri stream = type != null && type.startsWith("image/") ? streamOf(intent) : null;
+        boolean hasFile = type != null && (type.startsWith("image/") || isStatementType(type));
+        Uri stream = hasFile ? streamOf(intent) : null;
         if (text == null && subject == null && stream == null) return false;
 
         synchronized (this) {
@@ -120,6 +131,17 @@ public class NativeSharePlugin extends Plugin {
                     type);
         }
         return true;
+    }
+
+    /** CSV and Excel files — what a bank's "download statement" produces. */
+    private static boolean isStatementType(String type) {
+        if (type == null) return false;
+        String t = type.toLowerCase(Locale.ROOT);
+        return t.equals("text/csv")
+                || t.equals("text/comma-separated-values")
+                || t.equals("application/csv")
+                || t.equals("application/vnd.ms-excel")
+                || t.equals("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
     }
 
     private static Uri streamOf(Intent intent) {
@@ -162,7 +184,7 @@ public class NativeSharePlugin extends Plugin {
                         : "image/jpeg";
             }
             JSObject image = new JSObject();
-            image.put("name", displayName(resolver, uri));
+            image.put("name", displayName(resolver, uri, "shared-image"));
             image.put("mimeType", type);
             image.put("base64", Base64.encodeToString(bytes.toByteArray(), Base64.NO_WRAP));
             return new ImageRead(image, null);
@@ -171,7 +193,38 @@ public class NativeSharePlugin extends Plugin {
         }
     }
 
-    private static String displayName(ContentResolver resolver, Uri uri) {
+    /** Reads a shared CSV/Excel file. The file name matters: the import screen tells Excel from CSV by extension. */
+    private ImageRead readStatement(Uri uri, String declaredType) {
+        ContentResolver resolver = getContext().getContentResolver();
+        try (InputStream input = resolver.openInputStream(uri)) {
+            if (input == null) return new ImageRead(null, "unreadable");
+            ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+            byte[] buffer = new byte[16 * 1024];
+            long total = 0;
+            int read;
+            while ((read = input.read(buffer)) != -1) {
+                total += read;
+                if (total > MAX_STATEMENT_BYTES) return new ImageRead(null, "too-large");
+                bytes.write(buffer, 0, read);
+            }
+
+            String type = resolver.getType(uri);
+            if (!isStatementType(type)) type = declaredType;
+            boolean excel = type != null && type.toLowerCase(Locale.ROOT).contains("spreadsheetml");
+            String name = displayName(resolver, uri, excel ? "statement.xlsx" : "statement.csv");
+            if (excel && !name.toLowerCase(Locale.ROOT).endsWith(".xlsx")) name = name + ".xlsx";
+
+            JSObject file = new JSObject();
+            file.put("name", name);
+            file.put("mimeType", type == null ? "text/csv" : type);
+            file.put("base64", Base64.encodeToString(bytes.toByteArray(), Base64.NO_WRAP));
+            return new ImageRead(file, null);
+        } catch (IOException | RuntimeException e) {
+            return new ImageRead(null, "unreadable");
+        }
+    }
+
+    private static String displayName(ContentResolver resolver, Uri uri, String fallback) {
         try (Cursor cursor = resolver.query(uri, new String[] {OpenableColumns.DISPLAY_NAME}, null, null, null)) {
             if (cursor != null && cursor.moveToFirst()) {
                 String name = cursor.getString(0);
@@ -180,6 +233,6 @@ public class NativeSharePlugin extends Plugin {
         } catch (RuntimeException ignored) {
             // Fall through to the generic name.
         }
-        return "shared-image";
+        return fallback;
     }
 }

@@ -64,8 +64,8 @@ test('credit card limit, utilization, and over-limit flag', async ({ page }) => 
 	// FR-002/SC-001: used/available/utilization visible on the card with no further navigation.
 	await addExpense(page, 'HDFC Card', '35000');
 	await goTo(page, 'Accounts', 'Accounts');
-	await expect(card.getByText('Used 35,000.00')).toBeVisible();
-	await expect(card.getByText('Available 65,000.00')).toBeVisible();
+	await expect(card.getByText('Used ₹35,000.00')).toBeVisible();
+	await expect(card.getByText('Available ₹65,000.00')).toBeVisible();
 	await expect(card.getByText('35% utilized')).toBeVisible();
 
 	// FR-003: crossing the 90% threshold flags high utilization.
@@ -109,7 +109,7 @@ test('pay a credit card bill in one step', async ({ page }) => {
 
 	const hdfcCard = page.locator('[data-slot="card"]').filter({ hasText: 'HDFC Card' });
 	const checkingCard = page.locator('[data-slot="card"]').filter({ hasText: 'Checking' });
-	await expect(hdfcCard.getByText('Used 40,000.00')).toBeVisible();
+	await expect(hdfcCard.getByText('Used ₹40,000.00')).toBeVisible();
 
 	// FR-015: "Pay bill" is offered only on credit-card accounts.
 	await checkingCard.getByRole('button', { name: 'Checking actions' }).click();
@@ -136,8 +136,8 @@ test('pay a credit card bill in one step', async ({ page }) => {
 
 	// FR-018: card utilization reflects the payment immediately, no extra navigation beyond
 	// the one already-required trip back to Accounts.
-	await expect(hdfcCard.getByText('Used 20,000.00')).toBeVisible();
-	await expect(hdfcCard.getByText('Available 80,000.00')).toBeVisible();
+	await expect(hdfcCard.getByText('Used ₹20,000.00')).toBeVisible();
+	await expect(hdfcCard.getByText('Available ₹80,000.00')).toBeVisible();
 	await expect(hdfcCard.getByText('20% utilized')).toBeVisible();
 
 	// spec Edge Cases: overpayment is not blocked; utilization clamps to 0 used / 100% available.
@@ -150,8 +150,8 @@ test('pay a credit card bill in one step', async ({ page }) => {
 	await expect(page.getByRole('heading', { name: 'Transactions' })).toBeVisible();
 
 	await goTo(page, 'Accounts', 'Accounts');
-	await expect(hdfcCard.getByText('Used 0.00')).toBeVisible();
-	await expect(hdfcCard.getByText('Available 100,000.00')).toBeVisible();
+	await expect(hdfcCard.getByText('Used ₹0.00')).toBeVisible();
+	await expect(hdfcCard.getByText('Available ₹100,000.00')).toBeVisible();
 	await expect(hdfcCard.getByText('0% utilized')).toBeVisible();
 	await expect(hdfcCard.getByText('Over limit')).toHaveCount(0);
 	await expect(hdfcCard.getByText('High utilization')).toHaveCount(0);

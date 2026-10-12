@@ -3,7 +3,7 @@ import {
 	TransactionRepository,
 	UNCATEGORIZED_CATEGORY_ID
 } from '../../data/dexie/transactionRepository';
-import { todayLocalISO } from '../shared/dateMath';
+import { localDateAsUtc, todayLocalISO } from '../shared/dateMath';
 import type {
 	RecurringRule,
 	RecurringFrequency,
@@ -97,7 +97,7 @@ export async function generateExpectedEvents(
 	const existingDates = new Set(existing.map((e) => e.expectedDate));
 
 	const created: ExpectedEvent[] = [];
-	let cursor = nextOccurrenceOnOrAfter(rule, fromDate);
+	let cursor = nextOccurrenceOnOrAfter(rule, localDateAsUtc(fromDate));
 	let guard = 0;
 	while (cursor <= throughDate && guard < 200) {
 		guard++;
@@ -236,7 +236,7 @@ export async function rematchTransaction(
 /** Flags pending events whose due date has passed as missed (FR-031). */
 export async function markMissedPastDue(key: CryptoKey, asOf: Date = new Date()): Promise<number> {
 	const pending = await ExpectedEventRepository.listPending(key);
-	const cutoff = toDateOnly(asOf);
+	const cutoff = todayLocalISO(asOf);
 	let count = 0;
 	for (const event of pending) {
 		if (event.expectedDate < cutoff) {

@@ -22,6 +22,22 @@ describe('resolveShareDestination', () => {
 		expect(resolveShareDestination({ sharedText: 'caption', file })?.to).toBe('/transactions/new');
 	});
 
+	it('sends a shared bank statement to Import', () => {
+		const statement = new File(['date,amount'], 'statement.csv', { type: 'text/csv' });
+		expect(resolveShareDestination({ sharedText: null, file: null, statement })).toEqual({
+			to: '/import',
+			state: { sharedFile: statement }
+		});
+	});
+
+	it('prefers a photo over a statement, and a statement over loose text', () => {
+		const statement = new File(['x'], 'statement.csv', { type: 'text/csv' });
+		expect(resolveShareDestination({ sharedText: 't', file, statement })?.to).toBe(
+			'/transactions/new'
+		);
+		expect(resolveShareDestination({ sharedText: 't', file: null, statement })?.to).toBe('/import');
+	});
+
 	it('has nowhere to send an empty share', () => {
 		expect(resolveShareDestination({ sharedText: null, file: null })).toBeNull();
 		expect(resolveShareDestination({ sharedText: '', file: null })).toBeNull();
@@ -32,8 +48,19 @@ describe('sharedPayloadFromNative', () => {
 	it('uses the text', () => {
 		expect(sharedPayloadFromNative({ text: 'Rs.5 debited' })).toEqual({
 			sharedText: 'Rs.5 debited',
-			file: null
+			file: null,
+			statement: null
 		});
+	});
+
+	it('turns a shared statement into a File of its own kind, separate from a photo', () => {
+		const payload = sharedPayloadFromNative({
+			file: { name: 'statement.csv', mimeType: 'text/csv', base64: btoa('date,amount') }
+		});
+		expect(payload.file).toBeNull();
+		expect(payload.statement).toBeInstanceOf(File);
+		expect(payload.statement?.name).toBe('statement.csv');
+		expect(payload.statement?.type).toBe('text/csv');
 	});
 
 	it('falls back to the subject when there is no text', () => {
@@ -57,7 +84,7 @@ describe('sharedPayloadFromNative', () => {
 
 	it('has neither text nor file for a share that only reports an image problem', () => {
 		const payload = sharedPayloadFromNative({ imageProblem: 'too-large' });
-		expect(payload).toEqual({ sharedText: null, file: null });
+		expect(payload).toEqual({ sharedText: null, file: null, statement: null });
 		expect(resolveShareDestination(payload)).toBeNull();
 	});
 });
