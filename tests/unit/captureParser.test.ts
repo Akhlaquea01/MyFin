@@ -17,6 +17,21 @@ const note = (title: string, body: string): CapturePayload => ({
 });
 
 describe('parseCapturedMessage', () => {
+	it('reads an Axis Bank UPI P2M debit written on separate lines', () => {
+		const parsed = parseCapturedMessage(
+			sms(
+				'INR 97.00 debited\nA/c no. XX0146\n12-10-26, 19:29:33\nUPI/P2M/548275113159/MDMAHFOOZ\nNot you? SMS BLOCKUPI Cust ID to 919951860002\nAxis Bank'
+			)
+		);
+		expect(parsed).toMatchObject({
+			amount: 9700,
+			type: 'expense',
+			accountTail: '0146',
+			merchantText: 'MDMAHFOOZ',
+			txnDate: '2026-10-12'
+		});
+	});
+
 	it('reads a UPI debit: amount, tail, merchant, date and reference', () => {
 		const parsed = parseCapturedMessage(
 			sms('Sent Rs.250.00 From HDFC Bank A/C *1234 To SWIGGY On 05/10/26 Ref 628123456789')

@@ -31,6 +31,31 @@ describe('classifyMessage — accepts completed money movements', () => {
 	it('accepts a payment-app notification built from title and body', () => {
 		expect(classifyMessage(note('Paid ₹250', 'Paid ₹250.00 to Swiggy'))).toEqual({ ok: true });
 	});
+
+	// The same alert reaches the phone from the bank, forwarded from a contact, or over RCS (which
+	// only shows up as a messaging app's notification).
+	const axisUpiDebit =
+		'INR 97.00 debited\nA/c no. XX0146\n12-10-26, 19:29:33\nUPI/P2M/548275113159/MDMAHFOOZ\nNot you? SMS BLOCKUPI Cust ID to 919951860002\nAxis Bank';
+
+	it.each([
+		['from the bank', 'AX-AXISBK-S'],
+		['from a phone number', '+919876543210'],
+		['from a phone number without a country code', '09876543210']
+	])('accepts an Axis Bank UPI debit SMS %s', (_label, sender) => {
+		expect(classifyMessage(sms(axisUpiDebit, sender))).toEqual({ ok: true });
+	});
+
+	it('accepts an Axis Bank UPI debit seen as a messaging-app notification', () => {
+		expect(
+			classifyMessage({
+				channel: 'notification',
+				sender: 'Google Messages',
+				title: 'Ashfaque bro',
+				body: axisUpiDebit,
+				receivedAt: Date.UTC(2026, 9, 12, 14, 47)
+			})
+		).toEqual({ ok: true });
+	});
 });
 
 describe('classifyMessage — rejects things that are not a completed transaction', () => {
@@ -72,6 +97,9 @@ describe('classifyMessage — rejects things that are not a completed transactio
 			ok: false,
 			reason: 'personal-sender'
 		});
+		expect(
+			classifyMessage(sms('Sent 500 rupees via UPI, ref 548275113159', '09876543210'))
+		).toEqual({ ok: false, reason: 'personal-sender' });
 	});
 
 	it('rejects a message over 1000 characters', () => {

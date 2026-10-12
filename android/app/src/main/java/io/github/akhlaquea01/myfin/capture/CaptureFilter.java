@@ -32,6 +32,14 @@ public final class CaptureFilter {
 
     private static final Pattern DIGIT = Pattern.compile("\\d");
 
+    // A currency-marked amount ("INR 97.00", "Rs.500", "₹97").
+    private static final Pattern CURRENCY_AMOUNT = Pattern.compile(
+            "(?:\\b(?:rs\\.?|inr)|\u20B9)\\s*\\d", Pattern.CASE_INSENSITIVE);
+
+    // "A/c no. XX0146", "Acct XX987", "Card ending 5678": the account digits a bank alert names.
+    private static final Pattern ACCOUNT_OR_CARD = Pattern.compile(
+            "\\b(?:a/?c|acct?|account|card)\\b[^0-9]{0,15}\\d{3,}", Pattern.CASE_INSENSITIVE);
+
     /**
      * Payment and banking apps whose notifications are read. Everything else is ignored without
      * even looking at its text. The values are the names shown to the user. Package names change
@@ -56,11 +64,33 @@ public final class CaptureFilter {
         PAYMENT_APPS = Collections.unmodifiableMap(apps);
     }
 
+    /**
+     * Messaging apps whose notifications are read as a second way to see a bank message: a bank
+     * alert that reaches the phone over RCS (or from a number the SMS receiver skips) never fires
+     * the SMS broadcast, but the app still posts a notification. Their notifications also carry
+     * personal chats, so unlike {@link #PAYMENT_APPS} they are held to {@link #looksLikeBankAlert}.
+     */
+    private static final Map<String, String> MESSAGING_APPS;
+
+    static {
+        Map<String, String> apps = new HashMap<>();
+        apps.put("com.google.android.apps.messaging", "Google Messages");
+        apps.put("com.samsung.android.messaging", "Samsung Messages");
+        apps.put("com.android.mms", "Messages");
+        apps.put("com.android.messaging", "Messages");
+        MESSAGING_APPS = Collections.unmodifiableMap(apps);
+    }
+
     private CaptureFilter() {}
 
     /** The user-facing name of an app whose notifications are read, or null for any other app. */
     public static String paymentAppName(String packageName) {
         return packageName == null ? null : PAYMENT_APPS.get(packageName);
+    }
+
+    /** The user-facing name of a messaging app whose notifications are read, or null. */
+    public static String messagingAppName(String packageName) {
+        return packageName == null ? null : MESSAGING_APPS.get(packageName);
     }
 
     /** A sender that is only a phone number is a person, not a bank. */
@@ -79,7 +109,19 @@ public final class CaptureFilter {
         return TRANSACTION_VERB.matcher(lower).find() && DIGIT.matcher(lower).find();
     }
 
+    /**
+     * Stricter than {@link #looksLikeTransaction}, for sources that also carry personal chat (a
+     * number-sender SMS, a messaging app's notification): the text must read like a bank alert,
+     * with a currency amount and the account or card digits it is about.
+     */
+    public static boolean looksLikeBankAlert(String text) {
+        return looksLikeTransaction(text)
+                && CURRENCY_AMOUNT.matcher(text).find()
+                && ACCOUNT_OR_CARD.matcher(text).find();
+    }
+
     public static boolean isCandidateSms(String sender, String body) {
-        return !isPersonalSender(sender) && looksLikeTransaction(body);
+        // A bank alert forwarded from, or sent by, a phone number is still a bank alert.
+        return isPersonalSender(sender) ? looksLikeBankAlert(body) : looksLikeTransaction(body);
     }
 }

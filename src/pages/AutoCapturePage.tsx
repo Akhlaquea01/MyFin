@@ -242,10 +242,11 @@ export function AutoCapturePage() {
 				</CardHeader>
 				<CardContent className="flex flex-col gap-2 text-sm text-muted-foreground">
 					<p>
-						MyFin keeps only messages that look like completed transactions, and from payment apps
-						only. One-time codes, offers, balance alerts and everyone else's messages are ignored
-						and never stored. Each message is locked on arrival and can only be opened after you
-						unlock MyFin, so nothing readable is kept while the app is locked.
+						MyFin keeps only messages that look like completed bank transactions: from your bank, a
+						payment app, or a bank alert in your messages app. One-time codes, offers, balance
+						alerts and everyone else's messages are ignored and never stored. Each message is locked
+						on arrival and can only be opened after you unlock MyFin, so nothing readable is kept
+						while the app is locked.
 					</p>
 					<p>Nothing leaves your phone.</p>
 				</CardContent>
@@ -294,8 +295,8 @@ export function AutoCapturePage() {
 						)}
 					</div>
 					<p className="-mt-2 text-xs text-muted-foreground">
-						Lets MyFin see notifications from your payment and bank apps only. In Android's list,
-						switch on MyFin, then come back.
+						Lets MyFin see notifications from your payment, bank and messages apps, and keep only
+						the ones that look like bank alerts. In Android's list, switch on MyFin, then come back.
 					</p>
 
 					<div className="flex flex-wrap items-center justify-between gap-2">

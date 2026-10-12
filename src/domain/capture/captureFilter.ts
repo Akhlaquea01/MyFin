@@ -13,6 +13,12 @@ const MAX_MESSAGE_LENGTH = 1000;
 /** A sender that is just a phone number is a person, not a bank. */
 const PHONE_NUMBER_SENDER = /^\+?\d{8,}$/;
 
+// What a bank alert has and a friend's "paid you Rs 500" does not: a currency-marked amount and
+// the account or card digits it is about. Lets a bank alert through from a phone-number sender (a
+// forward, or a bank that texts from a number). Mirrors CaptureFilter.looksLikeBankAlert on Android.
+const CURRENCY_AMOUNT = /(?:\b(?:rs\.?|inr)|₹)\s*\d/i;
+const ACCOUNT_OR_CARD = /\b(?:a\/?c|acct?|account|card)\b[^0-9]{0,15}\d{3,}/i;
+
 const OTP =
 	/\botp\b|one[- ]?time (?:password|pin|passcode)|verification code|\bcvv\b|\bpasscode\b|do not share|don'?t share|never share/i;
 
@@ -37,7 +43,11 @@ export function classifyMessage(payload: CapturePayload): ClassifyResult {
 
 	if (text.length > MAX_MESSAGE_LENGTH) return { ok: false, reason: 'too-long' };
 
-	if (payload.channel === 'sms' && PHONE_NUMBER_SENDER.test(payload.sender.replace(/[\s-]/g, ''))) {
+	if (
+		payload.channel === 'sms' &&
+		PHONE_NUMBER_SENDER.test(payload.sender.replace(/[\s-]/g, '')) &&
+		!(CURRENCY_AMOUNT.test(text) && ACCOUNT_OR_CARD.test(text))
+	) {
 		return { ok: false, reason: 'personal-sender' };
 	}
 

@@ -201,7 +201,7 @@ sequenceDiagram
 | **Search leakage on encrypted fields** | Salted blind indexing prevents frequency analysis across payees and search tokens. |
 | **Phone stolen while locked, with bank messages already captured (APK)** | The queue holds only sealed boxes. The private key that opens them is itself encrypted with the PIN-derived key, so the queue is unreadable without the PIN. The "N new transactions" alert never shows an amount or merchant and is private on the lock screen. |
 | **Stale or invalidated fingerprint enrollment (APK)** | The Keystore key is invalidated when fingerprints change; a wrapped PIN that no longer opens is dropped and never counts as a wrong PIN attempt. The PIN always remains. |
-| **Unrelated personal messages reaching MyFin (APK)** | A coarse native filter drops anything that cannot be about money, personal-number senders and one-time codes before anything is stored; notifications are read only from a fixed list of payment/banking apps. |
+| **Unrelated personal messages reaching MyFin (APK)** | A coarse native filter drops anything that cannot be about money, one-time codes, and texts from personal numbers that do not read like a bank alert, before anything is stored; notifications are read only from a fixed list of payment/banking/messaging apps, and a messaging app's must also read like a bank alert. |
 
 ---
 
