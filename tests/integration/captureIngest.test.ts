@@ -183,6 +183,40 @@ describe('ingestCapturedMessages', () => {
 			expect(await balance(hdfc)).toBe(75_000);
 		});
 
+		it('files one entry when a messaging app shows the same bank alert the SMS receiver caught', async () => {
+			const axis = await AccountRepository.create(key, {
+				name: 'Axis',
+				type: 'bank',
+				openingBalance: 100_000,
+				creditLimit: null,
+				billingCycleDay: null,
+				accountLast4: '0146'
+			});
+			const alert =
+				'INR 97.00 debited\nA/c no. XX0146\n12-10-26, 19:29:33\nUPI/P2M/548275113159/MDMAHFOOZ\nNot you? SMS BLOCKUPI Cust ID to 919951860002\nAxis Bank';
+			const at = Date.UTC(2026, 9, 12, 14, 47); // 12 Oct 2026, 20:17 IST
+			const fromMessagesApp: IngestMessage = {
+				id: 'q-messages',
+				payload: {
+					channel: 'notification',
+					sender: 'Google Messages',
+					title: 'Ashfaque bro',
+					body: alert,
+					receivedAt: at
+				}
+			};
+
+			const report = await run([sms(alert, at + 2_000, '+919876543210'), fromMessagesApp]);
+
+			expect(report).toMatchObject({ created: 1, paired: 1, failed: 0 });
+			const [tx] = await unreviewed();
+			expect(tx).toMatchObject({ accountId: axis.id, amount: -9700, date: '2026-10-12' });
+			expect(tx.capture?.accountCheck).toBeNull();
+			expect((await MerchantRepository.list(key)).find((m) => m.id === tx.merchantId)?.name).toBe(
+				'MDMAHFOOZ'
+			);
+		});
+
 		it('pairs one-to-one, so two same-amount payments minutes apart stay two entries', async () => {
 			const report = await run([
 				sms(HDFC_SWIGGY, RECEIVED),

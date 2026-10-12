@@ -80,10 +80,13 @@ BHIM, CRED and the HDFC, ICICI, SBI, Axis and Kotak apps). It is off until you t
 3. New transactions then appear in Review with an **SMS** or **Notification** badge, the original message under **Original message**, and **Edit** if the amount, account, merchant or
    date need fixing. One payment seen as both an SMS and an app notification becomes one entry. Entries on a guessed account say **Account not matched — check**.
 
-**What is and is not read.** Only SMS that look like completed money movements are kept; one-time codes, offers, balance alerts, failed payments, bill reminders and texts from phone
-numbers are discarded without being stored. Notifications are read only from the payment/banking apps listed in `CaptureFilter.java` (package names change between app versions —
-check with `adb shell pm list packages`; an app missing from the list is simply not captured from). MyFin never reads your SMS inbox (it only holds the receive permission), never
-logs message text, and nothing leaves the phone.
+**What is and is not read.** Only SMS that look like completed money movements are kept; one-time codes, offers, balance alerts, failed payments and bill reminders are discarded
+without being stored. A text from a phone number is kept only if it reads like a bank alert (a currency amount plus the account or card digits, like "INR 97.00 debited A/c no. XX0146"),
+so a bank alert forwarded by a friend still files, but "I paid you Rs 500" does not. Notifications are read only from the payment/banking and messaging apps listed in
+`CaptureFilter.java` (package names change between app versions — check with `adb shell pm list packages`; an app missing from the list is simply not captured from). A messaging app's
+notification (Google Messages, Samsung Messages) is the only way MyFin sees a bank alert that arrives over RCS rather than as an SMS; its text is looked at in memory and kept only if it
+reads like a bank alert, and the same alert seen as both SMS and notification becomes one entry. MyFin never reads your SMS inbox (it only holds the receive permission), never logs
+message text, and nothing leaves the phone.
 
 **Locked or closed.** Messages that arrive while MyFin is closed or locked are locked away on arrival with a public key; the matching private key is stored encrypted with your PIN-derived
 key, so nothing readable is kept. They are opened and filed the next time you unlock. The alert only says how many are waiting.
@@ -94,8 +97,10 @@ buttons for both screens. Google Play Protect may also warn about, or refuse, in
 `adb install` is the fallback. If a phone's battery saver stops MyFin, allow it to run in the background, or messages arrive late or not at all. Receivers only start working after MyFin
 has been opened once following an install or a Force stop.
 
-**Checking it on a phone.** `adb emu sms send VM-HDFCBK "Rs.250.00 debited from A/c XX1234 to SWIGGY on 05-10-26 Ref 628123456789"` sends a test SMS to an emulator; on a real phone,
-text the phone from another number is ignored on purpose (numeric senders are skipped), so use a real bank message or an emulator.
+**Checking it on a phone.** `adb emu sms send VM-HDFCBK "Rs.250.00 debited from A/c XX1234 to SWIGGY on 05-10-26 Ref 628123456789"` sends a test SMS to an emulator. On a real phone,
+use a real bank message, or text yourself a bank-style message from another number that includes a currency amount and `A/c XX1234` (a bare "paid 500" is ignored on purpose). With
+**Notification access** on, the message is also picked up from your messages app's notification, so it works even when it arrives over RCS. If nothing appears, check that the
+account's last digits are saved under Accounts (otherwise it files under the default account and says **Account not matched — check**) and open MyFin once so it can file what it caught.
 
 ## Change the app name or application ID
 
