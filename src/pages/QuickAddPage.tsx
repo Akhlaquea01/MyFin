@@ -22,7 +22,12 @@ import { findDuplicateCandidates } from '../domain/transactions/duplicateCandida
 import { formatTransactionLabel } from '../domain/transactions/transactionLabel';
 import { resolveMerchant } from '../domain/parser/merchantResolver';
 import { parseQuickAddText, isConfident } from '../domain/parser/quickAddParser';
-import { findCardMatches, type CardMatch } from '../domain/parser/cardIdentifierMatcher';
+import {
+	describeMatchType,
+	findCardMatches,
+	type CardMatch
+} from '../domain/parser/cardIdentifierMatcher';
+import { findAccountMatches } from '../domain/capture/accountMatcher';
 import { detectCardPayment } from '../domain/parser/cardPaymentDetector';
 import type { TransferLocationState } from './TransferPage';
 import type { Account, Merchant, Transaction, TransactionType } from '../domain/entities';
@@ -97,8 +102,9 @@ export function QuickAddPage() {
 	}, []);
 
 	// Spec 018, User Story 1 (FR-001-FR-006): reuses `findCardMatches` (spec 017) already relied
-	// on by ImportPage/BulkTextImportPage — a single tagged-card match pre-selects that account
-	// (with the reason shown); more than one never guesses, it prompts; zero matches leaves the
+	// on by ImportPage/BulkTextImportPage, plus the digits saved on bank accounts — a single
+	// tagged match pre-selects that account (with the reason shown); more than one never
+	// guesses, it prompts; zero matches leaves the
 	// account field exactly as it behaves today. `accountsList` defaults to current state so
 	// `handleParse` (button click, accounts already loaded well before then) doesn't need to pass
 	// it explicitly.
@@ -119,18 +125,19 @@ export function QuickAddPage() {
 		setCardMatchReason(null);
 		setCardDisambiguation(null);
 		setCardPayment(null);
-		const matches = findCardMatches(text, accountsList);
-		const distinctIds = [...new Set(matches.map((m) => m.accountId))];
-
 		// "Payment of Rs.5,000 received on your card ending 1234" / "Rs.5000 debited ... towards
 		// credit card 1234" is a MOVEMENT between the user's own accounts. Pre-selecting the card
 		// and recording it as an expense (the old behaviour) put the money on the wrong side of the
 		// card — the debt went UP by the amount just paid — so the card is deliberately not
-		// pre-selected here; the transfer shortcut below handles it correctly instead.
+		// pre-selected here; the transfer shortcut below handles it correctly instead. Only cards
+		// (not "A/c XX1234" bank digits) can be that destination.
 		if (detectCardPayment(text)) {
-			setCardPayment({ cardAccountId: distinctIds.length === 1 ? distinctIds[0] : null });
+			const cardIds = [...new Set(findCardMatches(text, accountsList).map((m) => m.accountId))];
+			setCardPayment({ cardAccountId: cardIds.length === 1 ? cardIds[0] : null });
 			return;
 		}
+		const matches = findAccountMatches(text, accountsList);
+		const distinctIds = [...new Set(matches.map((m) => m.accountId))];
 		if (distinctIds.length === 1) {
 			setAccountId(distinctIds[0]);
 			setCardMatchReason(matches.find((m) => m.accountId === distinctIds[0]) ?? null);
@@ -266,9 +273,9 @@ export function QuickAddPage() {
 						)}
 						{cardMatchReason && (
 							<p className="rounded-md border border-emerald-500/40 bg-emerald-500/5 p-2 text-xs text-muted-foreground">
-								Matched by {cardMatchReason.matchType === 'last4' ? 'card ending' : 'nickname'} "
-								{cardMatchReason.matchedIdentifier}" — the Account field below was pre-selected. You
-								can still choose a different account.
+								Matched by {describeMatchType(cardMatchReason)} "{cardMatchReason.matchedIdentifier}
+								" — the Account field below was pre-selected. You can still choose a different
+								account.
 							</p>
 						)}
 						{cardDisambiguation && (

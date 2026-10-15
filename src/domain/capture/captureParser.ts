@@ -4,7 +4,8 @@
 // so this one prefers "could not read it" over a confident wrong answer. In particular it:
 //   - matches whole words, so "present" is not "sent" and "unpaid" is not "paid";
 //   - takes the direction from the EARLIEST verb, so "Rs 500 credited ... debit card" is income;
-//   - only reads account digits that follow "A/c" or "card", so "Rs 1234.00" is never an account.
+//   - only reads account digits that follow "A/c" or "card", or sit behind a mask ("XX1234"), so
+//     "Rs 1234.00" is never an account.
 import { parseAmount } from '../parser/quickAddParser';
 import { parseDateFromText } from '../parser/dateText';
 import { detectCardPayment } from '../parser/cardPaymentDetector';
@@ -44,15 +45,34 @@ function parseDirection(text: string): 'income' | 'expense' | null {
 	return best?.type ?? null;
 }
 
-// "A/c XX1234", "A/C *1234", "Acct no. XXXX1234", "account ending 1234", "a/c 123456789012".
+// "A/c XX1234", "A/C *1234", "Acct no. XXXX1234", "account ending 1234", "a/c 123456789012",
+// "A/c XXXX XXXX 1234". Mask runs must be separated by whitespace so the pattern cannot backtrack.
 const ACCOUNT_TAIL =
-	/\b(?:a\/?c|acct?|account)\b\.?\s*(?:no\.?|number|#)?\s*[:-]?\s*(?:ending\s*(?:with|in)?\s*)?[xX*•.-]*\s*(\d{3,16})\b/i;
-// "Credit Card ending 5678", "card x5678", "Card no. XX5678", "card ending with 5678".
+	/\b(?:a\/?c|acct?|account)\b\.?\s*(?:no\.?|number|#)?\s*[:-]?\s*(?:ending\s*(?:with|in)?\s*)?(?:[xX*•.-]+\s+)*[xX*•.-]*\s*(\d{3,16})\b/i;
+// "Credit Card ending 5678", "card x5678", "Card no. XX5678", "card XXXX-1234", "card ending 51001".
 const CARD_TAIL =
-	/\bcard\b(?:\s+(?:no\.?|number))?\s*(?:ending\s*(?:with|in)?\s*)?[:-]?\s*[xX*•]*\s*(\d{4})\b/i;
+	/\bcard\b(?:\s+(?:no\.?|number))?\s*(?:ending\s*(?:with|in)?\s*)?[:-]?\s*(?:[xX*•-]+\s+)*[xX*•-]*\s*(\d{4,6})\b/i;
+// A masked number with no "A/c" in front ("from HDFC Bank XX1234"). Needs two or more mask characters
+// so a plain amount can never be read as one, and not a VPA like "xx123@bank".
+const MASKED_TAIL = /(?<![A-Za-z0-9])(?:[xX*•]{2,}[\s-]+)*[xX*•]{2,}[\s-]?(\d{3,6})\b(?!@)/;
 
 function lastDigits(digits: string): string {
 	return digits.length > 4 ? digits.slice(-4) : digits;
+}
+
+/** The last digits of the account and of the card a message names, each at most four digits. */
+export function extractAccountTails(text: string): {
+	accountTail: string | null;
+	cardTail: string | null;
+} {
+	const account = ACCOUNT_TAIL.exec(text)?.[1];
+	const card = CARD_TAIL.exec(text)?.[1];
+	const masked = !account && !card ? MASKED_TAIL.exec(text)?.[1] : undefined;
+	const own = account ?? masked;
+	return {
+		accountTail: own ? lastDigits(own) : null,
+		cardTail: card ? lastDigits(card) : null
+	};
 }
 
 const REF_NO =
@@ -130,15 +150,11 @@ export function parseCapturedMessage(payload: CapturePayload): ParsedCapture | n
 	const type = parseDirection(text);
 	if (type === null) return null;
 
-	const account = ACCOUNT_TAIL.exec(text)?.[1];
-	const card = CARD_TAIL.exec(text)?.[1];
-
 	return {
 		amount,
 		type,
 		merchantText: parseMerchant(text, type),
-		accountTail: account ? lastDigits(account) : null,
-		cardTail: card ?? null,
+		...extractAccountTails(text),
 		txnDate: parseDateFromText(text),
 		refNo: REF_NO.exec(text)?.[1] ?? null,
 		isCardPayment: detectCardPayment(text) !== null

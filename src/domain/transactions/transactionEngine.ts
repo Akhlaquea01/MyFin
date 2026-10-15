@@ -154,7 +154,20 @@ export const TransactionEngine = {
 		splits?: SplitInput[]
 	): Promise<Transaction> {
 		const before = await TransactionRepository.getById(key, id);
-		const updated = await TransactionRepository.update(key, id, changes, splits);
+		// Choosing the account settles the "we guessed this one" flag a captured entry carries.
+		const accountChosen =
+			before?.capture?.accountCheck &&
+			!changes.capture &&
+			changes.accountId !== undefined &&
+			changes.accountId !== before.accountId;
+		const updated = await TransactionRepository.update(
+			key,
+			id,
+			accountChosen && before?.capture
+				? { ...changes, capture: { ...before.capture, accountCheck: null, tailHint: null } }
+				: changes,
+			splits
+		);
 		await recalculateAccountBalance(key, updated.accountId);
 		if (before && before.accountId !== updated.accountId) {
 			await recalculateAccountBalance(key, before.accountId);
@@ -417,7 +430,8 @@ export const TransactionEngine = {
 		const updated = await TransactionRepository.update(
 			key,
 			id,
-			{ reviewStatus: 'confirmed' },
+			// Confirming settles a "possible duplicate" flag: the user looked and kept it.
+			{ reviewStatus: 'confirmed', duplicateOfId: null },
 			splits
 		);
 		if (tagIds) {

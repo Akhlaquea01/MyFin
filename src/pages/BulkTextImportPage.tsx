@@ -15,7 +15,8 @@ import {
 import { useSession } from '../context/SessionContext';
 import { AccountRepository } from '../data/dexie/accountRepository';
 import { importBulkText, type ImportResult } from '../data/io/bulkTextImportService';
-import { findCardMatches, type CardMatch } from '../domain/parser/cardIdentifierMatcher';
+import { describeMatchType, type CardMatch } from '../domain/parser/cardIdentifierMatcher';
+import { findAccountMatches } from '../domain/capture/accountMatcher';
 import { detectCardPayment } from '../domain/parser/cardPaymentDetector';
 import type { Account } from '../domain/entities';
 
@@ -66,7 +67,7 @@ export function BulkTextImportPage() {
 			.split(/\r?\n/)
 			.filter((line) => !detectCardPayment(line))
 			.join('\n');
-		const matches = findCardMatches(nonPaymentText, accounts);
+		const matches = findAccountMatches(nonPaymentText, accounts);
 		const distinctAccountIds = [...new Set(matches.map((m) => m.accountId))];
 		if (distinctAccountIds.length === 1) {
 			setAccountId(distinctAccountIds[0]);
@@ -130,9 +131,8 @@ export function BulkTextImportPage() {
 						<>
 							{matchReason && (
 								<p className="rounded-md border border-emerald-500/40 bg-emerald-500/5 p-2 text-xs text-muted-foreground">
-									Matched by {matchReason.matchType === 'last4' ? 'card ending' : 'nickname'} "
-									{matchReason.matchedIdentifier}" — destination pre-selected below. You can still
-									choose a different account.
+									Matched by {describeMatchType(matchReason)} "{matchReason.matchedIdentifier}" —
+									destination pre-selected below. You can still choose a different account.
 								</p>
 							)}
 							{ambiguousMatches && (

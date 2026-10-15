@@ -168,5 +168,25 @@ describe('Bulk text import (User Story 4)', () => {
 			const defaultTx = await TransactionRepository.search(key, { accountId });
 			expect(defaultTx).toHaveLength(1); // ambiguous line never blocks — falls back, unrouted
 		});
+
+		it('routes a line to the bank account whose saved digits it names after "A/c"', async () => {
+			const savings = await AccountRepository.create(key, {
+				name: 'Savings',
+				type: 'bank',
+				openingBalance: 0,
+				creditLimit: null,
+				billingCycleDay: null,
+				accountLast4: '1234'
+			});
+			const fileText = [
+				'Rs.500.00 debited from A/c XX1234 to AMAZON',
+				'Rs.100 debited from A/c XX7777 at Local Store' // digits match nothing — default account
+			].join('\n');
+
+			const result = await importBulkText(key, fileText, accountId, [savings]);
+			expect(result.createdCount).toBe(2);
+			expect(await TransactionRepository.search(key, { accountId: savings.id })).toHaveLength(1);
+			expect(await TransactionRepository.search(key, { accountId })).toHaveLength(1);
+		});
 	});
 });

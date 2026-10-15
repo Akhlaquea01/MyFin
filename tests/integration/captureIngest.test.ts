@@ -161,6 +161,41 @@ describe('ingestCapturedMessages', () => {
 		expect(entries.filter((tx) => tx.duplicateOfId !== null)).toHaveLength(1);
 	});
 
+	it('finds the account from a masked number that has no "A/c" in front of it', async () => {
+		await run([sms('Rs.250.00 debited from HDFC Bank XX1234 on 05/10/26 to SWIGGY')]);
+		const [tx] = await unreviewed();
+		expect(tx.accountId).toBe(hdfc);
+		expect(tx.capture?.accountCheck).toBeNull();
+	});
+
+	it('clears the "account was guessed" flag once the user picks the account', async () => {
+		await run([note('Paid ₹250', 'Paid ₹250.00 to Swiggy')]);
+		const [guessed] = await unreviewed();
+		expect(guessed.capture?.accountCheck).toBe('default-account');
+
+		const fixed = await TransactionEngine.editTransaction(key, guessed.id, { accountId: hdfc });
+		expect(fixed.accountId).toBe(hdfc);
+		expect(fixed.capture).toMatchObject({ accountCheck: null, tailHint: null });
+		expect(fixed.capture?.text).toBe(guessed.capture?.text);
+	});
+
+	it('keeps the flag when an edit leaves the account alone', async () => {
+		await run([note('Paid ₹250', 'Paid ₹250.00 to Swiggy')]);
+		const [guessed] = await unreviewed();
+		const edited = await TransactionEngine.editTransaction(key, guessed.id, { date: '2026-10-04' });
+		expect(edited.capture?.accountCheck).toBe('default-account');
+	});
+
+	it('clears a possible-duplicate flag when the entry is confirmed', async () => {
+		await run([sms(HDFC_SWIGGY)]);
+		await db.notifiedItems.clear();
+		await run([sms(HDFC_SWIGGY)]);
+		const flagged = (await unreviewed()).find((tx) => tx.duplicateOfId !== null)!;
+
+		const confirmed = await TransactionEngine.confirmTransaction(key, flagged.id);
+		expect(confirmed).toMatchObject({ reviewStatus: 'confirmed', duplicateOfId: null });
+	});
+
 	describe('SMS and notification for the same payment', () => {
 		it('folds the second sighting into the first and keeps both visible', async () => {
 			const report = await run([
