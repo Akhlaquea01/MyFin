@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { Suspense, useEffect, useRef, useState } from 'react';
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
 import {
 	ArrowLeftRight,
@@ -272,6 +272,15 @@ function BottomBar({ onOpenMenu }: { onOpenMenu: () => void }) {
 	);
 }
 
+/** Shown for the instant a page's code is being fetched; the shell around it stays put. */
+function PageLoading() {
+	return (
+		<div role="status" aria-live="polite" className="p-8 text-sm text-muted-foreground">
+			Loading…
+		</div>
+	);
+}
+
 export function AppShell() {
 	const [mobileOpen, setMobileOpen] = useState(false);
 	const location = useLocation();
@@ -341,6 +350,12 @@ export function AppShell() {
 
 	return (
 		<div className="flex min-h-dvh">
+			<a
+				href="#main-content"
+				className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-50 focus:rounded-md focus:bg-background focus:px-3 focus:py-2 focus:text-sm focus:shadow-lg focus:ring-2 focus:ring-ring"
+			>
+				Skip to main content
+			</a>
 			<CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} index={searchIndex} />
 			<aside className="hidden w-56 shrink-0 overflow-y-auto border-r bg-card/50 p-4 md:sticky md:top-0 md:flex md:h-dvh md:max-h-dvh md:flex-col">
 				<div className="mb-6 flex items-center gap-2 px-2">
@@ -381,12 +396,14 @@ export function AppShell() {
 					</Link>
 				</header>
 
-				<main className="min-w-0 flex-1 pb-20 md:pb-0">
+				<main id="main-content" tabIndex={-1} className="min-w-0 flex-1 pb-20 outline-none md:pb-0">
 					<HubTabs />
 					{/* Keyed by pathname so navigating away from a crashed page fully remounts the
 					    boundary — a stale failure never lingers after the user moves on. */}
 					<PageErrorBoundary key={location.pathname}>
-						<Outlet />
+						<Suspense fallback={<PageLoading />}>
+							<Outlet />
+						</Suspense>
 					</PageErrorBoundary>
 				</main>
 			</div>

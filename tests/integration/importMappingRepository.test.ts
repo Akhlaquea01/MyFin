@@ -75,9 +75,10 @@ describe('ImportMappingRepository', () => {
 		expect(raw).not.toContain('DD/MM/YY');
 	});
 
-	it('cannot be read with a different key', async () => {
+	it('cannot be read with a different key — and is discarded rather than breaking the list', async () => {
 		await ImportMappingRepository.save(key, bankMapping());
 		const other = await deriveEncryptionKey('9999', randomSaltBase64());
-		await expect(ImportMappingRepository.list(other)).rejects.toBeDefined();
+		expect(await ImportMappingRepository.list(other)).toEqual([]);
+		expect(await db.importMappings.count()).toBe(0);
 	});
 });

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { lazy, useEffect, useRef, useState, type ComponentType } from 'react';
 import { BrowserRouter, Route, Routes } from 'react-router-dom';
 import { Toaster } from './components/ui/sonner';
 import { TooltipProvider } from './components/ui/tooltip';
@@ -32,43 +32,86 @@ import { CaptureHealthBanner } from './components/CaptureHealthBanner';
 import { AppShell } from './components/AppShell';
 import { ConfirmProvider } from './components/ConfirmProvider';
 import { DashboardPage } from './pages/DashboardPage';
-import { AccountsPage } from './pages/AccountsPage';
-import { TransactionsPage } from './pages/TransactionsPage';
-import { NewTransactionPage } from './pages/NewTransactionPage';
-import { TransferPage } from './pages/TransferPage';
-import { CategoriesPage } from './pages/CategoriesPage';
-import { TrashPage } from './pages/TrashPage';
-import { QuickAddPage } from './pages/QuickAddPage';
-import { ShareTargetLandingPage } from './pages/ShareTargetLandingPage';
-import { ReviewPage } from './pages/ReviewPage';
-import { BulkTextImportPage } from './pages/BulkTextImportPage';
-import { BudgetsPage } from './pages/BudgetsPage';
-import { RecurringPage } from './pages/RecurringPage';
-import { RecurringUpcomingPage } from './pages/RecurringUpcomingPage';
-import { InvestmentsPage } from './pages/InvestmentsPage';
-import { LiabilitiesPage } from './pages/LiabilitiesPage';
-import { DebtPayoffPlannerPage } from './pages/DebtPayoffPlannerPage';
-import { SavingsGoalsPage } from './pages/SavingsGoalsPage';
-import { PeoplePage } from './pages/PeoplePage';
-import { NotificationSettingsPage } from './pages/NotificationSettingsPage';
-import { NetWorthPage } from './pages/NetWorthPage';
-import { AnalyticsPage } from './pages/AnalyticsPage';
-import { FinancialHealthPage } from './pages/FinancialHealthPage';
-import { ImportPage } from './pages/ImportPage';
-import { ExportPage } from './pages/ExportPage';
-import { BackupSettingsPage } from './pages/BackupSettingsPage';
-import { CategorizationRulesPage } from './pages/CategorizationRulesPage';
-import { SubscriptionsPage } from './pages/SubscriptionsPage';
-import { CashFlowForecastPage } from './pages/CashFlowForecastPage';
-import { BudgetVarianceReportPage } from './pages/BudgetVarianceReportPage';
-import { AboutPage } from './pages/AboutPage';
-import { SecurityPage } from './pages/SecurityPage';
-import { AutoCapturePage } from './pages/AutoCapturePage';
-import { NotFoundPage } from './pages/NotFoundPage';
-import { AlertsPage } from './pages/AlertsPage';
 import { QuickTourProvider } from './components/ui/quick-tour/QuickTourProvider';
 import { QuickTourOverlay } from './components/ui/quick-tour/QuickTourOverlay';
 import { QUICK_TOUR_STEPS } from './components/ui/quick-tour/tour-steps';
+
+/**
+ * Pages load on demand: the whole app used to ship as one 2.3 MB script that the lock screen had
+ * to download and parse before showing anything. The service worker precaches every chunk, so
+ * offline use is unaffected. The dashboard stays in the main bundle as the first screen after unlock.
+ */
+function lazyPage<K extends string>(load: () => Promise<Record<K, ComponentType>>, name: K) {
+	return lazy(async () => ({ default: (await load())[name] }));
+}
+
+const AccountsPage = lazyPage(() => import('./pages/AccountsPage'), 'AccountsPage');
+const TransactionsPage = lazyPage(() => import('./pages/TransactionsPage'), 'TransactionsPage');
+const NewTransactionPage = lazyPage(
+	() => import('./pages/NewTransactionPage'),
+	'NewTransactionPage'
+);
+const TransferPage = lazyPage(() => import('./pages/TransferPage'), 'TransferPage');
+const CategoriesPage = lazyPage(() => import('./pages/CategoriesPage'), 'CategoriesPage');
+const TrashPage = lazyPage(() => import('./pages/TrashPage'), 'TrashPage');
+const QuickAddPage = lazyPage(() => import('./pages/QuickAddPage'), 'QuickAddPage');
+const ShareTargetLandingPage = lazyPage(
+	() => import('./pages/ShareTargetLandingPage'),
+	'ShareTargetLandingPage'
+);
+const ReviewPage = lazyPage(() => import('./pages/ReviewPage'), 'ReviewPage');
+const BulkTextImportPage = lazyPage(
+	() => import('./pages/BulkTextImportPage'),
+	'BulkTextImportPage'
+);
+const BudgetsPage = lazyPage(() => import('./pages/BudgetsPage'), 'BudgetsPage');
+const RecurringPage = lazyPage(() => import('./pages/RecurringPage'), 'RecurringPage');
+const RecurringUpcomingPage = lazyPage(
+	() => import('./pages/RecurringUpcomingPage'),
+	'RecurringUpcomingPage'
+);
+const InvestmentsPage = lazyPage(() => import('./pages/InvestmentsPage'), 'InvestmentsPage');
+const LiabilitiesPage = lazyPage(() => import('./pages/LiabilitiesPage'), 'LiabilitiesPage');
+const DebtPayoffPlannerPage = lazyPage(
+	() => import('./pages/DebtPayoffPlannerPage'),
+	'DebtPayoffPlannerPage'
+);
+const SavingsGoalsPage = lazyPage(() => import('./pages/SavingsGoalsPage'), 'SavingsGoalsPage');
+const PeoplePage = lazyPage(() => import('./pages/PeoplePage'), 'PeoplePage');
+const NotificationSettingsPage = lazyPage(
+	() => import('./pages/NotificationSettingsPage'),
+	'NotificationSettingsPage'
+);
+const NetWorthPage = lazyPage(() => import('./pages/NetWorthPage'), 'NetWorthPage');
+const AnalyticsPage = lazyPage(() => import('./pages/AnalyticsPage'), 'AnalyticsPage');
+const FinancialHealthPage = lazyPage(
+	() => import('./pages/FinancialHealthPage'),
+	'FinancialHealthPage'
+);
+const ImportPage = lazyPage(() => import('./pages/ImportPage'), 'ImportPage');
+const ExportPage = lazyPage(() => import('./pages/ExportPage'), 'ExportPage');
+const BackupSettingsPage = lazyPage(
+	() => import('./pages/BackupSettingsPage'),
+	'BackupSettingsPage'
+);
+const CategorizationRulesPage = lazyPage(
+	() => import('./pages/CategorizationRulesPage'),
+	'CategorizationRulesPage'
+);
+const SubscriptionsPage = lazyPage(() => import('./pages/SubscriptionsPage'), 'SubscriptionsPage');
+const CashFlowForecastPage = lazyPage(
+	() => import('./pages/CashFlowForecastPage'),
+	'CashFlowForecastPage'
+);
+const BudgetVarianceReportPage = lazyPage(
+	() => import('./pages/BudgetVarianceReportPage'),
+	'BudgetVarianceReportPage'
+);
+const AboutPage = lazyPage(() => import('./pages/AboutPage'), 'AboutPage');
+const SecurityPage = lazyPage(() => import('./pages/SecurityPage'), 'SecurityPage');
+const AutoCapturePage = lazyPage(() => import('./pages/AutoCapturePage'), 'AutoCapturePage');
+const NotFoundPage = lazyPage(() => import('./pages/NotFoundPage'), 'NotFoundPage');
+const AlertsPage = lazyPage(() => import('./pages/AlertsPage'), 'AlertsPage');
 
 /**
  * Work that needs an encryption key and should happen once per unlock, whether that unlock was
