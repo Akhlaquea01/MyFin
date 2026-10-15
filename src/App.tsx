@@ -7,6 +7,7 @@ import { acquireSingleInstanceLock, type InstanceRole } from './lib/singleInstan
 import { subscribeAppActive } from './lib/native/appState';
 import { isNativeApp } from './lib/native/platform';
 import { isBiometricEnrolled } from './lib/biometric';
+import { shouldReloadForStaleChunk } from './lib/staleChunk';
 import { isBiometricPromptSnoozed } from './lib/biometricPromptSnooze';
 import { useQuickTour } from './hooks/useQuickTour';
 import { syncCapturedTransactions, useCaptureSync } from './hooks/useCaptureSync';
@@ -42,7 +43,16 @@ import { QUICK_TOUR_STEPS } from './components/ui/quick-tour/tour-steps';
  * offline use is unaffected. The dashboard stays in the main bundle as the first screen after unlock.
  */
 function lazyPage<K extends string>(load: () => Promise<Record<K, ComponentType>>, name: K) {
-	return lazy(async () => ({ default: (await load())[name] }));
+	return lazy(async () => {
+		try {
+			return { default: (await load())[name] };
+		} catch (error) {
+			// The build this tab started from has been replaced: reload once to pick up the new one.
+			if (!shouldReloadForStaleChunk()) throw error;
+			window.location.reload();
+			return new Promise<never>(() => {});
+		}
+	});
 }
 
 const AccountsPage = lazyPage(() => import('./pages/AccountsPage'), 'AccountsPage');
