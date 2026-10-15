@@ -231,9 +231,7 @@ describe('Ledger repositories (Account, Category, Transaction) against Dexie', (
 			const results = await TransactionRepository.search(key, {
 				tagIds: [trip.id, reimbursable.id]
 			});
-			expect(results.map((r) => r.id).sort()).toEqual(
-				[tripOnly.id, reimbursableOnly.id].sort()
-			);
+			expect(results.map((r) => r.id).sort()).toEqual([tripOnly.id, reimbursableOnly.id].sort());
 		});
 
 		it('treats an empty/absent tagIds as no tag filter', async () => {
@@ -300,9 +298,7 @@ describe('Ledger repositories (Account, Category, Transaction) against Dexie', (
 
 			await TransactionRepository.softDelete(key, tx.id);
 
-			expect((await TagRepository.listInUse(key)).map((t) => t.id)).not.toContain(
-				conference.id
-			);
+			expect((await TagRepository.listInUse(key)).map((t) => t.id)).not.toContain(conference.id);
 		});
 
 		it('TagRepository.listInUse returns an empty array when no tags exist', async () => {

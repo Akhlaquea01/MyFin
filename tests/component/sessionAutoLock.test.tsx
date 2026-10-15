@@ -25,6 +25,8 @@ function ActivityHarness({ onReady }: { onReady: (unlock: (k: CryptoKey) => void
 		const onActivity = recordActivity;
 		window.addEventListener('click', onActivity);
 		return () => window.removeEventListener('click', onActivity);
+		// Mount-only on purpose: see the comment above.
+		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, []);
 
 	useEffect(() => {

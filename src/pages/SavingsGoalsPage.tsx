@@ -27,7 +27,12 @@ import {
 } from '../data/dexie/savingsGoalRepository';
 import { computeGoalProgress } from '../domain/savingsGoals/goalProgress';
 import type { SavingsGoal, GoalContribution } from '../domain/entities';
-import { isPositiveMoney, isNonZeroMoney, parseMoneyOrZero, formatMoney } from '../domain/shared/money';
+import {
+	isPositiveMoney,
+	isNonZeroMoney,
+	parseMoneyOrZero,
+	formatMoney
+} from '../domain/shared/money';
 import { todayLocalISO } from '../domain/shared/dateMath';
 import { useConfirm } from '../lib/confirm';
 

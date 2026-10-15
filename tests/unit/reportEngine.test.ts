@@ -94,8 +94,22 @@ describe('topCategories', () => {
 	});
 
 	it('includes every category tied with the cutoff item', () => {
-		const breakdown = [item('a', 600), item('b', 500), item('c', 400), item('d', 300), item('e', 200), item('f', 200)];
-		expect(topCategories(breakdown, 5).map((c) => c.categoryId)).toEqual(['a', 'b', 'c', 'd', 'e', 'f']);
+		const breakdown = [
+			item('a', 600),
+			item('b', 500),
+			item('c', 400),
+			item('d', 300),
+			item('e', 200),
+			item('f', 200)
+		];
+		expect(topCategories(breakdown, 5).map((c) => c.categoryId)).toEqual([
+			'a',
+			'b',
+			'c',
+			'd',
+			'e',
+			'f'
+		]);
 	});
 
 	it('returns an empty array for empty input', () => {
@@ -122,7 +136,11 @@ describe('pickSnapshotAtOrBefore', () => {
 	}
 
 	it('returns the latest snapshot at or before the date', () => {
-		const snapshots = [snapshot('2026-01-01', 1000), snapshot('2026-06-01', 2000), snapshot('2026-12-01', 3000)];
+		const snapshots = [
+			snapshot('2026-01-01', 1000),
+			snapshot('2026-06-01', 2000),
+			snapshot('2026-12-01', 3000)
+		];
 		expect(pickSnapshotAtOrBefore(snapshots, '2026-09-01')?.netWorth).toBe(2000);
 	});
 
@@ -141,7 +159,11 @@ describe('pickSnapshotAtOrBefore', () => {
 	});
 
 	it('does not require snapshots to be pre-sorted', () => {
-		const snapshots = [snapshot('2026-12-01', 3000), snapshot('2026-01-01', 1000), snapshot('2026-06-01', 2000)];
+		const snapshots = [
+			snapshot('2026-12-01', 3000),
+			snapshot('2026-01-01', 1000),
+			snapshot('2026-06-01', 2000)
+		];
 		expect(pickSnapshotAtOrBefore(snapshots, '2026-09-01')?.netWorth).toBe(2000);
 	});
 });

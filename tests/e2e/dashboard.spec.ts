@@ -106,5 +106,7 @@ test('total balance says it is net of credit card debt, with both halves', async
 
 	await goTo(page, 'Dashboard', 'Dashboard');
 	await expect(balanceCard).toContainText('700.00'); // 1000 cash - 300 owed
-	await expect(balanceCard.getByText('Cash & bank ₹1,000.00 · owed on cards ₹300.00')).toBeVisible();
+	await expect(
+		balanceCard.getByText('Cash & bank ₹1,000.00 · owed on cards ₹300.00')
+	).toBeVisible();
 });

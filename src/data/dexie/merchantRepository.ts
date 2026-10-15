@@ -47,7 +47,11 @@ export const MerchantRepository = {
 	): Promise<Merchant> {
 		const existing = await this.getById(key, id);
 		if (!existing) throw new Error(`Merchant ${id} not found`);
-		const updated: Merchant = { ...existing, subscriptionDismissed: dismissed, updatedAt: Date.now() };
+		const updated: Merchant = {
+			...existing,
+			subscriptionDismissed: dismissed,
+			updatedAt: Date.now()
+		};
 		await putEncrypted(db.merchants, key, updated, {
 			deletedAt: deletedAtIndex(updated.deletedAt)
 		});

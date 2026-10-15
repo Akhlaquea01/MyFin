@@ -17,6 +17,7 @@ Instead, please send a detailed report to:
 **[akhlaquea01@gmail.com](mailto:akhlaquea01@gmail.com)**
 
 Please include:
+
 - A description of the vulnerability and its potential impact.
 - Step-by-step instructions to reproduce the issue or a proof-of-concept.
 - Any suggested fixes or mitigations.
@@ -28,6 +29,7 @@ We will acknowledge receipt of your report within 48 hours and provide a timelin
 ## Zero-Knowledge Architecture
 
 MyFin operates entirely client-side with a zero-knowledge threat model:
+
 - Financial records are encrypted using **AES-256-GCM** before being saved to IndexedDB.
 - Master keys are derived in volatile memory using **PBKDF2-HMAC-SHA256** with 600,000 rounds.
 - Searchable fields utilize HMAC blind indexing with distinct per-column salts.

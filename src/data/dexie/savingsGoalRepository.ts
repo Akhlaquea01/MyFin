@@ -91,4 +91,3 @@ export const GoalContributionRepository = {
 		return decryptRows<GoalContributionRow, GoalContribution>(key, rows);
 	}
 };
-

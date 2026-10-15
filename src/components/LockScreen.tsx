@@ -4,13 +4,7 @@ import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
-import {
-	Dialog,
-	DialogContent,
-	DialogDescription,
-	DialogHeader,
-	DialogTitle
-} from './ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from './ui/dialog';
 import { UserProfileRepository } from '../data/dexie/userProfileRepository';
 import { resetEverything } from '../data/io/resetService';
 import { verifyPin, deriveEncryptionKey } from '../data/crypto/cryptoService';
@@ -96,7 +90,9 @@ export function LockScreen({ onunlock }: { onunlock: (pin: string) => void }) {
 	useEffect(() => {
 		if (wasAllowedRef.current !== gate.allowed) {
 			setLockoutAnnouncement(
-				gate.allowed ? 'You can try again now.' : 'Too many attempts. Please wait before trying again.'
+				gate.allowed
+					? 'You can try again now.'
+					: 'Too many attempts. Please wait before trying again.'
 			);
 			wasAllowedRef.current = gate.allowed;
 		}
@@ -280,11 +276,7 @@ export function LockScreen({ onunlock }: { onunlock: (pin: string) => void }) {
 							</>
 						)}
 						{loadError ? (
-							<Button
-								type="button"
-								className="w-full"
-								onClick={() => setRetryToken((t) => t + 1)}
-							>
+							<Button type="button" className="w-full" onClick={() => setRetryToken((t) => t + 1)}>
 								Retry
 							</Button>
 						) : (
@@ -334,8 +326,8 @@ export function LockScreen({ onunlock }: { onunlock: (pin: string) => void }) {
 							Your data is encrypted with your PIN, so MyFin cannot recover it or reset it for you.
 							If you have a backup file and remember the PIN it was made with, erase this device,
 							set a new PIN, then restore the backup from Backup &amp; Restore. If not, erasing
-							starts you fresh. Either way, <strong>everything now on this device is permanently
-							deleted</strong>.
+							starts you fresh. Either way,{' '}
+							<strong>everything now on this device is permanently deleted</strong>.
 						</DialogDescription>
 					</DialogHeader>
 					<div className="flex flex-col gap-1.5">

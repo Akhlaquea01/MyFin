@@ -21,7 +21,12 @@ import {
 } from '../data/dexie/wealthRepository';
 import { editHolding, undoLatestTrade } from '../domain/wealth/wealthEngine';
 import { INVESTMENT_TYPE_LABELS } from '../domain/wealth/investmentTypeLabels';
-import { formatMinorUnits, isNonNegativeMoney, parseMoneyOrZero, formatMoney } from '../domain/shared/money';
+import {
+	formatMinorUnits,
+	isNonNegativeMoney,
+	parseMoneyOrZero,
+	formatMoney
+} from '../domain/shared/money';
 import type {
 	Account,
 	InvestmentHolding,

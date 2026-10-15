@@ -4,7 +4,14 @@ import { Badge } from '../components/ui/badge';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Card, CardContent } from '../components/ui/card';
-import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '../components/ui/table';
+import {
+	Table,
+	TableHeader,
+	TableBody,
+	TableRow,
+	TableHead,
+	TableCell
+} from '../components/ui/table';
 import { useSession } from '../context/SessionContext';
 import { CategoryRepository } from '../data/dexie/categoryRepository';
 import {
@@ -66,10 +73,7 @@ export function BudgetVarianceReportPage() {
 	const [toMonth, setToMonth] = useState(currentMonth());
 	const [loading, setLoading] = useState(true);
 
-	const categoryNameById = useMemo(
-		() => buildCategoryLabels(categories),
-		[categories]
-	);
+	const categoryNameById = useMemo(() => buildCategoryLabels(categories), [categories]);
 
 	async function refresh() {
 		setLoading(true);

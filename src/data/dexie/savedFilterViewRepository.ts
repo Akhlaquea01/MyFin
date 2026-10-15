@@ -19,8 +19,16 @@ export const SavedFilterViewRepository = {
 		return view;
 	},
 
-	async update(key: CryptoKey, id: string, changes: Partial<SavedFilterView>): Promise<SavedFilterView> {
-		const existing = await getDecrypted<SavedFilterViewRow, SavedFilterView>(db.savedFilterViews, key, id);
+	async update(
+		key: CryptoKey,
+		id: string,
+		changes: Partial<SavedFilterView>
+	): Promise<SavedFilterView> {
+		const existing = await getDecrypted<SavedFilterViewRow, SavedFilterView>(
+			db.savedFilterViews,
+			key,
+			id
+		);
 		if (!existing) throw new Error(`SavedFilterView ${id} not found`);
 		const updated: SavedFilterView = { ...existing, ...changes, id, updatedAt: Date.now() };
 		await putEncrypted(db.savedFilterViews, key, updated, {
@@ -34,7 +42,10 @@ export const SavedFilterViewRepository = {
 	},
 
 	async getById(key: CryptoKey, id: string): Promise<SavedFilterView | null> {
-		return (await getDecrypted<SavedFilterViewRow, SavedFilterView>(db.savedFilterViews, key, id)) ?? null;
+		return (
+			(await getDecrypted<SavedFilterViewRow, SavedFilterView>(db.savedFilterViews, key, id)) ??
+			null
+		);
 	},
 
 	async list(key: CryptoKey): Promise<SavedFilterView[]> {

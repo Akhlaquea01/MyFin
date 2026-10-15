@@ -1,12 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import {
-	buildDataTemplate,
-	exportDataTemplateToJsonBlob
-} from '../../src/data/io/templateService';
+import { buildDataTemplate, exportDataTemplateToJsonBlob } from '../../src/data/io/templateService';
 import type { DataTemplate } from '../../src/data/io/templateTypes';
 import { AccountRepository } from '../../src/data/dexie/accountRepository';
 import { CategoryRepository } from '../../src/data/dexie/categoryRepository';
-import { MerchantRepository, MerchantAliasRepository } from '../../src/data/dexie/merchantRepository';
+import {
+	MerchantRepository,
+	MerchantAliasRepository
+} from '../../src/data/dexie/merchantRepository';
 import { TagRepository, TransactionTagRepository } from '../../src/data/dexie/tagRepository';
 import {
 	InvestmentHoldingRepository,
@@ -19,7 +19,10 @@ import {
 	GoalContributionRepository
 } from '../../src/data/dexie/savingsGoalRepository';
 import { BudgetRepository, BudgetItemRepository } from '../../src/data/dexie/budgetRepository';
-import { RecurringRepository, ExpectedEventRepository } from '../../src/data/dexie/recurringRepository';
+import {
+	RecurringRepository,
+	ExpectedEventRepository
+} from '../../src/data/dexie/recurringRepository';
 import { CategorizationRuleRepository } from '../../src/data/dexie/categorizationRuleRepository';
 import { MerchantCategorySignalRepository } from '../../src/data/dexie/merchantCategorySignalRepository';
 import { NotificationPreferenceRepository } from '../../src/data/dexie/notificationRepository';
@@ -61,8 +64,8 @@ describe('templateService - buildDataTemplate and exportDataTemplateToJsonBlob',
 		vi.spyOn(ExpectedEventRepository, 'listAll').mockResolvedValue([]);
 		vi.spyOn(CategorizationRuleRepository, 'list').mockResolvedValue([]);
 		vi.spyOn(MerchantCategorySignalRepository, 'listAll').mockResolvedValue([]);
-		vi.spyOn(NotificationPreferenceRepository, 'get').mockResolvedValue(null as any);
-		vi.spyOn(DebtPlannerPreferenceRepository, 'get').mockResolvedValue(null as any);
+		vi.spyOn(NotificationPreferenceRepository, 'get').mockResolvedValue(null as never);
+		vi.spyOn(DebtPlannerPreferenceRepository, 'get').mockResolvedValue(null as never);
 		vi.spyOn(TransactionRepository, 'search').mockResolvedValue([]);
 		vi.spyOn(TransactionSplitRepository, 'listAll').mockResolvedValue([]);
 		vi.spyOn(TransactionTagRepository, 'list').mockResolvedValue([]);
@@ -116,8 +119,8 @@ describe('templateService - buildDataTemplate and exportDataTemplateToJsonBlob',
 		vi.spyOn(ExpectedEventRepository, 'listAll').mockResolvedValue([]);
 		vi.spyOn(CategorizationRuleRepository, 'list').mockResolvedValue([]);
 		vi.spyOn(MerchantCategorySignalRepository, 'listAll').mockResolvedValue([]);
-		vi.spyOn(NotificationPreferenceRepository, 'get').mockResolvedValue(null as any);
-		vi.spyOn(DebtPlannerPreferenceRepository, 'get').mockResolvedValue(null as any);
+		vi.spyOn(NotificationPreferenceRepository, 'get').mockResolvedValue(null as never);
+		vi.spyOn(DebtPlannerPreferenceRepository, 'get').mockResolvedValue(null as never);
 		vi.spyOn(TransactionRepository, 'search').mockResolvedValue([]);
 		vi.spyOn(TransactionSplitRepository, 'listAll').mockResolvedValue([]);
 		vi.spyOn(TransactionTagRepository, 'list').mockResolvedValue([]);

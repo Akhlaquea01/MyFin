@@ -35,9 +35,7 @@ test('the variance report shows a budgeted category for the current month', asyn
 	await expect(page.getByText('Under')).toBeVisible();
 });
 
-test('a category with no budget for the selected month shows no data message', async ({
-	page
-}) => {
+test('a category with no budget for the selected month shows no data message', async ({ page }) => {
 	await page.goto('/');
 	await page.getByLabel('Create PIN').fill('676784');
 	await page.getByLabel('Confirm PIN').fill('676784');

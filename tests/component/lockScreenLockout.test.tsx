@@ -4,7 +4,11 @@ import { LockScreen } from '../../src/components/LockScreen';
 import { SessionProvider } from '../../src/context/SessionContext';
 import { UserProfileRepository } from '../../src/data/dexie/userProfileRepository';
 import { db } from '../../src/data/dexie/db';
-import { deriveEncryptionKey, hashPin, randomSaltBase64 } from '../../src/data/crypto/cryptoService';
+import {
+	deriveEncryptionKey,
+	hashPin,
+	randomSaltBase64
+} from '../../src/data/crypto/cryptoService';
 
 /**
  * Regression: the ticking lockout countdown lived directly inside a `role="alert"` region,
@@ -50,7 +54,9 @@ describe('LockScreen lockout announcement', () => {
 		// The one-time transition announcement fires asynchronously (a useEffect after the
 		// gate first reports "not allowed"); wait for it before taking the first snapshot.
 		await waitFor(() =>
-			expect(screen.getByText('Too many attempts. Please wait before trying again.')).toBeInTheDocument()
+			expect(
+				screen.getByText('Too many attempts. Please wait before trying again.')
+			).toBeInTheDocument()
 		);
 		const announcement = screen.getByText('Too many attempts. Please wait before trying again.');
 		expect(announcement).toHaveAttribute('role', 'alert');
@@ -68,8 +74,8 @@ describe('LockScreen lockout announcement', () => {
 
 		// ...but the announced alert's text is exactly the same node/content as before — no
 		// mutation for a screen reader to re-announce.
-		expect(
-			screen.getByText('Too many attempts. Please wait before trying again.')
-		).toBe(announcement);
+		expect(screen.getByText('Too many attempts. Please wait before trying again.')).toBe(
+			announcement
+		);
 	});
 });

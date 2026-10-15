@@ -88,5 +88,4 @@ export interface TemplateImportResult {
 }
 
 export type ParseTemplateResult =
-	| { ok: true; template: DataTemplate }
-	| { ok: false; message: string };
+	{ ok: true; template: DataTemplate } | { ok: false; message: string };

@@ -77,7 +77,10 @@ test('a keyword rule previews its matches, files existing entries, and files new
 
 	// Saving offers to file the existing history; accept it.
 	await ruleDialog.getByRole('button', { name: 'Add rule' }).click();
-	await acceptConfirm(page, /2 existing uncategorized transactions[\s\S]*description contains "swiggy"/);
+	await acceptConfirm(
+		page,
+		/2 existing uncategorized transactions[\s\S]*description contains "swiggy"/
+	);
 	await expect(ruleDialog).not.toBeVisible();
 	await expect(page.getByText('Description contains "swiggy" → Food')).toBeVisible();
 	await expect(page.getByText('Categorized 2 existing transactions')).toBeVisible();

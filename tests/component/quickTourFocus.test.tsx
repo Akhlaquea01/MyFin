@@ -2,7 +2,10 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useEffect } from 'react';
-import { QuickTourProvider, APP_QUICK_TOUR_SEEN } from '../../src/components/ui/quick-tour/QuickTourProvider';
+import {
+	QuickTourProvider,
+	APP_QUICK_TOUR_SEEN
+} from '../../src/components/ui/quick-tour/QuickTourProvider';
 import { QuickTourOverlay } from '../../src/components/ui/quick-tour/QuickTourOverlay';
 import { QUICK_TOUR_STEPS } from '../../src/components/ui/quick-tour/tour-steps';
 import { useQuickTour } from '../../src/hooks/useQuickTour';

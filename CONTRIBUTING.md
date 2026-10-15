@@ -13,6 +13,7 @@ All contributors and participants agree to abide by our [Code of Conduct](CODE_O
 ## Development Setup
 
 ### Prerequisites
+
 - **Node.js**: `v20.x` or `v22.x` (LTS recommended)
 - **npm**: `v10.x` or higher
 - **Git**
@@ -20,12 +21,14 @@ All contributors and participants agree to abide by our [Code of Conduct](CODE_O
 ### Installation
 
 1. **Fork & Clone** the repository:
+
    ```bash
    git clone https://github.com/Akhlaquea01/MyFin.git
    cd MyFin
    ```
 
 2. **Install dependencies**:
+
    ```bash
    npm install
    ```

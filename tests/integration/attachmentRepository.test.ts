@@ -3,10 +3,7 @@ import { db } from '../../src/data/dexie/db';
 import { AttachmentRepository } from '../../src/data/dexie/attachmentRepository';
 import { TransactionRepository } from '../../src/data/dexie/transactionRepository';
 import { AccountRepository } from '../../src/data/dexie/accountRepository';
-import {
-	PersonRepository,
-	PersonLoanRepository
-} from '../../src/data/dexie/personLoanRepository';
+import { PersonRepository, PersonLoanRepository } from '../../src/data/dexie/personLoanRepository';
 import { deriveEncryptionKey, randomSaltBase64 } from '../../src/data/crypto/cryptoService';
 
 describe('AttachmentRepository + TransactionRepository.purge against Dexie', () => {

@@ -30,9 +30,11 @@ This document provides a comprehensive reference of all 18 core features built i
 ## Feature 001: Core Personal Finance Manager & Encrypted Ledger
 
 ### Overview
+
 The foundational layer of MyFin providing zero-knowledge, local-first personal financial management. All sensitive data (transactions, accounts, budgets, payees) is stored encrypted in browser IndexedDB.
 
 ### Key Capabilities
+
 - **Accounts Management**: Support for multiple account types (`bank`, `credit`, `cash`, `investment`, `loan`, `wallet`).
 - **Encrypted Double-Sided Ledger**: Immutable transaction history supporting income, expense, and account transfers.
 - **Split Transactions**: Allocate a single transaction across multiple categories.
@@ -48,6 +50,7 @@ The foundational layer of MyFin providing zero-knowledge, local-first personal f
 - **Soft-Delete & Trash Recovery**: 30-day soft-delete lifecycle for transactions, accounts, savings goals, categorization rules, people, and person loans, with a unified Trash page for restore or permanent purge.
 
 ### Domain Engine & Architecture
+
 - **Engine**: [`src/domain/transactions/transactionEngine.ts`](file:///e:/MyFin/src/domain/transactions/transactionEngine.ts), [`src/domain/wealth/wealthEngine.ts`](file:///e:/MyFin/src/domain/wealth/wealthEngine.ts) (net worth/liabilities)
 - **Repositories**: [`accountRepository.ts`](file:///e:/MyFin/src/data/dexie/accountRepository.ts), [`transactionRepository.ts`](file:///e:/MyFin/src/data/dexie/transactionRepository.ts), [`categoryRepository.ts`](file:///e:/MyFin/src/data/dexie/categoryRepository.ts), [`wealthRepository.ts`](file:///e:/MyFin/src/data/dexie/wealthRepository.ts)
 - **Primary Pages**: [`DashboardPage.tsx`](file:///e:/MyFin/src/pages/DashboardPage.tsx), [`AccountsPage.tsx`](file:///e:/MyFin/src/pages/AccountsPage.tsx), [`TransactionsPage.tsx`](file:///e:/MyFin/src/pages/TransactionsPage.tsx), [`NewTransactionPage.tsx`](file:///e:/MyFin/src/pages/NewTransactionPage.tsx), [`CategoriesPage.tsx`](file:///e:/MyFin/src/pages/CategoriesPage.tsx), [`TransferPage.tsx`](file:///e:/MyFin/src/pages/TransferPage.tsx), [`LiabilitiesPage.tsx`](file:///e:/MyFin/src/pages/LiabilitiesPage.tsx), [`NetWorthPage.tsx`](file:///e:/MyFin/src/pages/NetWorthPage.tsx), [`TrashPage.tsx`](file:///e:/MyFin/src/pages/TrashPage.tsx)
@@ -57,9 +60,11 @@ The foundational layer of MyFin providing zero-knowledge, local-first personal f
 ## Feature 002: Debt Payoff Planner
 
 ### Overview
+
 An interactive financial planning engine allowing users to simulate, compare, and execute debt reduction strategies across credit cards and loans.
 
 ### Key Capabilities
+
 - **Payoff Strategies**:
   - **Snowball**: Prioritizes smallest balance first for rapid psychological momentum.
   - **Avalanche**: Prioritizes highest interest rate (APR) first for mathematical interest minimization.
@@ -69,6 +74,7 @@ An interactive financial planning engine allowing users to simulate, compare, an
 - **Preference Persistence**: User's chosen payoff strategy and extra payment amounts persist in encrypted storage.
 
 ### Domain Engine & Architecture
+
 - **Engine**: [`src/domain/debtPlanner/generatePlan.ts`](file:///e:/MyFin/src/domain/debtPlanner/generatePlan.ts)
 - **Repository**: [`debtPlannerPreferenceRepository.ts`](file:///e:/MyFin/src/data/dexie/debtPlannerPreferenceRepository.ts)
 - **Primary Page**: [`DebtPayoffPlannerPage.tsx`](file:///e:/MyFin/src/pages/DebtPayoffPlannerPage.tsx)
@@ -78,9 +84,11 @@ An interactive financial planning engine allowing users to simulate, compare, an
 ## Feature 003: Savings Goals Tracker
 
 ### Overview
+
 Visual goal tracking that connects target savings amounts with dedicated or pooled financial accounts, displaying progress, target timelines, and forecast indicators.
 
 ### Key Capabilities
+
 - **Target Tracking**: Set goal target amount, currency, target completion date, and priority.
 - **Funding Models**:
   - Direct account balance linking.
@@ -89,6 +97,7 @@ Visual goal tracking that connects target savings amounts with dedicated or pool
 - **Soft Delete & Archive**: Ability to mark goals achieved, archived, or soft-deleted into Trash.
 
 ### Domain Engine & Architecture
+
 - **Engine**: [`src/domain/savingsGoals/goalProgress.ts`](file:///e:/MyFin/src/domain/savingsGoals/goalProgress.ts)
 - **Repository**: [`savingsGoalRepository.ts`](file:///e:/MyFin/src/data/dexie/savingsGoalRepository.ts)
 - **Primary Page**: [`SavingsGoalsPage.tsx`](file:///e:/MyFin/src/pages/SavingsGoalsPage.tsx)
@@ -98,18 +107,21 @@ Visual goal tracking that connects target savings amounts with dedicated or pool
 ## Feature 004: Recurring Budget Notifications
 
 ### Overview
+
 Predictive bill calendar, recurring payment automation, and proactive budget threshold notification checks.
 
 ### Key Capabilities
+
 - **Recurring Cadences**: Weekly (a weekday, 0 = Sunday), monthly (a day of the month) and yearly (a day of the year) rules. The day field is described in those terms everywhere it is asked, including "Mark as recurring" in Review, which starts from the transaction's own date.
 - **Expected Events Generation**: Projects future transaction occurrences with status tracking (`pending`, `matched`, `missed`).
-- **Payment Matching**: A recorded transaction on the rule's account, for the same amount and direction within ±3 days of an expected event, marks it `matched`. An *uncategorized* entry matches regardless of the rule's category (bills usually arrive from a statement or SMS before they are categorized); an entry with a different real category does not. A `missed` event is matched if the bill is recorded late. Matches are re-evaluated when an entry is confirmed, edited or restored, and released when it is deleted or turned into a transfer. Transfers never match.
+- **Payment Matching**: A recorded transaction on the rule's account, for the same amount and direction within ±3 days of an expected event, marks it `matched`. An _uncategorized_ entry matches regardless of the rule's category (bills usually arrive from a statement or SMS before they are categorized); an entry with a different real category does not. A `missed` event is matched if the bill is recorded late. Matches are re-evaluated when an entry is confirmed, edited or restored, and released when it is deleted or turned into a transfer. Transfers never match.
 - **Budget Threshold Alerts**: Configurable alerts when category spend exceeds 80%, 90%, or 100% of budgeted envelope.
 - **In-App Alerts**: Due bills, budget thresholds and overdue loans are checked each time MyFin is unlocked. Each new one is shown as a system notification (a browser notification, or a real Android one in the APK) **and** kept in the in-app **Alerts** list — whatever the notification permission is, so a reminder the system could not show is still there. Alerts have an unread badge in the menu, open the matching screen (Upcoming, Budgets, People) when tapped, and can be dismissed, marked read or cleared (the last asks first). One entry per occurrence; the newest 100 are kept. Tapping an Android notification opens the same screen. Because the check runs on unlock, a reminder cannot appear while the app is closed — the Notifications page says so, and shows whether the device currently allows notifications at all.
 - **Local notifications only**: No server and no push service; nothing about the user's money is handed to the OS scheduler. The one scheduled notification is the fixed-text weekly backup reminder (Feature 021).
 - **Notification Settings**: User-configurable master enable/disable, reminder lead days, and budget threshold percentage.
 
 ### Domain Engine & Architecture
+
 - **Engines**: [`src/domain/recurring/recurringEngine.ts`](file:///e:/MyFin/src/domain/recurring/recurringEngine.ts), [`src/domain/notifications/notificationEngine.ts`](file:///e:/MyFin/src/domain/notifications/notificationEngine.ts)
 - **Repositories**: [`recurringRepository.ts`](file:///e:/MyFin/src/data/dexie/recurringRepository.ts), [`notificationRepository.ts`](file:///e:/MyFin/src/data/dexie/notificationRepository.ts)
 - **Primary Pages**: [`RecurringPage.tsx`](file:///e:/MyFin/src/pages/RecurringPage.tsx), [`RecurringUpcomingPage.tsx`](file:///e:/MyFin/src/pages/RecurringUpcomingPage.tsx), [`BudgetsPage.tsx`](file:///e:/MyFin/src/pages/BudgetsPage.tsx), [`NotificationSettingsPage.tsx`](file:///e:/MyFin/src/pages/NotificationSettingsPage.tsx)
@@ -119,9 +131,11 @@ Predictive bill calendar, recurring payment automation, and proactive budget thr
 ## Feature 005: Encrypted Receipt Attachments
 
 ### Overview
+
 Client-side encrypted image and document attachment system allowing users to store receipts, invoices, and payment confirmations alongside transactions.
 
 ### Key Capabilities
+
 - **Client-Side Compression**: High-quality canvas-based downscaling (max 1600px dimension, JPEG/WebP compression) before encryption to conserve storage.
 - **Multi-Attachment**: Up to 5 attachments per transaction.
 - **Zero-Knowledge Encryption**: Image binary data is AES-256-GCM encrypted before being stored in IndexedDB.
@@ -129,6 +143,7 @@ Client-side encrypted image and document attachment system allowing users to sto
 - **Automatic Cascading Deletion**: Hard deletion or soft deletion of parent transaction appropriately cascades to associated attachments.
 
 ### Domain Engine & Architecture
+
 - **Helpers**: [`src/lib/imageAttachment.ts`](file:///e:/MyFin/src/lib/imageAttachment.ts)
 - **Repository**: [`attachmentRepository.ts`](file:///e:/MyFin/src/data/dexie/attachmentRepository.ts)
 - **Component**: Embedded in [`TransactionsPage.tsx`](file:///e:/MyFin/src/pages/TransactionsPage.tsx) and transaction edit sheets.
@@ -138,11 +153,13 @@ Client-side encrypted image and document attachment system allowing users to sto
 ## Feature 006: Auto-Categorization & Merchant Learning
 
 ### Overview
+
 Automated transaction categorization engine combining explicit user-defined matching rules with continuous merchant streak learning.
 
 ### Key Capabilities
+
 - **Merchant & Alias Rules**: A rule maps a merchant (or one specific alias of it) to a category and tags. At most one live rule exists per merchant + scope.
-- **Keyword Rules ("description contains")**: A rule can instead match *text*: any transaction whose description or merchant name has a word starting with the keyword — case- and punctuation-insensitive, so `swiggy` files `UPI-SWIGGY-88123`, `SWIGGY INSTAMART` and `Swiggy One` alike, which per-merchant rules cannot (each distinct description is its own merchant). Needs at least 3 letters/digits; the same keyword can't be added twice however it is written. The rule dialog previews which uncategorized transactions the keyword would catch before it is saved. Works on manual entry, Quick Add, file and bulk imports, including rows with no merchant at all. There is no regex matching.
+- **Keyword Rules ("description contains")**: A rule can instead match _text_: any transaction whose description or merchant name has a word starting with the keyword — case- and punctuation-insensitive, so `swiggy` files `UPI-SWIGGY-88123`, `SWIGGY INSTAMART` and `Swiggy One` alike, which per-merchant rules cannot (each distinct description is its own merchant). Needs at least 3 letters/digits; the same keyword can't be added twice however it is written. The rule dialog previews which uncategorized transactions the keyword would catch before it is saved. Works on manual entry, Quick Add, file and bulk imports, including rows with no merchant at all. There is no regex matching.
 - **Precedence**: exact-alias rule → merchant rule → keyword rule (the longest matching keyword wins; an exact tie goes to the older rule) → learned suggestion. A category you chose yourself is never overridden.
 - **Merchant Normalization**: Strips reference numbers, dates and rail codes (UPI/NEFT/IMPS…) from imported descriptions so repeat sightings converge on one merchant. Manual entry now reuses an existing merchant by name instead of creating a new one every time.
 - **Streak Learning Engine**: When a user confirms the same category for a merchant 3 times in a row — in the Review Queue, or by choosing the category by hand on a new entry — the engine surfaces a suggestion. A merchant that already has a rule — or whose name a keyword rule already matches — is never offered a suggestion.
@@ -150,6 +167,7 @@ Automated transaction categorization engine combining explicit user-defined matc
 - **Visible Provenance**: The Review Queue marks a pre-filled category as "Auto: rule" or "Suggested", and New Transaction previews what the typed merchant will be filed under.
 
 ### Domain Engine & Architecture
+
 - **Engine**: [`src/domain/categorization/categorizationEngine.ts`](file:///e:/MyFin/src/domain/categorization/categorizationEngine.ts), [`keywordMatching.ts`](file:///e:/MyFin/src/domain/categorization/keywordMatching.ts), [`resolveCategorization.ts`](file:///e:/MyFin/src/domain/categorization/resolveCategorization.ts), [`src/domain/parser/merchantResolver.ts`](file:///e:/MyFin/src/domain/parser/merchantResolver.ts)
 - **Repositories**: [`categorizationRuleRepository.ts`](file:///e:/MyFin/src/data/dexie/categorizationRuleRepository.ts), [`merchantCategorySignalRepository.ts`](file:///e:/MyFin/src/data/dexie/merchantCategorySignalRepository.ts)
 - **Primary Page**: [`CategorizationRulesPage.tsx`](file:///e:/MyFin/src/pages/CategorizationRulesPage.tsx)
@@ -159,9 +177,11 @@ Automated transaction categorization engine combining explicit user-defined matc
 ## Feature 007: Financial Health Insights & Score
 
 ### Overview
+
 Holistic financial wellness assessment calculating an aggregate health score (0–100) and actionable pillar diagnostics.
 
 ### Key Capabilities
+
 - **Health Pillars**:
   1. **Emergency Fund Runway**: Months of fixed living expenses covered by liquid cash.
   2. **Savings Rate**: Percentage of net monthly income retained.
@@ -171,6 +191,7 @@ Holistic financial wellness assessment calculating an aggregate health score (0�
 - **Historical Score Trend**: Tracks score progression over time.
 
 ### Domain Engine & Architecture
+
 - **Engine**: [`src/domain/analytics/financialHealthEngine.ts`](file:///e:/MyFin/src/domain/analytics/financialHealthEngine.ts)
 - **Service**: [`financialHealthService.ts`](file:///e:/MyFin/src/domain/analytics/financialHealthService.ts)
 - **Primary Page**: [`FinancialHealthPage.tsx`](file:///e:/MyFin/src/pages/FinancialHealthPage.tsx)
@@ -180,14 +201,17 @@ Holistic financial wellness assessment calculating an aggregate health score (0�
 ## Feature 008: PWA Web Share Target
 
 ### Overview
+
 Native OS integration enabling users on Android, Windows, and macOS to share receipts, bank SMS text, and transaction confirmation URLs directly into MyFin.
 
 ### Key Capabilities
+
 - **Service Worker Share Handler**: Registered via `public/sw-share-target.js` to process incoming POST multipart share actions.
 - **Quick-Add Text Parsing**: Rule-based parser extracting amount, direction, merchant and — when the message states one — the date (day-first: `12/10/2026`, `12-Oct-26`, `2026-10-12`) from shared SMS/text snippets, e.g. "Rs.500 debited from A/c XX1234 to AMAZON on 12/10/2026". Amounts are read in rupees (`Rs`, `INR`, `₹`, or a bare number after a verb such as "debited"); other currencies are not recognised. A message without a date is dated today. Parsing a new message replaces every field, so nothing from the previous message lingers.
 - **Direct Receipt Ingestion**: Automatically attaches shared photos/screenshots to a new transaction draft.
 
 ### Domain Engine & Architecture
+
 - **Service Worker**: [`public/sw-share-target.js`](file:///e:/MyFin/public/sw-share-target.js)
 - **Parser**: [`src/domain/parser/quickAddParser.ts`](file:///e:/MyFin/src/domain/parser/quickAddParser.ts)
 - **Primary Page**: [`ShareTargetLandingPage.tsx`](file:///e:/MyFin/src/pages/ShareTargetLandingPage.tsx), [`QuickAddPage.tsx`](file:///e:/MyFin/src/pages/QuickAddPage.tsx)
@@ -197,9 +221,11 @@ Native OS integration enabling users on Android, Windows, and macOS to share rec
 ## Feature 009: Multi-Account File Import
 
 ### Overview
+
 Enterprise-grade CSV and Excel file importer capable of ingesting statements from multiple banks and credit cards in a single upload.
 
 ### Key Capabilities
+
 - **Multi-Account Column Mapping**: Visual column mapping interface with automatic header recognition (fuzzy matching dates, descriptions, credits/debits, balances, account names).
 - **Remembered Column Mapping**: After an import, the date/amount/description/account columns, the amount convention (single signed column or separate debit/credit) and the date format are remembered for files with the same headers (compared ignoring case, spacing and column order). The next such file arrives already mapped, with a note saying so and a "Forget saved mapping" button; a file with an added, removed or renamed column is treated as a new layout and asked about again, never half-guessed. The destination account is deliberately not remembered, and "Remember these columns" can be unticked per import. Stored encrypted and device-local (not in backups); cleared by "Clear everything".
 - **Per-Row Account Resolution**: Routes transactions to existing accounts based on file columns or allows mapping unknown accounts to new ledger accounts on the fly.
@@ -209,6 +235,7 @@ Enterprise-grade CSV and Excel file importer capable of ingesting statements fro
 - **Cheaper Keyword Rules**: The rule dialog's live preview reads the uncategorized entries once per dialog instead of on every keystroke, and applying rules to the queue picks its candidates off indexed columns before decrypting anything.
 
 ### Domain Engine & Architecture
+
 - **Engine**: [`src/data/io/importService.ts`](file:///e:/MyFin/src/data/io/importService.ts), [`src/data/io/bulkTextImportService.ts`](file:///e:/MyFin/src/data/io/bulkTextImportService.ts)
 - **Primary Pages**: [`ImportPage.tsx`](file:///e:/MyFin/src/pages/ImportPage.tsx), [`ReviewPage.tsx`](file:///e:/MyFin/src/pages/ReviewPage.tsx), [`BulkTextImportPage.tsx`](file:///e:/MyFin/src/pages/BulkTextImportPage.tsx)
 
@@ -217,9 +244,11 @@ Enterprise-grade CSV and Excel file importer capable of ingesting statements fro
 ## Feature 010: Lending & Borrowing (Person Loans)
 
 ### Overview
+
 Peer-to-peer debt and loan ledger tracking money lent to or borrowed from friends, family, and associates.
 
 ### Key Capabilities
+
 - **Contacts Directory**: Manage individual borrowers and lenders.
 - **Loan Types**: Lent (assets / receivables) and Borrowed (liabilities / payables).
 - **Ledger Integration**:
@@ -230,6 +259,7 @@ Peer-to-peer debt and loan ledger tracking money lent to or borrowed from friend
 - **Edit & Remove**: A loan's due date and notes can be edited; a mis-recorded loan can be removed (with its repayments and ledger movements, restoring the account balance) and recovered from Trash.
 
 ### Domain Engine & Architecture
+
 - **Engine**: [`src/domain/personLoans/loanProgress.ts`](file:///e:/MyFin/src/domain/personLoans/loanProgress.ts)
 - **Repository**: [`personLoanRepository.ts`](file:///e:/MyFin/src/data/dexie/personLoanRepository.ts)
 - **Primary Page**: [`PeoplePage.tsx`](file:///e:/MyFin/src/pages/PeoplePage.tsx)
@@ -239,15 +269,18 @@ Peer-to-peer debt and loan ledger tracking money lent to or borrowed from friend
 ## Feature 011: Year In Review Report & PDF Export
 
 ### Overview
+
 Annual financial retrospective presenting rich interactive infographics of spending patterns, net worth milestones, top merchants, and printable PDF exports.
 
 ### Key Capabilities
+
 - **Annual Aggregation**: Total income, total expenses, savings rate, and net savings for any calendar year.
 - **Top Merchant & Category Breakdown**: Visual rankings of top spending categories and frequent payees.
 - **Month-by-Month Flow Trends**: Bar/line visual charts comparing inflow vs outflow across all 12 months.
 - **Vector PDF Generation**: Generates clean, multi-page vector PDF summaries via `jspdf` and `jspdf-autotable` entirely client-side.
 
 ### Domain Engine & Architecture
+
 - **Engines**: [`src/domain/reports/reportEngine.ts`](file:///e:/MyFin/src/domain/reports/reportEngine.ts), [`src/domain/reports/reportService.ts`](file:///e:/MyFin/src/domain/reports/reportService.ts)
 - **PDF Generator**: [`src/data/io/reportPdfExport.ts`](file:///e:/MyFin/src/data/io/reportPdfExport.ts)
 - **Primary Page**: [`AnalyticsPage.tsx`](file:///e:/MyFin/src/pages/AnalyticsPage.tsx)
@@ -257,15 +290,18 @@ Annual financial retrospective presenting rich interactive infographics of spend
 ## Feature 012: Tag Taxonomy & Search Engine
 
 ### Overview
+
 Flexible non-hierarchical tagging system allowing multidimensional transaction labeling and instant intersection filtering.
 
 ### Key Capabilities
+
 - **Multi-Tag Association**: Assign arbitrary tags (e.g. `#tax-deductible`, `#vacation-2026`, `#reimbursable`) to any transaction.
 - **Tag Filter Engine**: Supports multi-select tag filtering with `AND` (intersection) and `OR` (union) operations.
 - **Fast Indexed Queries**: Backed by Dexie inverted index tables for immediate sub-millisecond filtering across tens of thousands of transactions.
 - **Tag Management**: Color assignment, renaming, merging, and bulk untagging.
 
 ### Domain Engine & Architecture
+
 - **Engine**: [`src/domain/transactions/tagFilterEngine.ts`](file:///e:/MyFin/src/domain/transactions/tagFilterEngine.ts)
 - **Repository**: [`tagRepository.ts`](file:///e:/MyFin/src/data/dexie/tagRepository.ts)
 - **Primary Page**: Integrated into [`TransactionsPage.tsx`](file:///e:/MyFin/src/pages/TransactionsPage.tsx)
@@ -275,15 +311,18 @@ Flexible non-hierarchical tagging system allowing multidimensional transaction l
 ## Feature 013: Saved Transaction Filter Presets
 
 ### Overview
+
 Customizable view presets allowing users to save, name, and switch between complex search, date, account, and category filter configurations.
 
 ### Key Capabilities
+
 - **Filter View Persistence**: Save active search query, date ranges, account filters, category selections, amount bounds, and tag filters as a named view.
 - **Quick-Switch Pill Bar**: Switch between views with a single click at the top of the transaction register.
 - **Default View Selection**: Configure a specific view (e.g. "Unreviewed This Month") as the default landing view.
 - **Full CRUD Support**: Create, rename, update criteria, or delete saved filter views.
 
 ### Domain Engine & Architecture
+
 - **Repository**: [`savedFilterViewRepository.ts`](file:///e:/MyFin/src/data/dexie/savedFilterViewRepository.ts)
 - **Primary Page**: [`TransactionsPage.tsx`](file:///e:/MyFin/src/pages/TransactionsPage.tsx)
 
@@ -292,9 +331,11 @@ Customizable view presets allowing users to save, name, and switch between compl
 ## Feature 014: Interactive Quick Tour & Onboarding
 
 ### Overview
+
 Guided interactive walkthrough overlay introducing new users to the interface, navigation layout, security model, and key workflows.
 
 ### Key Capabilities
+
 - **Spotlight Highlights**: Elements are spotlighted with clipped SVG backdrop overlays while focusing on key target UI components.
 - **Step Navigation**: Next, Back, Skip, and Finish controls with keyboard accessibility (Escape to dismiss, Arrow keys to navigate).
 - **Tour Steps**:
@@ -307,6 +348,7 @@ Guided interactive walkthrough overlay introducing new users to the interface, n
 - **Replayable**: Can be restarted at any time from the app settings or help menu.
 
 ### Domain Engine & Architecture
+
 - **Components**: [`QuickTourProvider.tsx`](file:///e:/MyFin/src/components/ui/quick-tour/QuickTourProvider.tsx), [`QuickTourOverlay.tsx`](file:///e:/MyFin/src/components/ui/quick-tour/QuickTourOverlay.tsx)
 - **Step Config**: [`src/components/ui/quick-tour/tour-steps.ts`](file:///e:/MyFin/src/components/ui/quick-tour/tour-steps.ts)
 - **Hook**: [`useQuickTour.ts`](file:///e:/MyFin/src/hooks/useQuickTour.ts)
@@ -316,15 +358,18 @@ Guided interactive walkthrough overlay introducing new users to the interface, n
 ## Feature 015: Starter Setup Template Export & Import
 
 ### Overview
+
 Export and import sanitized, reusable configuration templates (categories, accounts structure, categorization rules, recurring schedules, and sample budgets) without exporting private financial transactions.
 
 ### Key Capabilities
+
 - **Sanitized Template Creation**: Strips personal transaction histories, balances, attachment blobs, and user identifiers, exporting only structural metadata.
 - **Starter Template Library**: Bundled with a verified default template (`SAMPLE_DATA_TEMPLATE`) for immediate first-run setup.
 - **UUID Remapping & Conflict Resolution**: Automatically resolves ID collisions and remaps foreign key references during template import.
 - **Pre-Import Review**: Displays summary card showing how many accounts, categories, and rules will be added before committing to database.
 
 ### Domain Engine & Architecture
+
 - **Service**: [`src/data/io/templateService.ts`](file:///e:/MyFin/src/data/io/templateService.ts)
 - **Types**: [`src/data/io/templateTypes.ts`](file:///e:/MyFin/src/data/io/templateTypes.ts)
 - **Starter Sample**: [`src/data/io/sampleTemplate.ts`](file:///e:/MyFin/src/data/io/sampleTemplate.ts)
@@ -335,9 +380,11 @@ Export and import sanitized, reusable configuration templates (categories, accou
 ## Feature 016: Core Workflow Improvements
 
 ### Overview
+
 A bundle of seven targeted fixes and additions to the daily-use workflow: transaction list readability, Review-queue performance, recurring-from-review, account editing, budget correctness/history, a full data reset, and richer investment tracking.
 
 ### Key Capabilities
+
 - **Readable Transaction Rows**: Recent Transactions (Dashboard) and the Transactions table truncate long descriptions and keep the "Unreviewed" badge, date, and amount from ever overlapping, at any screen width.
 - **Responsive Review Queue**: Confirming or discarding a transaction in Review now patches local state instead of re-fetching and re-decrypting the entire unreviewed queue on every click — fixes multi-second hangs at hundreds of unreviewed transactions.
 - **Mark as Recurring from Review**: A transaction can be turned into a recurring rule directly from Review via a short frequency/day confirm step; an already-linked transaction shows "Already recurring" instead of offering a duplicate.
@@ -347,6 +394,7 @@ A bundle of seven targeted fixes and additions to the daily-use workflow: transa
 - **Investment Type Dropdown + Units/Avg Price**: `type` is now a fixed dropdown instead of free text; holdings track units and a weighted-average price, recalculated on each additional purchase, plus a validated sell path that can never take units negative. Legacy free-text types are mapped onto the fixed list on import.
 
 ### Domain Engine & Architecture
+
 - **Engines**: [`budgetEngine.ts`](file:///e:/MyFin/src/domain/budgets/budgetEngine.ts) (`ensureBudgetItemForPeriod`), [`recurringEngine.ts`](file:///e:/MyFin/src/domain/recurring/recurringEngine.ts) (`createRuleFromTransaction`), [`wealthEngine.ts`](file:///e:/MyFin/src/domain/wealth/wealthEngine.ts) (`recordPurchase`/`recordSale`)
 - **Data Layer**: [`clearAllTables.ts`](file:///e:/MyFin/src/data/dexie/clearAllTables.ts), [`resetService.ts`](file:///e:/MyFin/src/data/io/resetService.ts), import-time budget recompute and investment type mapping in [`templateService.ts`](file:///e:/MyFin/src/data/io/templateService.ts)
 - **Primary Pages**: [`DashboardPage.tsx`](file:///e:/MyFin/src/pages/DashboardPage.tsx), [`TransactionsPage.tsx`](file:///e:/MyFin/src/pages/TransactionsPage.tsx), [`ReviewPage.tsx`](file:///e:/MyFin/src/pages/ReviewPage.tsx), [`AccountsPage.tsx`](file:///e:/MyFin/src/pages/AccountsPage.tsx), [`BudgetsPage.tsx`](file:///e:/MyFin/src/pages/BudgetsPage.tsx), [`BackupSettingsPage.tsx`](file:///e:/MyFin/src/pages/BackupSettingsPage.tsx), [`InvestmentsPage.tsx`](file:///e:/MyFin/src/pages/InvestmentsPage.tsx)
@@ -356,9 +404,11 @@ A bundle of seven targeted fixes and additions to the daily-use workflow: transa
 ## Feature 017: Financial Visibility & Control Enhancements
 
 ### Overview
+
 A bundle of five visibility and control gaps closed across credit cards, net worth, budgets, investments, and imports: credit limit/utilization tracking, a categorized net worth breakdown with duplicate-debt detection, budget editing with historical-period protection, portfolio-level investment aggregates, and identifier-based auto-matching of imported/pasted credit card transactions to the right account.
 
 ### Key Capabilities
+
 - **Credit Card Limit & Utilization**: Credit card accounts gain an optional credit limit and billing cycle day. Wherever a card's balance is shown, the app displays amount used, amount available, and a utilization percentage; cards at ≥90% utilization or over their limit are visually flagged. A temporarily positive balance (overpayment/refund) clamps to ₹0 used / 100% available rather than showing negative usage. Cards with no limit set still show amount used, with a prompt to add a limit.
 - **Categorized Net Worth Breakdown**: Net worth is broken into labeled, drillable subtotals — cash/bank balances, credit card debt, investment value, loans lent, loans borrowed, and other liabilities — that sum exactly to the displayed total, instead of one opaque figure. A transaction-linked credit card account is the single source of truth for its debt.
 - **Duplicate Credit Card Debt Detection**: When a manually-entered liability looks like it represents the same real card as an existing transaction-linked account (by name, nickname, or last-4 match), the user is warned and can either link the liability to the account (so only the account counts toward net worth) or dismiss the warning to keep both counted independently.
@@ -373,6 +423,7 @@ A bundle of five visibility and control gaps closed across credit cards, net wor
 - **Credit Card Identifier Matching for Imports**: Credit card accounts can be tagged with a last-4-digit identifier and/or a nickname. Both the CSV/XLSX importer and the paste-based bulk text importer scan incoming content for a tagged identifier and pre-select the matching card as the destination, showing which identifier matched and why; an ambiguous match (multiple cards) prompts the user to disambiguate, and an unmatched import falls back to manual account selection without being blocked. A single file can route different rows to different matched cards.
 
 ### Domain Engine & Architecture
+
 - **Engine**: [`src/domain/wealth/wealthEngine.ts`](file:///e:/MyFin/src/domain/wealth/wealthEngine.ts) (`computeCardUtilization`, `computeNetWorth`, `findLikelyDuplicateAccounts`, `linkLiabilityToAccount`, `dismissDuplicateWarning`, `computePortfolioSummary`)
 - **Matcher**: [`src/domain/parser/cardIdentifierMatcher.ts`](file:///e:/MyFin/src/domain/parser/cardIdentifierMatcher.ts) (`findCardMatches`)
 - **Budget Engine**: [`src/domain/budgets/budgetEngine.ts`](file:///e:/MyFin/src/domain/budgets/budgetEngine.ts)
@@ -385,9 +436,11 @@ A bundle of five visibility and control gaps closed across credit cards, net wor
 ## Feature 018: Financial Planning & Productivity Enhancements
 
 ### Overview
+
 Seven independently-shippable additions spanning passive insight (subscriptions, forecasting), budgeting depth (variance reporting, envelope rollover), and everyday usability (quick search, a customizable dashboard, unattended local backups) — each reusing an existing domain engine as its foundation rather than introducing a parallel one.
 
 ### Key Capabilities
+
 - **Subscription Tracker**: Detects merchants with a repeating amount/interval charge pattern directly from existing transaction history — no manual recurring-rule setup. Groups charges by merchant (or normalized description text when no merchant is resolved), classifies a cadence (weekly/monthly/quarterly/yearly) within a tolerance window, and flags a subscription as possibly lapsed once it's overdue for its own cadence. Shows total detected monthly cost, and a merchant can be dismissed from the view without touching its transactions. Credit card bill payments (recognised by description or merchant name) are never reported as subscriptions.
 - **Cash-Flow Forecasting**: Projects an account's balance 30/60/90 days out by combining its scheduled recurring transactions (deterministic) with a trailing-average "drift" term for ordinary non-recurring spend, and warns in advance of the first date a configurable low-balance threshold would be crossed. For a **credit card** the projection is its amount owed — the trend includes the card's bill payments — and the warning is against its credit limit (none if no limit is set) rather than a low-balance threshold. Marks a forecast low-confidence rather than fabricating a projection when an account has too little recurring/historical signal.
 - **Budget vs. Actual Variance Report**: A dedicated month-range report distinct from the general Analytics page, showing budgeted, actual, and variance per category with over/under/on-track/unbudgeted status — a category with real spend but no budget is never silently folded into zero-variance, and a budgeted category with zero spend is never omitted.
@@ -397,6 +450,7 @@ Seven independently-shippable additions spanning passive insight (subscriptions,
 - **Scheduled Local Encrypted Backups**: An optional automatic backup to a folder on the same device (via the File System Access API), reusing the existing manual export's encryption path unchanged. Because the backup encryption key is derived from the plaintext PIN — which is never stored — an automatic backup can only run at the moment of a successful PIN unlock, not on a background timer; this is surfaced honestly via a last-successful-backup timestamp rather than implying a stronger guarantee. Gracefully explains when a browser doesn't support the underlying API.
 
 ### Domain Engine & Architecture
+
 - **Engines**: [`subscriptionDetectionEngine.ts`](file:///e:/MyFin/src/domain/recurring/subscriptionDetectionEngine.ts) (`detectSubscriptions`), [`forecastEngine.ts`](file:///e:/MyFin/src/domain/forecast/forecastEngine.ts) (`projectAccountBalance`), [`budgetVarianceEngine.ts`](file:///e:/MyFin/src/domain/budgets/budgetVarianceEngine.ts) (`computeVarianceReport`), [`budgetEngine.ts`](file:///e:/MyFin/src/domain/budgets/budgetEngine.ts) (extended with `rolloverMode`'s deficit-carry), [`searchIndex.ts`](file:///e:/MyFin/src/domain/search/searchIndex.ts) (`buildSearchIndex`/`querySearchIndex`), [`dashboardLayout.ts`](file:///e:/MyFin/src/domain/analytics/dashboardLayout.ts) (`resolveDashboardLayout`)
 - **Data Layer**: [`autoBackupSettingsRepository.ts`](file:///e:/MyFin/src/data/dexie/autoBackupSettingsRepository.ts), [`autoBackupService.ts`](file:///e:/MyFin/src/data/io/autoBackupService.ts) (`maybeRunScheduledBackup`, reusing `backupService.ts`'s `createBackup` unchanged), Dexie schema v12 (`autoBackupSettings` table)
 - **Primary Pages**: [`SubscriptionsPage.tsx`](file:///e:/MyFin/src/pages/SubscriptionsPage.tsx), [`CashFlowForecastPage.tsx`](file:///e:/MyFin/src/pages/CashFlowForecastPage.tsx), [`BudgetVarianceReportPage.tsx`](file:///e:/MyFin/src/pages/BudgetVarianceReportPage.tsx), [`BudgetsPage.tsx`](file:///e:/MyFin/src/pages/BudgetsPage.tsx), [`DashboardPage.tsx`](file:///e:/MyFin/src/pages/DashboardPage.tsx), [`BackupSettingsPage.tsx`](file:///e:/MyFin/src/pages/BackupSettingsPage.tsx)
@@ -407,9 +461,11 @@ Seven independently-shippable additions spanning passive insight (subscriptions,
 ## Feature 020: Android Fingerprint Unlock, Editable Review & Auto-capture
 
 ### Overview
+
 Three changes aimed at the Android APK. Fingerprint unlock did not work there at all (the browser's WebAuthn does not exist inside Android WebView), Review could only change a category and tags, and bank SMS could only get into MyFin by being pasted.
 
 ### Key Capabilities
+
 - **Fingerprint unlock on Android**: A local `NativeBiometric` plugin uses Android's `BiometricPrompt` with a Keystore key that needs a fresh strong-biometric check for every use. The plugin holds a random secret behind that key; the app wraps the PIN with it. The PIN itself never reaches native code, and the PIN keeps working. Adding or removing a fingerprint in Android settings invalidates the key on purpose: the app says so, drops the enrollment, and asks for the PIN. A wrapped PIN that no longer opens (for example after restoring a backup) is treated the same way and does **not** count as a wrong PIN.
 - **Locks when you have been away**: The inactivity timer cannot be trusted while the app is in the background, so the session also keeps a wall-clock deadline and checks it when the app returns to the foreground. Away longer than your auto-lock time (default 5 minutes, now adjustable under **Security**) shows the lock screen and opens the fingerprint prompt by itself, once per return; coming back sooner does not ask again.
 - **Security page**: Turn fingerprint unlock on (after re-entering the PIN) or off, see why it is unavailable (no sensor, no fingerprint enrolled, too weak a sensor, …), and set the auto-lock time.
@@ -419,6 +475,7 @@ Three changes aimed at the Android APK. Fingerprint unlock did not work there at
 - **Honest about Android's limits**: Sideloaded apps can be blocked from reading SMS and notifications (Android's "restricted settings"); the Auto-capture page explains how to allow it and links to the right screens.
 
 ### Domain Engine & Architecture
+
 - **Biometric**: [`src/lib/biometric.ts`](file:///e:/MyFin/src/lib/biometric.ts) (provider choice, reasons), [`src/lib/native/nativeBiometric.ts`](file:///e:/MyFin/src/lib/native/nativeBiometric.ts), [`src/lib/pinWrap.ts`](file:///e:/MyFin/src/lib/pinWrap.ts), native `NativeBiometricPlugin.java` / `BiometricVault.java`
 - **Session**: [`SessionContext.tsx`](file:///e:/MyFin/src/context/SessionContext.tsx) (`lockIfExpired`, `setAutoLockTimeout`), [`appState.ts`](file:///e:/MyFin/src/lib/native/appState.ts), [`useAppActive.ts`](file:///e:/MyFin/src/hooks/useAppActive.ts)
 - **Capture domain**: [`src/domain/capture/`](file:///e:/MyFin/src/domain/capture/) (`captureFilter`, `captureParser`, `accountMatcher`, `capturePairing`, `originalMessage`)
@@ -431,9 +488,11 @@ Three changes aimed at the Android APK. Fingerprint unlock did not work there at
 ## Feature 021: QA Hardening — Recovery, Durability & Everyday Flow
 
 ### Overview
+
 A pass over the app's flows (onboarding, lock, entry, Review, backup, notifications, auto-capture) that closed gaps where a user could lose data, lose access, or be left on a dead end. The larger items are listed first.
 
 ### Key Capabilities
+
 - **Change PIN and Forgot PIN**: **Security → Change PIN** verifies the current PIN (counted toward the same lockout as the lock screen), then re-encrypts every row, the captured-message sealing key and the profile under the new PIN in a single transaction; a failure leaves the old PIN and data untouched. Fingerprint unlock turns off (it wrapped the old PIN) and the session is locked. The lock screen's **Forgot your PIN?** explains that nothing can recover the PIN and offers an erase-and-start-over behind a typed `DELETE EVERYTHING`.
 - **Backup durability**: A backup is opened and verified with its PIN before it is handed to the share sheet. The Backup page shows how long ago the last backup was, and on Android says plainly that uninstalling, clearing storage or changing phones erases the data. **Remind me weekly** schedules a fixed-text Android notification (no amounts or merchants) and shows a Dashboard banner whenever the last backup is a week old or missing. Restore warns that the PIN, fingerprint and auto-lock settings revert to the backup's, and refuses files too large to be a backup.
 - **Lock when I leave the app**: An opt-in switch under Security → Auto-lock locks the app after 30 seconds out of the foreground (long enough for permission prompts and file pickers), regardless of the inactivity timer.
@@ -449,14 +508,18 @@ A pass over the app's flows (onboarding, lock, entry, Review, backup, notificati
 - **Dates**: Remaining places that read "today" or "this month" from the UTC date (budget variance default month, report "today", loan overdue, reminder lead time, subscription lapse, forecast, recurring schedule start, backup/export file names) now use the local calendar.
 
 ### Needs a device check
+
 The Android-side code below compiled only against stand-ins for the Android and Capacitor APIs here (there is no Android SDK on the dev machine); the GitHub Actions APK build is the first real compile, and the behaviour needs trying on a phone:
+
 - **Automatic backups to a folder** — `NativeBackupFolderPlugin.java` (Storage Access Framework: pick a folder once, write a new encrypted file per scheduled backup).
 - **Sharing a CSV or Excel statement into the app** — `NativeSharePlugin.java` and the manifest filter; the file opens in Import. A half-filled form is protected by a confirmation before any share replaces it.
 
 ### Not done
+
 - Other currencies: MyFin is INR-only (the sign is shown, but parsing and storage assume rupees). Sharing a PDF statement is not supported either, because Import reads CSV and Excel only.
 
 ### Domain Engine & Architecture
+
 - **PIN**: [`changePinService.ts`](file:///e:/MyFin/src/data/io/changePinService.ts), [`pinGate.ts`](file:///e:/MyFin/src/data/auth/pinGate.ts), [`resetService.ts`](file:///e:/MyFin/src/data/io/resetService.ts) (`resetEverything`), [`SessionContext.tsx`](file:///e:/MyFin/src/context/SessionContext.tsx) (`handleAppActiveChange`)
 - **Backups**: [`backupReminder.ts`](file:///e:/MyFin/src/lib/backupReminder.ts), [`backupReminderService.ts`](file:///e:/MyFin/src/data/io/backupReminderService.ts), [`BackupNudgeBanner.tsx`](file:///e:/MyFin/src/components/BackupNudgeBanner.tsx)
 - **Entry**: [`splitInput.ts`](file:///e:/MyFin/src/domain/transactions/splitInput.ts), [`recurringDay.ts`](file:///e:/MyFin/src/domain/recurring/recurringDay.ts), [`dateText.ts`](file:///e:/MyFin/src/domain/parser/dateText.ts), [`starterCategories.ts`](file:///e:/MyFin/src/data/io/starterCategories.ts)
@@ -466,23 +529,27 @@ The Android-side code below compiled only against stand-ins for the Android and 
 ## Feature 022: Clearer Review, Search-as-you-type Categories & a Charted Dashboard
 
 ### Overview
+
 Made the captured-message flow quicker to act on and easier to read on a phone: the account is found from the digits in the message, duplicates are told apart by the bank's reference number and can be compared, a category is picked by typing, and the dashboard shows where money went as charts instead of grey numbers.
 
 ### Key Capabilities
+
 - **Account from the digits**: "A/c XX1234", "XXXX-1234", a bare "XX1234", "card ending 5678" and five-digit card tails are read and matched to an account's saved digits, in captured messages **and** in Quick Add and bulk text import (which only knew credit-card digits before). A bank account beats a card that shares its digits; the longer tail beats the shorter; digits that fit two accounts are kept as a hint instead of guessed. Choosing the account on a captured entry clears its "account was guessed" flag.
-- **Duplicates you can judge**: a flagged entry in Review shows the entry it looks like (date, amount, merchant, account, whether it is still waiting) and why — the same bank reference number, the same merchant, or just the same amount — with **Keep both** and **Same payment — remove this one** (with Undo). Confirming an entry settles its flag. See *Intelligent Duplicate Detection* above for how the match works.
+- **Duplicates you can judge**: a flagged entry in Review shows the entry it looks like (date, amount, merchant, account, whether it is still waiting) and why — the same bank reference number, the same merchant, or just the same amount — with **Keep both** and **Same payment — remove this one** (with Undo). Confirming an entry settles its flag. See _Intelligent Duplicate Detection_ above for how the match works.
 - **Category by typing**: every category field is a search box over the full `Parent › Child` paths — type the start of any word, press Enter for the first match. On a phone it is a bottom sheet with the keyboard already open; from md up it is a popover. Suggestions from your rules are listed first, and each category has a colour dot.
-- **Review card**: a coloured arrow and edge (red out, green in, amber when it needs a look), the merchant, a large amount, one status chip, the account as a tappable chip (fix a guessed account in place), a full-width category field and a large Confirm. Tags, Transfer, Recurring, remembering the choice as a rule and the original message are under *More options*. A summary at the top shows how many wait, money out and in, and a bar of what is ready, needs a category or needs a look.
+- **Review card**: a coloured arrow and edge (red out, green in, amber when it needs a look), the merchant, a large amount, one status chip, the account as a tappable chip (fix a guessed account in place), a full-width category field and a large Confirm. Tags, Transfer, Recurring, remembering the choice as a rule and the original message are under _More options_. A summary at the top shows how many wait, money out and in, and a bar of what is ready, needs a category or needs a look.
 - **Quick Add**: a Category field that starts on what your rules suggest for the merchant, and "Add to review queue" (so "Confirm" only means one thing).
 - **Tab bar and toast**: the phone's tab says **Review** and shows how many entries wait; the "new transactions added" message has a Review button.
-- **Dashboard charts**: a large balance with its trend; *This month* (money in, money out, how much of it has gone out); *Where it went* (a stacked strip and ranked bars per category, top five plus a neutral Other); six months of in vs out as columns you tap for exact figures, with a table view; budget meters that go amber then red and say so in words; tiles for net worth, lending and what is waiting. Widgets can still be hidden or moved; a layout saved before these existed keeps its order and gets them added.
+- **Dashboard charts**: a large balance with its trend; _This month_ (money in, money out, how much of it has gone out); _Where it went_ (a stacked strip and ranked bars per category, top five plus a neutral Other); six months of in vs out as columns you tap for exact figures, with a table view; budget meters that go amber then red and say so in words; tiles for net worth, lending and what is waiting. Widgets can still be hidden or moved; a layout saved before these existed keeps its order and gets them added.
 - **Colour**: money in is green and money out is rose everywhere; amber means "needs a look". Each category keeps one of eight fixed hues (checked for colour-blind separation and contrast on the dark surface); a ninth category stays neutral rather than repeat a hue. Budgets, card utilisation and investment allocation use the same meters and strips.
 - **Phone navigation**: a scrollable strip of the open screen's siblings (Budgets · Budget vs. Actual · Goals · Recurring · Subscriptions · Forecast; Accounts · Transactions · Quick Add · Review; and so on) sits above each page on a phone, so related screens are one tap apart. Every screen keeps its own address and the desktop sidebar is unchanged. Alerts says it is for bills, budgets and loans and points to Review for bank messages.
 
 ### Not done
+
 - Per-category colours cannot be chosen yet (they follow the order categories were created); inline creation of a category from the picker; learning an account from the sender name for messages without digits.
 
 ### Domain Engine & Architecture
+
 - **Capture**: [`captureParser.ts`](file:///e:/MyFin/src/domain/capture/captureParser.ts) (`extractAccountTails`, `extractRefNo`), [`accountMatcher.ts`](file:///e:/MyFin/src/domain/capture/accountMatcher.ts) (`matchCaptureAccount`, `findAccountMatches`), [`capturePairing.ts`](file:///e:/MyFin/src/domain/capture/capturePairing.ts), [`captureIngestService.ts`](file:///e:/MyFin/src/data/io/captureIngestService.ts), [`duplicateCandidates.ts`](file:///e:/MyFin/src/domain/transactions/duplicateCandidates.ts) (`findDuplicateCandidates`, `findByReference`, `duplicateReason`)
 - **Categories**: [`CategoryPicker.tsx`](file:///e:/MyFin/src/components/CategoryPicker.tsx), [`categoryHierarchy.ts`](file:///e:/MyFin/src/domain/categories/categoryHierarchy.ts) (`filterCategoryOptions`), [`categoryColor.ts`](file:///e:/MyFin/src/domain/categories/categoryColor.ts)
 - **Review**: [`ReviewPage.tsx`](file:///e:/MyFin/src/pages/ReviewPage.tsx), [`DuplicateCompare.tsx`](file:///e:/MyFin/src/components/DuplicateCompare.tsx), [`useWaitingReview.ts`](file:///e:/MyFin/src/hooks/useWaitingReview.ts)

@@ -385,7 +385,13 @@ export const LoanRepaymentRepository = {
 	 *  the repayment's movement. */
 	async createFromImport(
 		key: CryptoKey,
-		input: { loanId: string; amount: number; date: string; accountId: string; transactionId: string }
+		input: {
+			loanId: string;
+			amount: number;
+			date: string;
+			accountId: string;
+			transactionId: string;
+		}
 	): Promise<LoanRepayment> {
 		const now = Date.now();
 		const repayment: LoanRepayment = {
@@ -457,4 +463,3 @@ export const LoanRepaymentRepository = {
 		return decryptRows<PersonLoanRepaymentRow, LoanRepayment>(key, rows);
 	}
 };
-

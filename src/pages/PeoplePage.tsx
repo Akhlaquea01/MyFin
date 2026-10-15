@@ -38,7 +38,12 @@ import {
 	isLoanOverdue
 } from '../domain/personLoans/loanProgress';
 import type { Account, LoanDirection, LoanRepayment, Person, PersonLoan } from '../domain/entities';
-import { formatMinorUnits, isPositiveMoney, parseMoneyOrZero, formatMoney } from '../domain/shared/money';
+import {
+	formatMinorUnits,
+	isPositiveMoney,
+	parseMoneyOrZero,
+	formatMoney
+} from '../domain/shared/money';
 import { todayLocalISO } from '../domain/shared/dateMath';
 import { useConfirm } from '../lib/confirm';
 

@@ -40,7 +40,9 @@ export function isValidIsoDate(value: string): boolean {
 	const day = Number(match[3]);
 	const parsed = new Date(Date.UTC(year, month - 1, day));
 	return (
-		parsed.getUTCFullYear() === year && parsed.getUTCMonth() === month - 1 && parsed.getUTCDate() === day
+		parsed.getUTCFullYear() === year &&
+		parsed.getUTCMonth() === month - 1 &&
+		parsed.getUTCDate() === day
 	);
 }
 

@@ -1,6 +1,11 @@
 import { incomeExpenseTrend, categoryBreakdown } from '../analytics/analyticsEngine';
 import { NetWorthSnapshotRepository } from '../../data/dexie/wealthRepository';
-import { resolveReportPeriodRange, buildReportSummary, type ReportPeriod, type ReportSummary } from './reportEngine';
+import {
+	resolveReportPeriodRange,
+	buildReportSummary,
+	type ReportPeriod,
+	type ReportSummary
+} from './reportEngine';
 import { todayLocalISO } from '../shared/dateMath';
 
 /**

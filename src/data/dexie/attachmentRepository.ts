@@ -80,4 +80,3 @@ export const AttachmentRepository = {
 		return decryptRows<AttachmentRow, Attachment>(key, rows);
 	}
 };
-

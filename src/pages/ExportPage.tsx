@@ -4,7 +4,13 @@ import { Download, FileText, Upload, CheckCircle2, Sparkles } from 'lucide-react
 import { toast } from 'sonner';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
+import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue
+} from '../components/ui/select';
 import { Separator } from '../components/ui/separator';
 import { Badge } from '../components/ui/badge';
 import {
@@ -162,8 +168,8 @@ export function ExportPage() {
 			<Card>
 				<CardContent className="flex flex-col gap-4 pt-6">
 					<p className="text-sm text-muted-foreground">
-						Export every transaction — date, account, categories, amount, and notes — to a file
-						you can open elsewhere.
+						Export every transaction — date, account, categories, amount, and notes — to a file you
+						can open elsewhere.
 					</p>
 					<div className="flex gap-3">
 						<Button
@@ -199,9 +205,9 @@ export function ExportPage() {
 				</CardHeader>
 				<CardContent className="flex flex-col gap-4">
 					<p className="text-sm text-muted-foreground">
-						Unlike full encrypted backup restore, importing a template is additive and non-destructive:
-						it adds what's missing, flags likely duplicate transactions for review, and never overwrites
-						or deletes existing data.
+						Unlike full encrypted backup restore, importing a template is additive and
+						non-destructive: it adds what's missing, flags likely duplicate transactions for review,
+						and never overwrites or deletes existing data.
 					</p>
 					<div className="flex flex-wrap items-center gap-3">
 						<Button
@@ -247,8 +253,8 @@ export function ExportPage() {
 				<CardHeader>
 					<CardTitle>Generate a Report</CardTitle>
 					<CardDescription>
-						A summary of income, expenses, top spending categories, and net worth change for a
-						month or year you choose.
+						A summary of income, expenses, top spending categories, and net worth change for a month
+						or year you choose.
 					</CardDescription>
 				</CardHeader>
 				<CardContent className="flex flex-col gap-4">
@@ -295,11 +301,7 @@ export function ExportPage() {
 						</Select>
 					</div>
 
-					<Button
-						type="button"
-						disabled={generating}
-						onClick={() => void handleGenerateReport()}
-					>
+					<Button type="button" disabled={generating} onClick={() => void handleGenerateReport()}>
 						<FileText /> {generating ? 'Generating…' : 'Generate Report'}
 					</Button>
 
@@ -349,19 +351,25 @@ export function ExportPage() {
 								<div>
 									<div className="text-xs text-muted-foreground">Net worth (start)</div>
 									<div>
-										{summary.netWorthStart === null ? 'Not available' : formatMoney(summary.netWorthStart)}
+										{summary.netWorthStart === null
+											? 'Not available'
+											: formatMoney(summary.netWorthStart)}
 									</div>
 								</div>
 								<div>
 									<div className="text-xs text-muted-foreground">Net worth (end)</div>
 									<div>
-										{summary.netWorthEnd === null ? 'Not available' : formatMoney(summary.netWorthEnd)}
+										{summary.netWorthEnd === null
+											? 'Not available'
+											: formatMoney(summary.netWorthEnd)}
 									</div>
 								</div>
 								<div>
 									<div className="text-xs text-muted-foreground">Change</div>
 									<div>
-										{summary.netWorthDelta === null ? 'Not available' : formatMoney(summary.netWorthDelta)}
+										{summary.netWorthDelta === null
+											? 'Not available'
+											: formatMoney(summary.netWorthDelta)}
 									</div>
 								</div>
 							</div>
@@ -383,15 +391,16 @@ export function ExportPage() {
 				<DialogContent className="max-w-md">
 					<DialogHeader>
 						<DialogTitle className="flex items-center gap-2">
-							<CheckCircle2 className="text-emerald-500 size-5" />
+							<CheckCircle2 className="size-5 text-emerald-500" />
 							Template Import Summary
 						</DialogTitle>
 						<DialogDescription>
-							Import completed additively. Review the records that were created, skipped, or flagged below.
+							Import completed additively. Review the records that were created, skipped, or flagged
+							below.
 						</DialogDescription>
 					</DialogHeader>
 
-					<div className="flex flex-col gap-3 py-2 max-h-80 overflow-y-auto pr-1">
+					<div className="flex max-h-80 flex-col gap-3 overflow-y-auto py-2 pr-1">
 						{importResult &&
 							Object.entries(importResult.perEntity).map(([entity, stats]) => (
 								<div
@@ -443,10 +452,8 @@ export function ExportPage() {
 
 						{importResult && importResult.skippedReasons.length > 0 && (
 							<div className="mt-2 rounded-lg bg-muted/50 p-3 text-xs">
-								<div className="font-medium mb-1 text-foreground">
-									Skipped or Flagged Details:
-								</div>
-								<ul className="list-disc pl-4 space-y-1 text-muted-foreground">
+								<div className="mb-1 font-medium text-foreground">Skipped or Flagged Details:</div>
+								<ul className="list-disc space-y-1 pl-4 text-muted-foreground">
 									{importResult.skippedReasons.slice(0, 5).map((r, i) => (
 										<li key={i}>
 											<span className="font-medium capitalize">{r.entity}</span>

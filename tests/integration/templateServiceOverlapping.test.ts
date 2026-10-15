@@ -202,9 +202,9 @@ describe('templateService - Overlapping import (User Story 3)', () => {
 		expect(result.perEntity.attachments?.created ?? 0).toBe(0);
 		// Distinct from 'already-exists': the attachment itself never existed — its parent
 		// transaction was the duplicate, which is a different, less misleading story to tell.
-		expect(
-			result.skippedReasons.find((r) => r.entity === 'attachments')?.reason
-		).toBe('parent-duplicate');
+		expect(result.skippedReasons.find((r) => r.entity === 'attachments')?.reason).toBe(
+			'parent-duplicate'
+		);
 
 		// Verify existing account was untouched and not duplicated
 		const accounts = await AccountRepository.list(key);

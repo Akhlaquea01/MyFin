@@ -30,8 +30,9 @@ describe('webauthn PRF-eval retry', () => {
 	it('enrollBiometric returns a `pending` handle on prf-eval-failed, without a second credential.create call', async () => {
 		// First assertion (inside enrollBiometric) yields no PRF result.
 		stubPlatform({ getResult: { getClientExtensionResults: () => ({}) } });
-		const createSpy = (navigator as unknown as { credentials: { create: ReturnType<typeof vi.fn> } })
-			.credentials.create;
+		const createSpy = (
+			navigator as unknown as { credentials: { create: ReturnType<typeof vi.fn> } }
+		).credentials.create;
 
 		const result = await enrollBiometric('123456');
 		expect(result.ok).toBe(false);

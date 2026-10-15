@@ -50,7 +50,9 @@ describe('LockScreen initial profile load', () => {
 
 		renderLockScreen();
 
-		await waitFor(() => expect(screen.getByText(/could not load your profile/i)).toBeInTheDocument());
+		await waitFor(() =>
+			expect(screen.getByText(/could not load your profile/i)).toBeInTheDocument()
+		);
 		const retryButton = screen.getByRole('button', { name: 'Retry' });
 		expect(retryButton).toBeInTheDocument();
 		expect(screen.getByLabelText('PIN')).toBeDisabled();

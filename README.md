@@ -69,6 +69,7 @@ For a detailed technical breakdown, read the **[Architecture & Security Document
 ## 🚀 Getting Started
 
 ### Prerequisites
+
 - [Node.js](https://nodejs.org/) (`v20.x` or `v22.x` LTS recommended)
 - [npm](https://www.npmjs.com/) (`v10.x` or higher)
 - [Git](https://git-scm.com/)
@@ -76,12 +77,14 @@ For a detailed technical breakdown, read the **[Architecture & Security Document
 ### Installation
 
 1. Clone the repository:
+
    ```bash
    git clone https://github.com/Akhlaquea01/MyFin.git
    cd MyFin
    ```
 
 2. Install dependencies:
+
    ```bash
    npm install
    ```

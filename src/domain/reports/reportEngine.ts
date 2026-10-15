@@ -111,8 +111,10 @@ export function buildReportSummary(input: {
 	categoryBreakdown: CategoryBreakdownItem[];
 	snapshots: NetWorthSnapshot[];
 }): ReportSummary {
-	const netWorthStart = pickSnapshotAtOrBefore(input.snapshots, input.range.periodStart)?.netWorth ?? null;
-	const netWorthEnd = pickSnapshotAtOrBefore(input.snapshots, input.range.periodEnd)?.netWorth ?? null;
+	const netWorthStart =
+		pickSnapshotAtOrBefore(input.snapshots, input.range.periodStart)?.netWorth ?? null;
+	const netWorthEnd =
+		pickSnapshotAtOrBefore(input.snapshots, input.range.periodEnd)?.netWorth ?? null;
 
 	return {
 		period: input.period,
@@ -126,6 +128,7 @@ export function buildReportSummary(input: {
 		topCategories: topCategories(input.categoryBreakdown),
 		netWorthStart,
 		netWorthEnd,
-		netWorthDelta: netWorthStart !== null && netWorthEnd !== null ? netWorthEnd - netWorthStart : null
+		netWorthDelta:
+			netWorthStart !== null && netWorthEnd !== null ? netWorthEnd - netWorthStart : null
 	};
 }

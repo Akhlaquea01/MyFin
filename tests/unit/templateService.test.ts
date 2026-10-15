@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest';
 import { parseDataTemplate } from '../../src/data/io/templateService';
-import type { DataTemplate } from '../../src/data/io/templateTypes';
 
 describe('templateService - parseDataTemplate', () => {
 	it('rejects unparseable non-JSON text', () => {

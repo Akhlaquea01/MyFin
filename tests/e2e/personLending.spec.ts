@@ -368,7 +368,9 @@ test('deleting a person with an open loan is blocked, and undoing a repayment re
 	const balanceAfterRepayment = await accountBalanceText(page, 'Cash');
 	expect(balanceAfterRepayment).not.toBe(balanceAfterLoan);
 	await page.getByRole('link', { name: 'People' }).click();
-	await expect(divyaCard.locator('[data-slot="card-content"] span.font-mono')).toHaveText('₹900.00');
+	await expect(divyaCard.locator('[data-slot="card-content"] span.font-mono')).toHaveText(
+		'₹900.00'
+	);
 
 	// Undo the mistaken repayment: balance and pending balance both revert.
 	await divyaCard.getByRole('button', { name: 'Undo' }).click();
@@ -389,5 +391,7 @@ test('deleting a person with an open loan is blocked, and undoing a repayment re
 	await expect(repaymentsSection.getByText('100.00')).toHaveCount(0);
 
 	await page.getByRole('link', { name: 'People' }).click();
-	await expect(divyaCard.locator('[data-slot="card-content"] span.font-mono')).toHaveText('₹900.00');
+	await expect(divyaCard.locator('[data-slot="card-content"] span.font-mono')).toHaveText(
+		'₹900.00'
+	);
 });

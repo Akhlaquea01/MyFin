@@ -180,7 +180,13 @@ describe('Recurring engine', () => {
 		it('creates a rule pre-filled from the transaction, with a label from its notes, and links it back', async () => {
 			const tx = await TransactionEngine.recordTransaction(
 				key,
-				{ accountId, date: '2026-03-10', amount: -1500, notes: 'Netflix subscription', type: 'expense' },
+				{
+					accountId,
+					date: '2026-03-10',
+					amount: -1500,
+					notes: 'Netflix subscription',
+					type: 'expense'
+				},
 				[{ categoryId, amount: -1500 }]
 			);
 
