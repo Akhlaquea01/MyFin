@@ -93,6 +93,13 @@ function CardLink({ to, children }: { to: string; children: ReactNode }) {
 // User Story 3 (P3): at-a-glance summary reconciled exactly with the ledger (FR-016/017).
 // User Story 6 (spec 019, P3): which cards render, and in what order, is config-driven
 // (`resolveDashboardLayout`) rather than fixed JSX — see contracts/dashboard-widgets.md.
+/** A figure of a crore or more steps down in size so it stays whole on a phone instead of clipping. */
+function headlineSize(text: string): string {
+	if (text.length > 15) return 'text-[clamp(1.25rem,6.5vw,2rem)]';
+	if (text.length > 12) return 'text-[clamp(1.75rem,8.5vw,2.5rem)]';
+	return 'text-[clamp(2.25rem,11vw,3rem)]';
+}
+
 export function DashboardPage() {
 	const { getEncryptionKey } = useSession();
 	const key = getEncryptionKey();
@@ -207,7 +214,9 @@ export function DashboardPage() {
 					</CardHeader>
 					<CardContent>
 						{/* The one headline number, set large in the same sans as everything else. */}
-						<p className="text-[clamp(2.25rem,11vw,3rem)] leading-tight font-semibold tracking-tight">
+						<p
+							className={`${headlineSize(formatMoney(summary.totalBalance))} leading-tight font-semibold tracking-tight [overflow-wrap:anywhere]`}
+						>
 							{formatMoney(summary.totalBalance)}
 						</p>
 						{/* This total is net of credit card debt; say so, with both halves, whenever there is a
@@ -463,7 +472,11 @@ export function DashboardPage() {
 						</CardTitle>
 					</CardHeader>
 					<CardContent>
-						<p className="text-xl font-semibold">{formatMoney(summary.netWorth)}</p>
+						<p
+							className={`${formatMoney(summary.netWorth).length > 13 ? 'text-base' : 'text-xl'} font-semibold [overflow-wrap:anywhere]`}
+						>
+							{formatMoney(summary.netWorth)}
+						</p>
 						<p className="mt-1 text-xs text-muted-foreground">
 							Cash, cards, investments &amp; loans. Tap for the breakdown.
 						</p>

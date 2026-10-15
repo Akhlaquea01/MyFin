@@ -47,7 +47,7 @@ export function BackupNudgeBanner({ hasData }: { hasData: boolean }) {
 			className="mb-6 flex flex-wrap items-center gap-3 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200"
 		>
 			<DatabaseBackup className="size-4 shrink-0" aria-hidden="true" />
-			<p className="min-w-0 flex-1">
+			<p className="min-w-[14rem] flex-1">
 				{days === null
 					? 'You have not backed up your data yet.'
 					: `Your last backup was ${days} days ago.`}{' '}
