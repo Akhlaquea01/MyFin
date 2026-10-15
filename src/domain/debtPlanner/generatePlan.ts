@@ -75,10 +75,10 @@ interface SimulationState {
 }
 
 /**
- * Simulates a month-by-month payoff of `input.liabilities`, ordered by `input.strategy`,
- * with `input.extraMonthlyPayment` applied in full to the single highest-priority debt with
- * a remaining balance each month, waterfalling a paid-off debt's minimum payment into the
- * pool for subsequent months. Pure — never mutates its input (spec FR-007).
+ * Simulates a month-by-month payoff of `input.liabilities`, ordered by `input.strategy`.
+ * Each month every debt gets its minimum, and the rest of a fixed budget (all the minimums plus
+ * `input.extraMonthlyPayment`) goes to the highest-priority debt still owing, spilling over to the
+ * next one when that debt needs less. Pure — never mutates its input (spec FR-007).
  */
 export function generateDebtPayoffPlan(input: GeneratePlanInput): DebtPayoffPlan {
 	const ordered = orderByStrategy(input.liabilities, input.strategy);
@@ -103,30 +103,37 @@ export function generateDebtPayoffPlan(input: GeneratePlanInput): DebtPayoffPlan
 		payoffMonth: null
 	}));
 
-	let extraPool = input.extraMonthlyPayment;
+	// A fixed monthly budget: every minimum plus the extra. A debt that is paid off frees its
+	// minimum automatically (the budget stays the same while its payment drops to zero), and
+	// whatever a debt does not need in its final month flows on to the next one in priority order
+	// the same month. Handing the extra only to the first debt left the rest of that month's
+	// budget unspent, so each payoff date and the total interest came out too pessimistic.
+	const monthlyBudget =
+		states.reduce((sum, state) => sum + state.minimumPayment, 0) + input.extraMonthlyPayment;
 	let month = 0;
 
 	while (month < MAX_SIMULATION_MONTHS && states.some((s) => s.balance > 0)) {
 		month += 1;
 		const monthLabel = addMonthsISO(input.asOfDate, month);
-		let extraAppliedThisMonth = false;
-		let freedMinimumsThisMonth = 0;
 
-		for (const state of states) {
-			if (state.balance <= 0) continue;
+		const rows = states
+			.filter((state) => state.balance > 0)
+			.map((state) => {
+				const interestAccrued = accrueMonthlyInterest(state.balance, state.interestRate);
+				const owed = state.balance + interestAccrued;
+				return { state, interestAccrued, owed, payment: Math.min(state.minimumPayment, owed) };
+			});
 
+		let remaining = monthlyBudget - rows.reduce((sum, row) => sum + row.payment, 0);
+		for (const row of rows) {
+			const extra = Math.max(0, Math.min(remaining, row.owed - row.payment));
+			row.payment += extra;
+			remaining -= extra;
+		}
+
+		for (const { state, interestAccrued, owed, payment } of rows) {
 			const startingBalance = state.balance;
-			const interestAccrued = accrueMonthlyInterest(startingBalance, state.interestRate);
-			const balanceAfterInterest = startingBalance + interestAccrued;
-
-			let payment = Math.min(state.minimumPayment, balanceAfterInterest);
-			if (!extraAppliedThisMonth) {
-				payment = Math.min(payment + extraPool, balanceAfterInterest);
-				extraAppliedThisMonth = true;
-			}
-
-			const endingBalance = Math.max(0, balanceAfterInterest - payment);
-
+			const endingBalance = owed - payment;
 			state.schedule.push({
 				month: monthLabel,
 				startingBalance,
@@ -136,14 +143,8 @@ export function generateDebtPayoffPlan(input: GeneratePlanInput): DebtPayoffPlan
 			});
 			state.totalInterest += interestAccrued;
 			state.balance = endingBalance;
-
-			if (endingBalance === 0 && state.payoffMonth === null) {
-				state.payoffMonth = month;
-				freedMinimumsThisMonth += state.minimumPayment;
-			}
+			if (endingBalance === 0 && state.payoffMonth === null) state.payoffMonth = month;
 		}
-
-		extraPool += freedMinimumsThisMonth;
 	}
 
 	const entries: DebtPayoffPlanEntry[] = states.map((s, index) => ({

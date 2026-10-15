@@ -63,7 +63,7 @@ const CREDIT_KEYWORDS = ['credited', 'received', 'refund', 'deposited', 'credit'
 // account ... from John Doe") — the LAST one is taken as the real counterparty, since the
 // earlier ones are typically the user's own account, not the other party.
 const MERCHANT_PATTERN =
-	/\b(?:at|to|from)\s+([A-Za-z0-9][A-Za-z0-9 &.'-]*?)(?=\s+(?:on|your|ref|towards|via|a\/c|acct?\b|from)|[.,]|$)/gi;
+	/\b(?:at|to|from|towards)\s+([A-Za-z0-9][A-Za-z0-9 &.'-]*?)(?=\s+(?:on|your|ref|towards|via|a\/c|acct?\b|from)|[.,]|$)/gi;
 
 export function parseAmount(text: string): number | null {
 	// The transaction amount is the FIRST amount a message states ("... Avl Bal Rs.9,000" comes
@@ -89,7 +89,10 @@ function parseType(text: string): ParsedType {
 }
 
 function parseMerchant(text: string): string | null {
-	const matches = [...text.matchAll(MERCHANT_PATTERN)];
+	// "from your account 1234" names the user's own account, not the other party.
+	const matches = [...text.matchAll(MERCHANT_PATTERN)].filter(
+		(match) => !/^your\b/i.test(match[1].trim())
+	);
 	const last = matches.at(-1);
 	return last ? last[1].trim() : null;
 }

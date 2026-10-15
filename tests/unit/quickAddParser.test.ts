@@ -51,6 +51,29 @@ describe('QuickAddParser', () => {
 		expect(isConfident(result)).toBe(true);
 	});
 
+	describe('merchant', () => {
+		const merchantOf = (text: string) => parseQuickAddText(text).merchantText;
+
+		it('reads the payee after "towards", not the user’s own account before it', () => {
+			expect(
+				merchantOf(
+					'Dear Customer, Rs.2,499.00 has been debited from your account 1234 towards ZOMATO on 2026-03-05'
+				)
+			).toBe('ZOMATO');
+		});
+
+		it('never reports the user’s own account as the merchant', () => {
+			expect(merchantOf('Rs.750 debited from your account')).toBeNull();
+			expect(merchantOf('Rs 500 credited to your account XXXX1234')).toBeNull();
+		});
+
+		it('still prefers the last counterparty phrase', () => {
+			expect(merchantOf('Credited: Rs 5000 to your account XXXX1234 from John Doe')).toBe(
+				'John Doe'
+			);
+		});
+	});
+
 	describe('amount formats', () => {
 		const amountOf = (text: string) => parseQuickAddText(text).amount;
 

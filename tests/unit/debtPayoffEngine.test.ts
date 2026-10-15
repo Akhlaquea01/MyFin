@@ -162,9 +162,10 @@ describe('generateDebtPayoffPlan', () => {
 		//   month 1: interest = round(1000*0.02) = 20, balance 1000+20-500 = 520
 		//   month 2: interest = round(520*0.02)  = 10, balance 520+10-500 = 30
 		//   month 3: interest = round(30*0.02)   = 1,  payment capped at 31, balance 0 -> paid off
-		// 'low': balance 5000 @ 6% (0.5%/mo), minimum 100, no extra until 'high' is paid off.
-		//   months 1-3: only the 100 minimum applied (extra was fully consumed by 'high').
-		//   month 4 onward: 'high' is gone, so its 200 minimum joins the pool -> 100+300(remaining extra)+200 = 600/mo.
+		// 'low': balance 5000 @ 6% (0.5%/mo), minimum 100, no extra while 'high' needs it.
+		//   months 1-2: only the 100 minimum applied (extra fully consumed by 'high').
+		//   month 3: 'high' needs just 31 of its 500, so the other 469 of the 600 budget spills to 'low'.
+		//   month 4 onward: 'high' is gone, so the whole 600 budget goes to 'low'.
 		const plan = generateDebtPayoffPlan({
 			liabilities: [
 				{ id: 'high', outstandingBalance: 1000, interestRate: 2400, minimumPayment: 200 },
@@ -181,10 +182,82 @@ describe('generateDebtPayoffPlan', () => {
 		expect(high.payoffDate).toBe('2026-04-01'); // 3 months after 2026-01-01
 		expect(high.monthlySchedule).toHaveLength(3);
 
-		// Months 1-3: 'low' only received its 100 minimum (extra was on 'high').
-		expect(low.monthlySchedule.slice(0, 3).map((m) => m.paymentApplied)).toEqual([100, 100, 100]);
-		// Month 4: 'high' is paid off, so its 200 minimum joins the 300 extra -> 600 applied to 'low'.
+		// Months 1-2: 'low' only received its 100 minimum (extra was on 'high').
+		expect(low.monthlySchedule.slice(0, 2).map((m) => m.paymentApplied)).toEqual([100, 100]);
+		// Month 3: 'high' is cleared by a 31 payment; the rest of the 600 budget (469) reaches 'low'.
+		expect(low.monthlySchedule[2].paymentApplied).toBe(100 + 469);
+		// Month 4: 'high' is gone, so its minimum and the extra are all applied to 'low' -> 600.
 		expect(low.monthlySchedule[3].paymentApplied).toBe(600);
+	});
+});
+
+describe('generateDebtPayoffPlan — fixed monthly budget', () => {
+	const asOf = new Date(Date.UTC(2026, 0, 1));
+
+	it('spills the extra payment into the next debt in the month the first one is cleared', () => {
+		// 'tiny' needs 100 and a 5,000 extra would clear it ten times over; the rest must not be lost.
+		const plan = generateDebtPayoffPlan({
+			liabilities: [
+				{ id: 'tiny', outstandingBalance: 100, interestRate: 0, minimumPayment: 50 },
+				{ id: 'big', outstandingBalance: 10_000, interestRate: 0, minimumPayment: 200 }
+			],
+			strategy: 'snowball',
+			extraMonthlyPayment: 5_000,
+			asOfDate: asOf
+		});
+		const tiny = plan.entries.find((e) => e.liabilityId === 'tiny')!;
+		const big = plan.entries.find((e) => e.liabilityId === 'big')!;
+		expect(tiny.monthlySchedule).toHaveLength(1);
+		expect(tiny.monthlySchedule[0].paymentApplied).toBe(100);
+		// Month 1 budget = 50 + 200 + 5,000 = 5,250, of which 100 cleared 'tiny'.
+		expect(big.monthlySchedule[0].paymentApplied).toBe(5_150);
+		expect(big.monthlySchedule).toHaveLength(2);
+		expect(plan.payoffDate).toBe('2026-03-01');
+	});
+
+	it('never spends more than the budget in any month, and never overpays a debt', () => {
+		const plan = generateDebtPayoffPlan({
+			liabilities: [
+				{ id: 'a', outstandingBalance: 40_000, interestRate: 1800, minimumPayment: 1_500 },
+				{ id: 'b', outstandingBalance: 15_000, interestRate: 1200, minimumPayment: 800 },
+				{ id: 'c', outstandingBalance: 90_000, interestRate: 900, minimumPayment: 2_000 }
+			],
+			strategy: 'avalanche',
+			extraMonthlyPayment: 3_000,
+			asOfDate: asOf
+		});
+		const budget = 1_500 + 800 + 2_000 + 3_000;
+		const months = Math.max(...plan.entries.map((e) => e.monthlySchedule.length));
+		for (let m = 0; m < months; m++) {
+			const paid = plan.entries.reduce(
+				(sum, e) => sum + (e.monthlySchedule[m]?.paymentApplied ?? 0),
+				0
+			);
+			expect(paid).toBeLessThanOrEqual(budget);
+		}
+		for (const entry of plan.entries) {
+			for (const row of entry.monthlySchedule) {
+				expect(row.endingBalance).toBe(
+					row.startingBalance + row.interestAccrued - row.paymentApplied
+				);
+				expect(row.endingBalance).toBeGreaterThanOrEqual(0);
+			}
+		}
+		expect(plan.entries.every((e) => !e.nonConverging)).toBe(true);
+	});
+
+	it('clears two small debts against a large extra payment within a few months', () => {
+		const strategies = compareStrategies({
+			liabilities: [
+				{ id: 'a', outstandingBalance: 1_000, interestRate: 1200, minimumPayment: 100 },
+				{ id: 'b', outstandingBalance: 5_000, interestRate: 1200, minimumPayment: 100 }
+			],
+			extraMonthlyPayment: 2_000,
+			asOfDate: asOf
+		});
+		// About 6,000 owed against a 2,200 monthly budget: cleared by the fourth month at the latest.
+		expect(strategies.snowball.payoffDate! <= '2026-05-01').toBe(true);
+		expect(strategies.avalanche.payoffDate! <= '2026-05-01').toBe(true);
 	});
 });
 
