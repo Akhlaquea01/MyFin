@@ -556,3 +556,25 @@ Made the captured-message flow quicker to act on and easier to read on a phone: 
 - **Charts**: [`charts/`](../src/components/charts) (`BarList`, `ProgressBar`, `SegmentedBar`, `TrendBars`), [`dashboardInsights.ts`](../src/domain/analytics/dashboardInsights.ts), [`dashboardLayout.ts`](../src/domain/analytics/dashboardLayout.ts), colour tokens in [`index.css`](../src/index.css)
 - **Navigation**: [`hubs.ts`](../src/lib/hubs.ts), [`HubTabs.tsx`](../src/components/HubTabs.tsx)
 - **Tests**: a `mobile` Playwright project (Pixel 7) runs `tests/e2e/*.mobile.spec.ts`; the desktop project runs the rest.
+
+---
+
+## Feature 023: Audit Hardening — Imports, Integrity & Start-up
+
+Details, findings and remaining risks are in [`AUDIT.md`](./AUDIT.md).
+
+### Key Capabilities
+
+- **Check my data** (Backup & Restore): re-adds every account from its entries and reports anything that disagrees with itself — a drifted balance, categories that do not add up to an amount, a transfer missing its other half, an invalid date, an entry pointing at an account or category that no longer exists. **Rebuild balances** repairs the one thing that is derived data; everything else is reported, not guessed at.
+- **Dates are validated where they are stored**: an empty or impossible date is refused with a message in every form, and by the repository itself, instead of being saved and dropping the entry out of reports.
+- **Excel and card-statement imports**: real Excel date, formula and rich-text cells are read; dates may use `YY`, month names (`05-Mar-26`) and a trailing time; a **positive = expense** amount convention covers credit-card statements.
+- **Faster start**: each screen loads on demand, so the lock screen no longer downloads the whole app first (entry script 2.4 MB → 0.7 MB). A tab left open across a redeploy reloads once instead of showing a blank page.
+- **App shortcuts**: long-press the installed icon for _New transaction_ or _Paste a bank message_.
+- **Share target hygiene**: shares nobody collected expire after a day and oversized files are not buffered.
+
+### Domain Engine & Architecture
+
+- **Integrity**: [`integrityService.ts`](../src/data/io/integrityService.ts), [`DataIntegrityCard.tsx`](../src/components/DataIntegrityCard.tsx)
+- **Dates**: `isValidIsoDate` in [`dateMath.ts`](../src/domain/shared/dateMath.ts)
+- **Import**: `cellToText`, `parseDateWithFormat` and the `positive-is-expense` convention in [`importService.ts`](../src/data/io/importService.ts)
+- **Code splitting**: `lazyPage` in [`App.tsx`](../src/App.tsx), [`staleChunk.ts`](../src/lib/staleChunk.ts)
