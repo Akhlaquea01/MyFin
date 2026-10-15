@@ -7,6 +7,13 @@
 // test's submitted form); everything else falls through untouched.
 
 const SHARE_TARGET_CACHE = 'share-target-buffer';
+// Anything a share left behind that the app never picked up (it was shared and the app never
+// opened, or the id was never followed) is plaintext, so it must not linger. A day is long
+// enough for "shared while locked, unlocked later".
+const SHARE_TTL_MS = 24 * 60 * 60 * 1000;
+// Mirrors src/lib/imageAttachment.ts: a bigger file would be refused by the app anyway.
+const MAX_SHARED_FILE_BYTES = 20 * 1024 * 1024;
+const MAX_SHARED_TEXT_CHARS = 20000;
 
 self.addEventListener('install', () => {
 	self.skipWaiting();
@@ -26,26 +33,42 @@ function resolveSharedText(fields) {
 	return null;
 }
 
+async function pruneStaleShares(cache, now) {
+	for (const request of await cache.keys()) {
+		const path = new URL(request.url).pathname;
+		if (!path.startsWith('/share-target-meta/')) continue;
+		const response = await cache.match(request);
+		const meta = response ? await response.json().catch(() => null) : null;
+		const savedAt = meta && typeof meta.savedAt === 'number' ? meta.savedAt : 0;
+		if (now - savedAt <= SHARE_TTL_MS) continue;
+		await cache.delete(request);
+		await cache.delete(`/share-target-file/${path.slice('/share-target-meta/'.length)}`);
+	}
+}
+
 async function handleShareTarget(request) {
 	const formData = await request.formData();
-	const sharedText = resolveSharedText({
+	const resolvedText = resolveSharedText({
 		text: formData.get('text'),
 		url: formData.get('url'),
 		title: formData.get('title')
 	});
+	const sharedText = resolvedText ? String(resolvedText).slice(0, MAX_SHARED_TEXT_CHARS) : null;
 	const file = formData.get('file');
 
 	const id = crypto.randomUUID();
 	const cache = await caches.open(SHARE_TARGET_CACHE);
+	const now = Date.now();
+	await pruneStaleShares(cache, now).catch(() => undefined);
 
 	await cache.put(
 		`/share-target-meta/${id}`,
-		new Response(JSON.stringify({ sharedText }), {
+		new Response(JSON.stringify({ sharedText, savedAt: now }), {
 			headers: { 'Content-Type': 'application/json' }
 		})
 	);
 
-	if (file instanceof File && file.size > 0) {
+	if (file instanceof File && file.size > 0 && file.size <= MAX_SHARED_FILE_BYTES) {
 		await cache.put(
 			`/share-target-file/${id}`,
 			new Response(file, {

@@ -366,7 +366,7 @@ export function AppShell() {
 			</aside>
 
 			<div className="flex min-w-0 flex-1 flex-col">
-				<header className="flex items-center gap-2 border-b p-3 md:hidden">
+				<header className="flex items-center gap-2 border-b p-3 pt-[max(0.75rem,env(safe-area-inset-top))] md:hidden">
 					<Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
 						<SheetTrigger asChild>
 							<Button variant="ghost" size="icon" aria-label="Open navigation menu">

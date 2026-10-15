@@ -84,11 +84,17 @@ export default defineConfig(({ mode }) => ({
 			disable: mode === 'capacitor',
 			registerType: 'prompt',
 			manifest: {
+				// Pinned to the start URL, which is what the id defaulted to: an installed copy keeps its
+				// identity, and the field stops being inferred differently across browsers.
+				id: '/',
 				name: 'Personal Finance Manager',
 				short_name: 'MyFin',
+				lang: 'en',
+				categories: ['finance', 'productivity'],
 				description:
 					'A private, offline-first personal finance manager. Your data never leaves your device.',
 				start_url: '/',
+				scope: '/',
 				display: 'standalone',
 				background_color: '#0b0f19',
 				theme_color: '#0f766e',
@@ -96,6 +102,11 @@ export default defineConfig(({ mode }) => ({
 					{ src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png' },
 					{ src: '/icons/icon-512.png', sizes: '512x512', type: 'image/png' },
 					{ src: '/icons/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' }
+				],
+				// Long-press on the installed icon: the two ways to record something in a couple of taps.
+				shortcuts: [
+					{ name: 'New transaction', url: '/transactions/new' },
+					{ name: 'Paste a bank message', url: '/quick-add' }
 				],
 				// A single share_target (the platform allows only one) handles both a
 				// text/URL share and an image share.
