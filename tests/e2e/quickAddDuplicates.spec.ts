@@ -58,12 +58,12 @@ test('pasting the same message twice warns, and "Add anyway" saves it flagged as
 
 	// First paste: no warning, goes straight to the Review queue.
 	await pasteAndParse(page, message, 'Checking');
-	await page.getByRole('button', { name: 'Confirm & add to review queue' }).click();
+	await page.getByRole('button', { name: 'Add to review queue' }).click();
 	await expect(page.getByRole('heading', { name: 'Review Queue' })).toBeVisible();
 
 	// Second paste of the same thing: the first Confirm only warns.
 	await pasteAndParse(page, message, 'Checking');
-	await page.getByRole('button', { name: 'Confirm & add to review queue' }).click();
+	await page.getByRole('button', { name: 'Add to review queue' }).click();
 	await expect(page.getByText('This looks like something you already have.')).toBeVisible();
 	await expect(page.getByText(/₹250\.00.*SWIGGY.*waiting in Review/)).toBeVisible();
 	await expect(page.getByRole('heading', { name: 'Quick Add' })).toBeVisible(); // nothing saved yet
@@ -71,7 +71,7 @@ test('pasting the same message twice warns, and "Add anyway" saves it flagged as
 	// Changing the amount makes the warning irrelevant, so it goes away.
 	await page.getByLabel('Amount').fill('251');
 	await expect(page.getByText('This looks like something you already have.')).toHaveCount(0);
-	await expect(page.getByRole('button', { name: 'Confirm & add to review queue' })).toBeVisible();
+	await expect(page.getByRole('button', { name: 'Add to review queue' })).toBeVisible();
 	// …and comes straight back if the entry is put back as it was, since it is still true.
 	await page.getByLabel('Amount').fill('250');
 	await expect(page.getByText('This looks like something you already have.')).toBeVisible();
@@ -90,11 +90,11 @@ test('the same amount on a different account is not a duplicate', async ({ page 
 	const message = '₹99.00 debited from A/c XX1234 to METRO Ref 7';
 
 	await pasteAndParse(page, message, 'Checking');
-	await page.getByRole('button', { name: 'Confirm & add to review queue' }).click();
+	await page.getByRole('button', { name: 'Add to review queue' }).click();
 	await expect(page.getByRole('heading', { name: 'Review Queue' })).toBeVisible();
 
 	await pasteAndParse(page, message, 'Wallet');
-	await page.getByRole('button', { name: 'Confirm & add to review queue' }).click();
+	await page.getByRole('button', { name: 'Add to review queue' }).click();
 	await expect(page.getByRole('heading', { name: 'Review Queue' })).toBeVisible();
 	await expect(page.getByText('Possible duplicate')).toHaveCount(0);
 });

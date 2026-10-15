@@ -84,7 +84,9 @@ test('a long queue loads a page at a time, keeps your edits, and shows the rest 
 	const more = page.getByRole('button', { name: /Show 10 more \(10 not shown\)/ });
 	await expect(more).toBeVisible();
 
-	// Something typed on a row on screen (the second one — the first is discarded below).
+	// Something typed on a row on screen (the second one — the first is discarded below). Tags sit
+	// under "More options" on each card.
+	await page.getByText('More options').nth(1).click();
 	await page.getByLabel('Tags (comma-separated)').nth(1).fill('keepme');
 
 	// Triage shrinks the page and the count together.

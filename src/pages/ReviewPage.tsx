@@ -1,9 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
+	ArrowDownLeft,
 	ArrowRightLeft,
+	ArrowUpRight,
 	CheckCheck,
 	CheckCircle2,
+	ChevronDown,
 	Inbox,
 	Pencil,
 	Repeat,
@@ -11,6 +14,7 @@ import {
 	Trash2,
 	Upload
 } from 'lucide-react';
+import { cn } from 'cn';
 import { toast } from 'sonner';
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
@@ -31,6 +35,9 @@ import {
 	SelectTrigger,
 	SelectValue
 } from '../components/ui/select';
+import { CategoryPicker } from '../components/CategoryPicker';
+import { DuplicateCompare } from '../components/DuplicateCompare';
+import { SegmentedBar } from '../components/charts/SegmentedBar';
 import { useSession } from '../context/SessionContext';
 import { AccountRepository } from '../data/dexie/accountRepository';
 import { MerchantRepository } from '../data/dexie/merchantRepository';
@@ -55,6 +62,7 @@ import {
 } from '../data/dexie/transactionRepository';
 import { TransactionEngine } from '../domain/transactions/transactionEngine';
 import { formatTransactionLabel } from '../domain/transactions/transactionLabel';
+import { duplicateReason } from '../domain/transactions/duplicateCandidates';
 import { createRuleFromTransaction } from '../domain/recurring/recurringEngine';
 import { DAY_RANGE, clampDay, defaultDayFor } from '../domain/recurring/recurringDay';
 import { isNativeApp } from '../lib/native/platform';
@@ -70,7 +78,6 @@ import type {
 	Transaction,
 	TransactionSplit
 } from '../domain/entities';
-import { categoryOptions } from '../domain/categories/categoryHierarchy';
 import { useConfirm } from '../lib/confirm';
 import { formatMoney } from '../domain/shared/money';
 
@@ -125,6 +132,11 @@ export function ReviewPage() {
 	const [loadingMore, setLoadingMore] = useState(false);
 	const total = items.length + hidden;
 	const [firstSplit, setFirstSplit] = useState<Record<string, TransactionSplit | undefined>>({});
+	// The entries the flagged ones look like, by id; null once one is gone, so a flag whose
+	// original was deleted just shows its badge.
+	const [duplicateOriginals, setDuplicateOriginals] = useState<Record<string, Transaction | null>>(
+		{}
+	);
 	const [categoryChoice, setCategoryChoice] = useState<Record<string, string>>({});
 	const [tagsInput, setTagsInput] = useState<Record<string, string>>({});
 	const [loading, setLoading] = useState(true);
@@ -165,6 +177,18 @@ export function ReviewPage() {
 			TransactionRepository.splitsByTransaction(key, ids),
 			TransactionTagRepository.getTagIdsByTransaction(ids)
 		]);
+
+		const originalIds = [
+			...new Set(unreviewed.map((tx) => tx.duplicateOfId).filter((id): id is string => !!id))
+		];
+		const originals = await Promise.all(
+			originalIds.map((id) => TransactionRepository.getById(key, id))
+		);
+		setDuplicateOriginals(
+			Object.fromEntries(
+				originalIds.map((id, i) => [id, originals[i]?.deletedAt === null ? originals[i] : null])
+			)
+		);
 
 		const tagNames = new Map(allTags.map((t) => [t.id, t.name]));
 		const nextFirstSplit: Record<string, TransactionSplit | undefined> = {};
@@ -487,7 +511,11 @@ export function ReviewPage() {
 				? ` ${skippedFlagged} flagged ${skippedFlagged === 1 ? 'entry' : 'entries'} (possible duplicate or account not matched) will stay for you to check.`
 				: '';
 		if (
-			!(await confirm({ message: `Confirm ${count} categorized ${noun}${scope}? Anything still "Uncategorized" stays in the queue.${flaggedNote}`, confirmLabel: 'Confirm entries', destructive: false }))
+			!(await confirm({
+				message: `Confirm ${count} categorized ${noun}${scope}? Anything still "Uncategorized" stays in the queue.${flaggedNote}`,
+				confirmLabel: 'Confirm entries',
+				destructive: false
+			}))
 		) {
 			return;
 		}
@@ -566,9 +594,36 @@ export function ReviewPage() {
 		removeFromPage(tx.id);
 	}
 
+	/** "These really are two payments": drops the flag and keeps the entry. */
+	function keepBoth(tx: Transaction): Promise<void> {
+		return runForRow(tx.id, 'Could not update this entry', async () => {
+			const updated = await TransactionEngine.editTransaction(key, tx.id, { duplicateOfId: null });
+			setItems((prev) => prev.map((t) => (t.id === tx.id ? updated : t)));
+			toast.success('Kept both');
+		});
+	}
+
+	/** Moves an entry to another account right on its card, settling an account that was guessed. */
+	function changeAccount(tx: Transaction, accountId: string): Promise<void> {
+		if (accountId === tx.accountId) return Promise.resolve();
+		return runForRow(tx.id, 'Could not move this entry', async () => {
+			const updated = await TransactionEngine.editTransaction(key, tx.id, { accountId });
+			setItems((prev) => prev.map((t) => (t.id === tx.id ? updated : t)));
+		});
+	}
+
+	const isFlagged = (tx: Transaction) => !!tx.duplicateOfId || !!tx.capture?.accountCheck;
+	const isUncategorized = (tx: Transaction) =>
+		(categoryChoice[tx.id] ?? UNCATEGORIZED_CATEGORY_ID) === UNCATEGORIZED_CATEGORY_ID;
+	const flaggedCount = items.filter(isFlagged).length;
+	const needsCategoryCount = items.filter((tx) => !isFlagged(tx) && isUncategorized(tx)).length;
+	const readyCount = items.length - flaggedCount - needsCategoryCount;
+	const spentShown = items.reduce((sum, tx) => (tx.amount < 0 ? sum - tx.amount : sum), 0);
+	const receivedShown = items.reduce((sum, tx) => (tx.amount > 0 ? sum + tx.amount : sum), 0);
+
 	return (
-		<div className="mx-auto max-w-2xl px-4 py-8 sm:px-6">
-			<div className="mb-6 flex items-center justify-between">
+		<div className="mx-auto max-w-2xl px-4 py-6 sm:px-6 sm:py-8">
+			<div className="mb-4 flex items-center justify-between">
 				<h1 className="text-2xl font-semibold tracking-tight">Review Queue</h1>
 				<Button variant="outline" asChild>
 					<Link to="/import/bulk-text">
@@ -578,39 +633,53 @@ export function ReviewPage() {
 			</div>
 
 			{!loading && items.length > 0 && (
-				<div className="mb-4 flex flex-wrap items-center gap-2">
-					<Button
-						variant="outline"
-						size="sm"
-						disabled={working}
-						onClick={() => void categorizeQueue()}
-					>
-						<Sparkles /> Apply rules to queue
-					</Button>
-					<Button
-						variant="outline"
-						size="sm"
-						// Entries behind "Show more" may be categorized too, so only a fully loaded queue
-						// can be ruled out from here.
-						disabled={
-							working ||
-							(hidden === 0 &&
-								!items.some(
-									(tx) =>
-										(categoryChoice[tx.id] ?? UNCATEGORIZED_CATEGORY_ID) !==
-										UNCATEGORIZED_CATEGORY_ID
-								))
-						}
-						onClick={() => void confirmAllCategorized()}
-					>
-						<CheckCheck /> Confirm all categorized
-					</Button>
-					<span className="text-xs text-muted-foreground">
-						{total} waiting
-						{hidden > 0 ? ` (showing the newest ${items.length})` : ''} · already counted in your
-						balances and reports; confirming marks an entry as checked
-					</span>
-				</div>
+				<Card className="mb-4 bg-gradient-to-br from-primary/15 via-card to-card">
+					<CardContent className="flex flex-col gap-3 pt-4">
+						<div className="flex items-end justify-between gap-3">
+							<div>
+								<p className="text-3xl leading-none font-semibold">{total}</p>
+								<p className="mt-1 text-xs text-muted-foreground">to check</p>
+							</div>
+							<div className="text-right font-mono text-xs">
+								{spentShown > 0 && <p className="text-expense">−{formatMoney(spentShown)} out</p>}
+								{receivedShown > 0 && (
+									<p className="text-income">+{formatMoney(receivedShown)} in</p>
+								)}
+							</div>
+						</div>
+						<SegmentedBar
+							segments={[
+								{ label: 'ready', value: readyCount, color: 'var(--income)' },
+								{ label: 'need a category', value: needsCategoryCount, color: 'var(--info)' },
+								{ label: 'need a look', value: flaggedCount, color: 'var(--warning)' }
+							]}
+						/>
+						<div className="flex flex-wrap items-center gap-2">
+							<Button
+								size="sm"
+								// Entries behind "Show more" may be categorized too, so only a fully loaded queue
+								// can be ruled out from here.
+								disabled={working || (hidden === 0 && items.every(isUncategorized))}
+								onClick={() => void confirmAllCategorized()}
+							>
+								<CheckCheck /> Confirm all categorized
+							</Button>
+							<Button
+								variant="outline"
+								size="sm"
+								disabled={working}
+								onClick={() => void categorizeQueue()}
+							>
+								<Sparkles /> Apply rules to queue
+							</Button>
+						</div>
+						<p className="text-xs text-muted-foreground">
+							{total} waiting
+							{hidden > 0 ? ` (showing the newest ${items.length})` : ''} · already counted in your
+							balances; confirming marks one as checked
+						</p>
+					</CardContent>
+				</Card>
 			)}
 
 			{loading || (items.length === 0 && hidden > 0) ? (
@@ -641,202 +710,260 @@ export function ReviewPage() {
 				</Card>
 			) : (
 				<div className="flex flex-col gap-3">
-					{items.map((tx) => (
-						<Card key={tx.id}>
-							<CardContent className="flex flex-col gap-3 pt-6">
-								<div className="flex items-center justify-between">
-									<div>
-										<p className="text-sm font-medium">
-											{formatTransactionLabel(tx, merchants)}
-											{tx.duplicateOfId && (
-												<Badge variant="outline" className="ml-2">
-													Possible duplicate
-												</Badge>
-											)}
-											{firstSplit[tx.id]?.categorizationSource === 'suggestion' && (
-												<Badge variant="secondary" className="ml-2">
-													Suggested
-												</Badge>
-											)}
-											{firstSplit[tx.id]?.categorizationSource === 'rule' && (
-												<Badge variant="outline" className="ml-2">
-													Auto: rule
-												</Badge>
-											)}
-											{tx.capture && (
-												<Badge variant="secondary" className="ml-2">
-													{tx.capture.channel === 'sms' ? 'SMS' : 'Notification'}
-												</Badge>
-											)}
-											{tx.capture?.accountCheck && hasAccountChoice && (
-												<Badge
-													variant="outline"
-													className="ml-2 border-amber-500/60 text-amber-700 dark:text-amber-400"
-												>
-													Account not matched — check
-												</Badge>
-											)}
-										</p>
-										<p className="text-xs text-muted-foreground">
-											{tx.date} · {accountName(tx.accountId)}
-										</p>
-										{tx.capture && (
-											<p className="text-xs text-muted-foreground">
-												{describeCaptureSource(tx.capture)}
-											</p>
-										)}
-									</div>
-									<div className="flex items-center gap-1">
-										<span
-											className={`font-mono text-sm ${tx.amount < 0 ? 'text-destructive' : 'text-emerald-600 dark:text-emerald-400'}`}
-										>
-											{formatMoney(tx.amount)}
-										</span>
-										<Button
-											size="icon-sm"
-											variant="ghost"
-											aria-label="Edit transaction"
-											disabled={busyIds.has(tx.id)}
-											onClick={() => setEditTarget(tx)}
-										>
-											<Pencil />
-										</Button>
-									</div>
-								</div>
-
-								{tx.capture && (
-									<details className="text-xs">
-										<summary className="cursor-pointer text-muted-foreground">
-											Original message
-										</summary>
-										<p className="mt-1 rounded-md bg-muted/50 p-2 whitespace-pre-wrap">
-											{tx.capture.text}
-										</p>
-									</details>
+					{items.map((tx) => {
+						const original = tx.duplicateOfId ? duplicateOriginals[tx.duplicateOfId] : null;
+						const source = firstSplit[tx.id]?.categorizationSource;
+						const isExpense = tx.amount < 0;
+						const cardPaymentHint =
+							tx.type !== 'transfer' && detectCardPayment(originalMessageOf(tx));
+						const ruleHere =
+							tx.merchantId &&
+							!isUncategorized(tx) &&
+							ruleFor(tx.merchantId)?.categoryId !== categoryChoice[tx.id];
+						// One status at a time, the most important first.
+						const status = tx.duplicateOfId ? (
+							<Badge variant="outline" className="border-warning/50 text-warning">
+								Possible duplicate
+							</Badge>
+						) : tx.capture?.accountCheck && hasAccountChoice ? (
+							<Badge variant="outline" className="border-warning/50 text-warning">
+								Account not matched — check
+							</Badge>
+						) : source === 'suggestion' ? (
+							<Badge variant="secondary">Suggested</Badge>
+						) : source === 'rule' ? (
+							<Badge variant="outline">Auto: rule</Badge>
+						) : null;
+						return (
+							<Card
+								key={tx.id}
+								className={cn(
+									'overflow-hidden border-l-4',
+									isFlagged(tx)
+										? 'border-l-warning'
+										: isExpense
+											? 'border-l-expense'
+											: 'border-l-income'
 								)}
+							>
+								<CardContent className="flex flex-col gap-3 pt-4">
+									<div className="flex items-start gap-3">
+										<span
+											aria-hidden
+											className={cn(
+												'flex size-10 shrink-0 items-center justify-center rounded-full',
+												isExpense ? 'bg-expense/15 text-expense' : 'bg-income/15 text-income'
+											)}
+										>
+											{isExpense ? (
+												<ArrowUpRight className="size-5" />
+											) : (
+												<ArrowDownLeft className="size-5" />
+											)}
+										</span>
+										<div className="min-w-0 flex-1">
+											<p className="truncate text-sm font-medium">
+												{formatTransactionLabel(tx, merchants)}
+											</p>
+											<div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+												<span>{tx.date}</span>
+												{hasAccountChoice || accounts.length > 1 ? (
+													<Select
+														value={tx.accountId}
+														onValueChange={(id) => void changeAccount(tx, id)}
+														disabled={busyIds.has(tx.id)}
+													>
+														<SelectTrigger
+															size="sm"
+															aria-label="Move to another account"
+															className="h-6 rounded-full px-2 text-xs"
+														>
+															<SelectValue />
+														</SelectTrigger>
+														<SelectContent>
+															{accounts
+																.filter((a) => !a.isArchived || a.id === tx.accountId)
+																.map((a) => (
+																	<SelectItem key={a.id} value={a.id}>
+																		{a.name}
+																	</SelectItem>
+																))}
+														</SelectContent>
+													</Select>
+												) : (
+													<span>{accountName(tx.accountId)}</span>
+												)}
+												{tx.capture && (
+													<span>{tx.capture.channel === 'sms' ? 'SMS' : 'Notification'}</span>
+												)}
+											</div>
+										</div>
+										<div className="flex shrink-0 flex-col items-end gap-1">
+											<span
+												className={cn(
+													'font-mono text-base font-semibold',
+													isExpense ? 'text-expense' : 'text-income'
+												)}
+											>
+												{formatMoney(tx.amount)}
+											</span>
+											<Button
+												size="icon-sm"
+												variant="ghost"
+												aria-label="Edit transaction"
+												disabled={busyIds.has(tx.id)}
+												onClick={() => setEditTarget(tx)}
+											>
+												<Pencil />
+											</Button>
+										</div>
+									</div>
 
-								<div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+									{status && <div className="flex">{status}</div>}
+
+									{tx.duplicateOfId && original && (
+										<DuplicateCompare
+											original={original}
+											reason={duplicateReason(original, tx)}
+											merchants={merchants}
+											accountLabel={
+												original.accountId !== tx.accountId ? accountName(original.accountId) : null
+											}
+											busy={busyIds.has(tx.id)}
+											onKeepBoth={() => void keepBoth(tx)}
+											onRemoveThis={() => void reject(tx)}
+										/>
+									)}
+
 									<div className="flex flex-col gap-1.5">
 										<Label htmlFor={`category-${tx.id}`}>Category</Label>
-										<Select
+										<CategoryPicker
+											id={`category-${tx.id}`}
 											value={categoryChoice[tx.id] ?? UNCATEGORIZED_CATEGORY_ID}
-											onValueChange={(value) =>
+											onChange={(value) =>
 												setCategoryChoice((prev) => ({ ...prev, [tx.id]: value }))
 											}
-										>
-											<SelectTrigger id={`category-${tx.id}`} className="w-full">
-												<SelectValue />
-											</SelectTrigger>
-											<SelectContent>
-												<SelectItem value={UNCATEGORIZED_CATEGORY_ID}>Uncategorized</SelectItem>
-												{categoryOptions(categories).map(({ id, label }) => (
-													<SelectItem key={id} value={id}>
-														{label}
-													</SelectItem>
-												))}
-											</SelectContent>
-										</Select>
-									</div>
-									<div className="flex flex-col gap-1.5">
-										<Label htmlFor={`tags-${tx.id}`}>Tags (comma-separated)</Label>
-										<Input
-											id={`tags-${tx.id}`}
-											value={tagsInput[tx.id] ?? ''}
-											onChange={(e) =>
-												setTagsInput((prev) => ({ ...prev, [tx.id]: e.target.value }))
-											}
+											categories={categories}
+											noneOption={{ value: UNCATEGORIZED_CATEGORY_ID, label: 'Uncategorized' }}
+											className="h-11 md:h-9"
 										/>
 									</div>
-								</div>
 
-								{tx.type !== 'transfer' && detectCardPayment(originalMessageOf(tx)) && (
-									<div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-sky-500/40 bg-sky-500/5 p-2">
-										<p className="text-xs text-muted-foreground">
-											Looks like a credit card payment. Confirmed as is, it counts as{' '}
-											{tx.amount < 0 ? 'spending' : 'income'} and the card's balance won't change.
-										</p>
+									{cardPaymentHint && (
+										<div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-info/40 bg-info/10 p-2">
+											<p className="text-xs text-muted-foreground">
+												Looks like a credit card payment. Confirmed as is, it counts as{' '}
+												{isExpense ? 'spending' : 'income'} and the card's balance won't change.
+											</p>
+											<Button
+												size="sm"
+												variant="outline"
+												aria-label="Record as transfer"
+												onClick={() => setConvertTarget(tx)}
+											>
+												<ArrowRightLeft /> Record as transfer
+											</Button>
+										</div>
+									)}
+
+									<details className="group text-xs" open={!!(tagsInput[tx.id] ?? '') || undefined}>
+										<summary className="flex cursor-pointer list-none items-center gap-1 text-muted-foreground [&::-webkit-details-marker]:hidden">
+											<ChevronDown className="size-3.5 transition-transform group-open:rotate-180" />
+											More options
+										</summary>
+										<div className="mt-3 flex flex-col gap-3">
+											<div className="flex flex-col gap-1.5">
+												<Label htmlFor={`tags-${tx.id}`}>Tags (comma-separated)</Label>
+												<Input
+													id={`tags-${tx.id}`}
+													value={tagsInput[tx.id] ?? ''}
+													onChange={(e) =>
+														setTagsInput((prev) => ({ ...prev, [tx.id]: e.target.value }))
+													}
+												/>
+											</div>
+											{ruleHere && (
+												<label className="flex items-center gap-2 text-xs text-muted-foreground">
+													<input
+														type="checkbox"
+														checked={!!rememberRule[tx.id]}
+														onChange={(e) =>
+															setRememberRule((prev) => ({ ...prev, [tx.id]: e.target.checked }))
+														}
+													/>
+													{ruleFor(tx.merchantId)
+														? `Update my rule for ${merchantName(tx.merchantId) ?? 'this merchant'} to this choice`
+														: `Remember this choice for ${merchantName(tx.merchantId) ?? 'this merchant'} (creates a rule)`}
+												</label>
+											)}
+											<div className="flex flex-wrap items-center gap-2">
+												{!tx.recurringRuleId && tx.type !== 'transfer' && (
+													<Button
+														size="sm"
+														variant="outline"
+														aria-label="Mark as transfer"
+														onClick={() => setConvertTarget(tx)}
+													>
+														<ArrowRightLeft /> Transfer
+													</Button>
+												)}
+												{tx.recurringRuleId ? (
+													<Badge variant="secondary" className="gap-1">
+														<Repeat className="size-3" /> Already recurring
+													</Badge>
+												) : (
+													<Button
+														size="sm"
+														variant="outline"
+														aria-label="Mark as recurring"
+														onClick={() => openRecurringDialog(tx)}
+													>
+														<Repeat className="size-4" /> Recurring
+													</Button>
+												)}
+											</div>
+											{tx.capture && (
+												<div>
+													<p className="font-medium text-muted-foreground">Original message</p>
+													<p className="mt-1 rounded-md bg-muted/50 p-2 whitespace-pre-wrap">
+														{tx.capture.text}
+													</p>
+													<p className="mt-1 text-muted-foreground">
+														{describeCaptureSource(tx.capture)}
+													</p>
+												</div>
+											)}
+										</div>
+									</details>
+
+									<div className="flex items-center gap-4">
+										{/* Deliberately apart from Confirm and de-emphasized (ghost, icon-only): this page
+										    triages many entries quickly, and a slightly mis-placed tap must not as easily
+										    discard as confirm. */}
 										<Button
-											size="sm"
-											variant="outline"
-											aria-label="Record as transfer"
-											onClick={() => setConvertTarget(tx)}
+											size="icon-lg"
+											variant="ghost"
+											className="size-11"
+											aria-label="Discard transaction"
+											disabled={busyIds.has(tx.id)}
+											onClick={() => void reject(tx)}
 										>
-											<ArrowRightLeft /> Record as transfer
+											<Trash2 className="text-destructive" />
+										</Button>
+										<Button
+											className="h-11 flex-1 text-base"
+											aria-label="Confirm transaction"
+											disabled={busyIds.has(tx.id)}
+											onClick={() => void accept(tx)}
+										>
+											<CheckCircle2 />
+											Confirm
 										</Button>
 									</div>
-								)}
-
-								{tx.merchantId &&
-									(categoryChoice[tx.id] ?? UNCATEGORIZED_CATEGORY_ID) !==
-										UNCATEGORIZED_CATEGORY_ID &&
-									ruleFor(tx.merchantId)?.categoryId !== categoryChoice[tx.id] && (
-										<label className="flex items-center gap-2 text-xs text-muted-foreground">
-											<input
-												type="checkbox"
-												checked={!!rememberRule[tx.id]}
-												onChange={(e) =>
-													setRememberRule((prev) => ({ ...prev, [tx.id]: e.target.checked }))
-												}
-											/>
-											{ruleFor(tx.merchantId)
-												? `Update my rule for ${merchantName(tx.merchantId) ?? 'this merchant'} to this choice`
-												: `Remember this choice for ${merchantName(tx.merchantId) ?? 'this merchant'} (creates a rule)`}
-										</label>
-									)}
-
-								<div className="flex items-center justify-end gap-2">
-									{!tx.recurringRuleId && tx.type !== 'transfer' && (
-										<Button
-											size="sm"
-											variant="ghost"
-											aria-label="Mark as transfer"
-											onClick={() => setConvertTarget(tx)}
-										>
-											<ArrowRightLeft /> Transfer
-										</Button>
-									)}
-									{tx.recurringRuleId ? (
-										<Badge variant="secondary" className="gap-1">
-											<Repeat className="size-3" /> Already recurring
-										</Badge>
-									) : (
-										<Button
-											size="sm"
-											variant="outline"
-											aria-label="Mark as recurring"
-											onClick={() => openRecurringDialog(tx)}
-										>
-											<Repeat className="size-4" /> Recurring
-										</Button>
-									)}
-									<Button
-										size="sm"
-										variant="secondary"
-										aria-label="Confirm transaction"
-										disabled={busyIds.has(tx.id)}
-										onClick={() => void accept(tx)}
-									>
-										<CheckCircle2 className="text-emerald-600 dark:text-emerald-400" />
-										Confirm
-									</Button>
-									{/* Deliberately separated (not adjacent) from Confirm and visually
-									    de-emphasized (ghost, icon-only): this page triages many transactions
-									    quickly, and a slightly mis-placed tap must not as easily discard as
-									    confirm. */}
-									<Button
-										size="icon-sm"
-										variant="ghost"
-										className="ml-4"
-										aria-label="Discard transaction"
-										disabled={busyIds.has(tx.id)}
-										onClick={() => void reject(tx)}
-									>
-										<Trash2 className="text-destructive" />
-									</Button>
-								</div>
-							</CardContent>
-						</Card>
-					))}
+								</CardContent>
+							</Card>
+						);
+					})}
 					{hidden > 0 && (
 						<Button
 							variant="outline"

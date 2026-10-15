@@ -18,7 +18,17 @@ function announce(result: DrainResult): void {
 		toast.success(
 			created === 1
 				? '1 new transaction added to Review'
-				: `${created} new transactions added to Review`
+				: `${created} new transactions added to Review`,
+			{
+				action: {
+					label: 'Review',
+					// Outside React, so no router hook: push the route and let BrowserRouter hear the popstate.
+					onClick: () => {
+						window.history.pushState(null, '', '/review');
+						window.dispatchEvent(new PopStateEvent('popstate'));
+					}
+				}
+			}
 		);
 	}
 	window.dispatchEvent(new Event(REVIEW_CHANGED_EVENT));

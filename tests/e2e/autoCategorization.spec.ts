@@ -43,7 +43,7 @@ async function quickAdd(page: Page, accountName: string, merchant: string, amoun
 	await page.getByRole('button', { name: 'Parse' }).click();
 	await page.getByLabel('Account').click();
 	await page.getByRole('option', { name: accountName, exact: true }).click();
-	await page.getByRole('button', { name: 'Confirm & add to review queue' }).click();
+	await page.getByRole('button', { name: 'Add to review queue' }).click();
 	await expect(page.getByRole('heading', { name: 'Review Queue' })).toBeVisible();
 }
 
