@@ -41,7 +41,7 @@ import {
 } from '../domain/budgets/budgetEngine';
 import type { Budget, BudgetItem, BudgetPeriodType, Category } from '../domain/entities';
 import { isPositiveMoney, parseMoneyOrZero, formatMoney } from '../domain/shared/money';
-import { categoryOptions } from '../domain/categories/categoryHierarchy';
+import { CategoryPicker } from '../components/CategoryPicker';
 import {
 	buildCategoryLabels,
 	categoryWithDescendantIds
@@ -311,18 +311,13 @@ export function BudgetsPage() {
 									control={form.control}
 									name="categoryId"
 									render={({ field }) => (
-										<Select value={field.value} onValueChange={field.onChange}>
-											<SelectTrigger id="budget-category" className="w-full">
-												<SelectValue placeholder="Choose category…" />
-											</SelectTrigger>
-											<SelectContent>
-												{categoryOptions(categories).map(({ id, label }) => (
-													<SelectItem key={id} value={id}>
-														{label}
-													</SelectItem>
-												))}
-											</SelectContent>
-										</Select>
+										<CategoryPicker
+											id="budget-category"
+											value={field.value}
+											onChange={field.onChange}
+											categories={categories}
+											placeholder="Choose category…"
+										/>
 									)}
 								/>
 							</div>
@@ -499,18 +494,13 @@ export function BudgetsPage() {
 								control={editForm.control}
 								name="categoryId"
 								render={({ field }) => (
-									<Select value={field.value} onValueChange={field.onChange}>
-										<SelectTrigger id="edit-budget-category" className="w-full">
-											<SelectValue placeholder="Choose category…" />
-										</SelectTrigger>
-										<SelectContent>
-											{categoryOptions(categories).map(({ id, label }) => (
-												<SelectItem key={id} value={id}>
-													{label}
-												</SelectItem>
-											))}
-										</SelectContent>
-									</Select>
+									<CategoryPicker
+										id="edit-budget-category"
+										value={field.value}
+										onChange={field.onChange}
+										categories={categories}
+										placeholder="Choose category…"
+									/>
 								)}
 							/>
 						</div>

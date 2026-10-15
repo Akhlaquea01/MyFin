@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { findPairedCapture, PAIRING_WINDOW_MS } from '../../src/domain/capture/capturePairing';
+import {
+	findPairedCapture,
+	PAIRING_WINDOW_MS,
+	REFERENCE_WINDOW_MS
+} from '../../src/domain/capture/capturePairing';
 import { originalMessageOf } from '../../src/domain/capture/originalMessage';
 import type { CaptureInfo, Transaction } from '../../src/domain/entities';
 
@@ -86,6 +90,66 @@ describe('findPairedCapture', () => {
 
 	it('does not care which account each landed on', () => {
 		expect(findPairedCapture(incoming, -25000, [waiting('sms', { accountId: 'other' })])?.id).toBe(
+			'sms'
+		);
+	});
+});
+
+describe('findPairedCapture with reference numbers and accounts', () => {
+	const withRef = (refNo: string) => ({ ...incoming, refNo });
+
+	it('pairs the same reference on the same channel, after the usual window, onto a confirmed entry', () => {
+		const old = waiting('old', { reviewStatus: 'confirmed' }, { refNo: 'R1', receivedAt: T0 });
+		const again = {
+			channel: 'sms' as const,
+			receivedAt: T0 + 2 * 24 * 60 * 60 * 1000,
+			refNo: 'R1'
+		};
+		expect(findPairedCapture(again, -25000, [old])?.id).toBe('old');
+	});
+
+	it('pairs the same reference even when the entry already absorbed a sighting', () => {
+		const taken = waiting(
+			'taken',
+			{},
+			{
+				refNo: 'R1',
+				alsoSeenAs: [{ channel: 'notification', sender: 'Google Pay', receivedAt: T0 }]
+			}
+		);
+		expect(findPairedCapture(withRef('R1'), -25000, [taken])?.id).toBe('taken');
+	});
+
+	it('never pairs two different references, however close they arrive', () => {
+		expect(
+			findPairedCapture(withRef('R2'), -25000, [waiting('sms', {}, { refNo: 'R1' })])
+		).toBeNull();
+	});
+
+	it('still needs the same amount for a matching reference', () => {
+		expect(
+			findPairedCapture(withRef('R1'), -25100, [waiting('sms', {}, { refNo: 'R1' })])
+		).toBeNull();
+	});
+
+	it('does not pair across the reference window', () => {
+		const far = {
+			...incoming,
+			receivedAt: T0 + REFERENCE_WINDOW_MS + 1,
+			refNo: 'R1'
+		};
+		expect(findPairedCapture(far, -25000, [waiting('sms', {}, { refNo: 'R1' })])).toBeNull();
+	});
+
+	it('refuses two entries whose own digits named different accounts', () => {
+		const onA = waiting('sms', { accountId: 'a' }, { accountCheck: null });
+		expect(findPairedCapture({ ...incoming, exactAccountId: 'b' }, -25000, [onA])).toBeNull();
+		expect(findPairedCapture({ ...incoming, exactAccountId: 'a' }, -25000, [onA])?.id).toBe('sms');
+	});
+
+	it('does not let a guessed account veto a pairing', () => {
+		const guessed = waiting('sms', { accountId: 'a' }, { accountCheck: 'default-account' });
+		expect(findPairedCapture({ ...incoming, exactAccountId: 'b' }, -25000, [guessed])?.id).toBe(
 			'sms'
 		);
 	});

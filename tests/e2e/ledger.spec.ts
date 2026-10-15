@@ -130,7 +130,7 @@ test.describe('Core Ledger', () => {
 			.fill('Rs.200.00 debited at Cafe Coffee Day');
 		await page.getByRole('button', { name: 'Parse' }).click();
 		await chooseOption(page, 'Account', 'Checking');
-		await page.getByRole('button', { name: 'Confirm & add to review queue' }).click();
+		await page.getByRole('button', { name: 'Add to review queue' }).click();
 		await expect(page.getByRole('heading', { name: 'Review Queue' })).toBeVisible();
 
 		// Notes present, no merchant.

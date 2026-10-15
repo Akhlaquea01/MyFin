@@ -12,12 +12,17 @@ import {
 	DialogTitle
 } from './ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
+import { CategoryPicker } from './CategoryPicker';
 import { useSession } from '../context/SessionContext';
 import { recordLiabilityPayment } from '../domain/wealth/wealthEngine';
-import { formatMinorUnits, isPositiveMoney, parseMoneyOrZero, formatMoney } from '../domain/shared/money';
+import {
+	formatMinorUnits,
+	isPositiveMoney,
+	parseMoneyOrZero,
+	formatMoney
+} from '../domain/shared/money';
 import { todayLocalISO } from '../domain/shared/dateMath';
 import type { Account, Category, Liability } from '../domain/entities';
-import { categoryOptions } from '../domain/categories/categoryHierarchy';
 
 const NO_CATEGORY = '__none__';
 
@@ -138,19 +143,13 @@ export function LiabilityPaymentDialog({
 					</div>
 					<div className="flex flex-col gap-1.5">
 						<Label htmlFor="liability-pay-category">Category (optional)</Label>
-						<Select value={categoryId} onValueChange={setCategoryId}>
-							<SelectTrigger id="liability-pay-category" className="w-full">
-								<SelectValue />
-							</SelectTrigger>
-							<SelectContent>
-								<SelectItem value={NO_CATEGORY}>None</SelectItem>
-								{categoryOptions(categories).map(({ id, label }) => (
-									<SelectItem key={id} value={id}>
-										{label}
-									</SelectItem>
-								))}
-							</SelectContent>
-						</Select>
+						<CategoryPicker
+							id="liability-pay-category"
+							value={categoryId}
+							onChange={setCategoryId}
+							categories={categories}
+							noneOption={{ value: NO_CATEGORY, label: 'None' }}
+						/>
 					</div>
 					<DialogFooter>
 						<Button type="button" variant="outline" onClick={() => onOpenChange(false)}>

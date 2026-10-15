@@ -1,8 +1,12 @@
 export type DashboardWidgetId =
 	| 'total-balance'
-	| 'lending'
-	| 'net-worth'
+	| 'month-summary'
 	| 'unreviewed'
+	| 'spending'
+	| 'trend'
+	| 'budgets'
+	| 'net-worth'
+	| 'lending'
 	| 'recent-transactions';
 
 export interface DashboardWidgetConfig {
@@ -18,11 +22,16 @@ export interface DashboardWidgetMeta {
 	core: boolean;
 }
 
+/** The built-in order. Charts come before the figures that are only a number. */
 export const DASHBOARD_WIDGETS: DashboardWidgetMeta[] = [
 	{ id: 'total-balance', title: 'Total Balance', core: true },
-	{ id: 'lending', title: 'Lending', core: false },
-	{ id: 'net-worth', title: 'Net Worth', core: false },
+	{ id: 'month-summary', title: 'This month', core: false },
 	{ id: 'unreviewed', title: 'Unreviewed', core: false },
+	{ id: 'spending', title: 'Where it went', core: false },
+	{ id: 'trend', title: 'Last 6 months', core: false },
+	{ id: 'budgets', title: 'Budgets', core: false },
+	{ id: 'net-worth', title: 'Net Worth', core: false },
+	{ id: 'lending', title: 'Lending', core: false },
 	{ id: 'recent-transactions', title: 'Recent Transactions', core: false }
 ];
 
@@ -37,8 +46,7 @@ function defaultLayout(): DashboardWidgetConfig[] {
  * Resolves a persisted `UserProfile.dashboardLayout` into a concrete, always-safe render order
  * (User Story 6, spec 019, FR-022–FR-025, contracts/dashboard-widgets.md). Pure — no I/O.
  *
- * - Absent/empty stored layout -> the built-in default (today's five widgets, all visible, in
- *   their original order). An empty array is also treated as "use defaults" so "reset to
+ * - Absent/empty stored layout -> the built-in default (every widget, all visible, in the built-in order). An empty array is also treated as "use defaults" so "reset to
  *   default" (DashboardCustomizeSheet) can write `[]` without needing a separate sentinel.
  * - Any stored widget id no longer recognized is dropped (forward-compatible against a future
  *   widget removal).

@@ -1,4 +1,4 @@
-import { defineConfig } from '@playwright/test';
+import { defineConfig, devices } from '@playwright/test';
 
 export default defineConfig({
 	// One worker. Each spec drives a full onboard-and-populate flow against a single
@@ -15,6 +15,13 @@ export default defineConfig({
 	webServer: { command: 'npm run build && npm run preview', port: 4173 },
 	testDir: 'tests/e2e',
 	testMatch: '**/*.spec.ts',
+	// Everything runs at the desktop default size, except `*.mobile.spec.ts`, which checks the phone
+	// layout on a real phone profile (touch, small viewport) so the bottom bar and sheets are the ones
+	// under test.
+	projects: [
+		{ name: 'desktop', testIgnore: '**/*.mobile.spec.ts' },
+		{ name: 'mobile', testMatch: '**/*.mobile.spec.ts', use: { ...devices['Pixel 7'] } }
+	],
 	// Every spec here onboards into a fresh, empty install — exactly the condition
 	// QuickTourProvider auto-starts the real product tour under. Every dialog it opens now
 	// carries `role="dialog"` (a deliberate accessibility fix), so left unsuppressed it

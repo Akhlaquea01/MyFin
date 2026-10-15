@@ -122,3 +122,33 @@ export function formatMinorUnits(minorUnits: number): string {
 	const minor = magnitude % MINOR_UNITS_PER_MAJOR;
 	return `${negative ? '-' : ''}${major}.${String(minor).padStart(MINOR_UNIT_DIGITS, '0')}`;
 }
+
+/**
+ * A short figure for a chart label or a tight tile: "₹950", "₹1.2K", "₹3.4L" (lakh), "₹2.1Cr"
+ * (crore). Rounded to at most one decimal, so display only; the full `formatMoney` is always
+ * available beside it.
+ */
+export function formatMoneyCompact(minorUnits: number): string {
+	const sign = minorUnits < 0 ? '-' : '';
+	const major = Math.abs(minorUnits) / 100;
+	// Ascending: each unit is a hundred times the one before (Indian grouping from lakh up).
+	const units: [number, string][] = [
+		[1_000, 'K'],
+		[100_000, 'L'],
+		[10_000_000, 'Cr']
+	];
+	let index = -1;
+	units.forEach(([size], i) => {
+		if (major >= size) index = i;
+	});
+	if (index === -1) return `${sign}${CURRENCY_SYMBOL}${Math.round(major)}`;
+
+	let scaled = Math.round((major / units[index][0]) * 10) / 10;
+	// 99.96K rounds to 100K, which is 1L: carry it up instead of writing "100K".
+	if (scaled >= 100 && index < units.length - 1) {
+		index += 1;
+		scaled = 1;
+	}
+	const text = Number.isInteger(scaled) ? scaled.toFixed(0) : scaled.toFixed(1);
+	return `${sign}${CURRENCY_SYMBOL}${text}${units[index][1]}`;
+}

@@ -36,7 +36,7 @@ test('an entry in Review can be edited in place, stays in the queue, and can the
 	await page.getByRole('button', { name: 'Parse' }).click();
 	await page.getByLabel('Account').click();
 	await page.getByRole('option', { name: 'Checking', exact: true }).click();
-	await page.getByRole('button', { name: 'Confirm & add to review queue' }).click();
+	await page.getByRole('button', { name: 'Add to review queue' }).click();
 
 	await expect(page.getByRole('heading', { name: 'Review Queue' })).toBeVisible();
 	await expect(page.getByText('Coffee Shop')).toBeVisible();

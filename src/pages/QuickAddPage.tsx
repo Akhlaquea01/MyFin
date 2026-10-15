@@ -16,16 +16,25 @@ import {
 } from '../components/ui/select';
 import { useSession } from '../context/SessionContext';
 import { AccountRepository } from '../data/dexie/accountRepository';
-import { MerchantRepository } from '../data/dexie/merchantRepository';
+import { MerchantAliasRepository, MerchantRepository } from '../data/dexie/merchantRepository';
+import { CategoryRepository } from '../data/dexie/categoryRepository';
+import { CategoryPicker } from '../components/CategoryPicker';
+import { UNCATEGORIZED_CATEGORY_ID } from '../data/dexie/transactionRepository';
+import { resolveCategorization } from '../domain/categorization/resolveCategorization';
 import { TransactionEngine } from '../domain/transactions/transactionEngine';
 import { findDuplicateCandidates } from '../domain/transactions/duplicateCandidates';
 import { formatTransactionLabel } from '../domain/transactions/transactionLabel';
 import { resolveMerchant } from '../domain/parser/merchantResolver';
 import { parseQuickAddText, isConfident } from '../domain/parser/quickAddParser';
-import { findCardMatches, type CardMatch } from '../domain/parser/cardIdentifierMatcher';
+import {
+	describeMatchType,
+	findCardMatches,
+	type CardMatch
+} from '../domain/parser/cardIdentifierMatcher';
+import { findAccountMatches } from '../domain/capture/accountMatcher';
 import { detectCardPayment } from '../domain/parser/cardPaymentDetector';
 import type { TransferLocationState } from './TransferPage';
-import type { Account, Merchant, Transaction, TransactionType } from '../domain/entities';
+import type { Account, Category, Merchant, Transaction, TransactionType } from '../domain/entities';
 import { formatMinorUnits, parseMoneyToMinorUnits, formatMoney } from '../domain/shared/money';
 import { todayLocalISO } from '../domain/shared/dateMath';
 import { useUnsavedChanges } from '../lib/unsavedChanges';
@@ -64,6 +73,10 @@ export function QuickAddPage() {
 		matches: Transaction[];
 	} | null>(null);
 	const [merchants, setMerchants] = useState<Merchant[]>([]);
+	const [categories, setCategories] = useState<Category[]>([]);
+	// null until the user picks one: then the category your rules suggest for this merchant is used.
+	const [categoryChoice, setCategoryChoice] = useState<string | null>(null);
+	const [suggestedCategoryId, setSuggestedCategoryId] = useState<string | null>(null);
 	// A share from another app must not silently replace what has been typed here.
 	useUnsavedChanges(!submitting && (rawText.trim() !== '' || amountInput !== ''));
 
@@ -84,6 +97,7 @@ export function QuickAddPage() {
 	// card auto-match below isn't racing this mount-time effect against the async account fetch.
 	useEffect(() => {
 		void MerchantRepository.list(key).then(setMerchants);
+		void CategoryRepository.list(key).then(setCategories);
 		void AccountRepository.list(key, false).then((loaded) => {
 			setAccounts(loaded);
 			setAccountsLoaded(true);
@@ -96,9 +110,44 @@ export function QuickAddPage() {
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, []);
 
+	// What your rules (or past choices for this merchant) would file the entry under, so the
+	// category field starts on it. Debounced: this reads encrypted storage while the user types.
+	useEffect(() => {
+		const name = merchantName.trim();
+		if (!parsed || !name) {
+			setSuggestedCategoryId(null);
+			return;
+		}
+		let cancelled = false;
+		const handle = setTimeout(() => {
+			void (async () => {
+				const alias = await MerchantAliasRepository.findByAliasText(key, name);
+				const result = await resolveCategorization(
+					key,
+					alias?.merchantId ?? null,
+					alias?.id ?? null,
+					{
+						notes: rawText,
+						merchantName: name
+					}
+				);
+				if (!cancelled) setSuggestedCategoryId(result?.categoryId ?? null);
+			})().catch(() => {
+				if (!cancelled) setSuggestedCategoryId(null);
+			});
+		}, 350);
+		return () => {
+			cancelled = true;
+			clearTimeout(handle);
+		};
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [parsed, merchantName, rawText]);
+	const effectiveCategoryId = categoryChoice ?? suggestedCategoryId ?? UNCATEGORIZED_CATEGORY_ID;
+
 	// Spec 018, User Story 1 (FR-001-FR-006): reuses `findCardMatches` (spec 017) already relied
-	// on by ImportPage/BulkTextImportPage — a single tagged-card match pre-selects that account
-	// (with the reason shown); more than one never guesses, it prompts; zero matches leaves the
+	// on by ImportPage/BulkTextImportPage, plus the digits saved on bank accounts — a single
+	// tagged match pre-selects that account (with the reason shown); more than one never
+	// guesses, it prompts; zero matches leaves the
 	// account field exactly as it behaves today. `accountsList` defaults to current state so
 	// `handleParse` (button click, accounts already loaded well before then) doesn't need to pass
 	// it explicitly.
@@ -115,22 +164,24 @@ export function QuickAddPage() {
 		setDate(candidate.date ?? todayLocalISO());
 		setDateFromMessage(candidate.date !== null);
 		setDuplicateWarning(null);
+		setCategoryChoice(null);
 
 		setCardMatchReason(null);
 		setCardDisambiguation(null);
 		setCardPayment(null);
-		const matches = findCardMatches(text, accountsList);
-		const distinctIds = [...new Set(matches.map((m) => m.accountId))];
-
 		// "Payment of Rs.5,000 received on your card ending 1234" / "Rs.5000 debited ... towards
 		// credit card 1234" is a MOVEMENT between the user's own accounts. Pre-selecting the card
 		// and recording it as an expense (the old behaviour) put the money on the wrong side of the
 		// card — the debt went UP by the amount just paid — so the card is deliberately not
-		// pre-selected here; the transfer shortcut below handles it correctly instead.
+		// pre-selected here; the transfer shortcut below handles it correctly instead. Only cards
+		// (not "A/c XX1234" bank digits) can be that destination.
 		if (detectCardPayment(text)) {
-			setCardPayment({ cardAccountId: distinctIds.length === 1 ? distinctIds[0] : null });
+			const cardIds = [...new Set(findCardMatches(text, accountsList).map((m) => m.accountId))];
+			setCardPayment({ cardAccountId: cardIds.length === 1 ? cardIds[0] : null });
 			return;
 		}
+		const matches = findAccountMatches(text, accountsList);
+		const distinctIds = [...new Set(matches.map((m) => m.accountId))];
 		if (distinctIds.length === 1) {
 			setAccountId(distinctIds[0]);
 			setCardMatchReason(matches.find((m) => m.accountId === distinctIds[0]) ?? null);
@@ -191,20 +242,28 @@ export function QuickAddPage() {
 			}
 
 			const resolved = merchantName.trim() ? await resolveMerchant(key, merchantName.trim()) : null;
-			await TransactionEngine.recordTransaction(key, {
-				accountId,
-				date,
-				amount: signedAmount,
-				type,
-				merchantId: resolved?.merchantId ?? null,
-				merchantAliasId: resolved?.aliasId ?? null,
-				// A recognised card payment keeps the message it came from: Review uses it to offer
-				// "Record as transfer" later, and it is the only record of what the entry was.
-				notes: cardPayment ? rawText.trim().slice(0, 200) : null,
-				source: 'quick_add',
-				reviewStatus: 'unreviewed',
-				duplicateOfId
-			});
+			await TransactionEngine.recordTransaction(
+				key,
+				{
+					accountId,
+					date,
+					amount: signedAmount,
+					type,
+					merchantId: resolved?.merchantId ?? null,
+					merchantAliasId: resolved?.aliasId ?? null,
+					// A recognised card payment keeps the message it came from: Review uses it to offer
+					// "Record as transfer" later, and it is the only record of what the entry was.
+					notes: cardPayment ? rawText.trim().slice(0, 200) : null,
+					source: 'quick_add',
+					reviewStatus: 'unreviewed',
+					duplicateOfId
+				},
+				// Only a category the user picked is sent: otherwise the usual rules fill it in and the
+				// entry says so in Review ("Auto: rule" / "Suggested").
+				categoryChoice && categoryChoice !== UNCATEGORIZED_CATEGORY_ID
+					? [{ categoryId: categoryChoice, amount: signedAmount }]
+					: []
+			);
 			toast.success('Transaction added to your review queue');
 			navigate('/review');
 		} catch (err) {
@@ -266,9 +325,9 @@ export function QuickAddPage() {
 						)}
 						{cardMatchReason && (
 							<p className="rounded-md border border-emerald-500/40 bg-emerald-500/5 p-2 text-xs text-muted-foreground">
-								Matched by {cardMatchReason.matchType === 'last4' ? 'card ending' : 'nickname'} "
-								{cardMatchReason.matchedIdentifier}" — the Account field below was pre-selected. You
-								can still choose a different account.
+								Matched by {describeMatchType(cardMatchReason)} "{cardMatchReason.matchedIdentifier}
+								" — the Account field below was pre-selected. You can still choose a different
+								account.
 							</p>
 						)}
 						{cardDisambiguation && (
@@ -365,6 +424,18 @@ export function QuickAddPage() {
 								onChange={(e) => setMerchantName(e.target.value)}
 							/>
 						</div>
+						<div className="flex flex-col gap-1.5">
+							<Label htmlFor="qa-category">Category</Label>
+							<CategoryPicker
+								id="qa-category"
+								value={effectiveCategoryId}
+								onChange={setCategoryChoice}
+								categories={categories}
+								noneOption={{ value: UNCATEGORIZED_CATEGORY_ID, label: 'Uncategorized' }}
+								suggestedIds={suggestedCategoryId ? [suggestedCategoryId] : undefined}
+								className="h-10 md:h-8"
+							/>
+						</div>
 						{activeDuplicateWarning && (
 							<div className="flex flex-col gap-2 rounded-md border border-amber-500/40 bg-amber-500/5 p-3">
 								<p className="flex items-center gap-1.5 text-sm font-medium">
@@ -393,7 +464,7 @@ export function QuickAddPage() {
 									? 'Add anyway'
 									: cardPayment
 										? 'Add as an ordinary transaction anyway'
-										: 'Confirm & add to review queue'}
+										: 'Add to review queue'}
 						</Button>
 					</CardContent>
 				</Card>

@@ -19,7 +19,10 @@ import { TransactionRepository } from '../dexie/transactionRepository';
 import { getBlindIndexSalt } from '../dexie/blindIndexSalt';
 import { blindIndex } from '../crypto/cryptoService';
 import { createCategorizationResolver } from '../../domain/categorization/resolveCategorization';
-import { findDuplicateCandidates } from '../../domain/transactions/duplicateCandidates';
+import {
+	findByReference,
+	findDuplicateCandidates
+} from '../../domain/transactions/duplicateCandidates';
 import {
 	TransactionEngine,
 	recalculateAccountBalance
@@ -227,26 +230,61 @@ async function ingestOne(message: IngestMessage, ctx: RunContext): Promise<'done
 	}
 
 	const signed = parsed.type === 'expense' ? -parsed.amount : parsed.amount;
+	const date = resolveCaptureDate(parsed.txnDate, payload.receivedAt);
 	const capture: CaptureInfo = {
 		channel: payload.channel,
 		sender: payload.sender,
 		receivedAt: payload.receivedAt,
 		text,
 		accountCheck: match.accountCheck,
-		tailHint: match.tailHint
+		tailHint: match.tailHint,
+		refNo: parsed.refNo
 	};
 
-	// A second sighting of a payment already waiting: fold it in rather than adding a second entry.
-	const survivor = findPairedCapture(payload, signed, ctx.waiting, ctx.windowMs);
+	// Another sighting of a payment already filed: fold it in rather than adding a second entry. The
+	// waiting entries cover an SMS and a notification; a reference number also reaches entries the
+	// user already confirmed, so a re-posted copy of an old message does not come back as new.
+	const sameReference = parsed.refNo ? await findByReference(key, parsed.refNo, signed, date) : [];
+	const pool = [
+		...ctx.waiting,
+		...sameReference.filter((tx) => !ctx.waiting.some((w) => w.id === tx.id))
+	];
+	const survivor = findPairedCapture(
+		{
+			channel: payload.channel,
+			receivedAt: payload.receivedAt,
+			refNo: parsed.refNo,
+			exactAccountId: match.accountCheck ? null : match.accountId
+		},
+		signed,
+		pool,
+		ctx.windowMs
+	);
 	if (survivor?.capture) {
 		const survivorCapture = survivor.capture;
-		const accountWasGuessed = !!survivorCapture.accountCheck && match.accountCheck === null;
+		const accountWasGuessed =
+			survivor.reviewStatus === 'unreviewed' &&
+			!!survivorCapture.accountCheck &&
+			match.accountCheck === null;
+		const sighting = {
+			channel: payload.channel,
+			sender: payload.sender,
+			receivedAt: payload.receivedAt
+		};
+		// A replay of a message already on the entry adds nothing to show.
+		const alreadyRecorded = [survivorCapture, ...(survivorCapture.alsoSeenAs ?? [])].some(
+			(seen) =>
+				seen.channel === sighting.channel &&
+				seen.sender === sighting.sender &&
+				seen.receivedAt === sighting.receivedAt
+		);
 		const merged: CaptureInfo = {
 			...survivorCapture,
-			alsoSeenAs: [
-				...(survivorCapture.alsoSeenAs ?? []),
-				{ channel: payload.channel, sender: payload.sender, receivedAt: payload.receivedAt }
-			],
+			alsoSeenAs: alreadyRecorded
+				? survivorCapture.alsoSeenAs
+				: [...(survivorCapture.alsoSeenAs ?? []), sighting],
+			// A later sighting may carry the reference the first one lacked (a notification has none).
+			refNo: survivorCapture.refNo ?? parsed.refNo,
 			// The newcomer named the account precisely where the first sighting had to guess.
 			...(accountWasGuessed ? { accountCheck: null, tailHint: null } : {})
 		};
@@ -257,21 +295,23 @@ async function ingestOne(message: IngestMessage, ctx: RunContext): Promise<'done
 		});
 		if (accountWasGuessed) ctx.touchedAccounts.add(survivor.accountId);
 		ctx.touchedAccounts.add(updated.accountId);
-		ctx.waiting.splice(
-			ctx.waiting.findIndex((tx) => tx.id === survivor.id),
-			1,
-			updated
-		);
+		const waitingAt = ctx.waiting.findIndex((tx) => tx.id === survivor.id);
+		if (waitingAt >= 0) ctx.waiting.splice(waitingAt, 1, updated);
 		report.paired += 1;
 		await NotifiedItemRepository.create(key, { key: ledgerKey });
 		return 'done';
 	}
 
-	const date = resolveCaptureDate(parsed.txnDate, payload.receivedAt);
+	// A guessed account may be wrong, so a twin filed under another account must still be seen.
 	const duplicates = await findDuplicateCandidates(
 		key,
-		{ accountId: match.accountId, amount: signed, date },
-		{ merchantName: normalized ?? undefined, merchants: ctx.merchants }
+		{ accountId: match.accountCheck ? null : match.accountId, amount: signed, date },
+		{
+			merchantName: normalized ?? undefined,
+			merchantId: resolved?.merchantId,
+			merchants: ctx.merchants,
+			refNo: parsed.refNo
+		}
 	);
 	const duplicateOfId = duplicates[0]?.id ?? null;
 
@@ -292,7 +332,12 @@ async function ingestOne(message: IngestMessage, ctx: RunContext): Promise<'done
 			capture
 		},
 		[],
-		{ deferBalance: true, categorizer: ctx.categorizer }
+		{
+			deferBalance: true,
+			categorizer: ctx.categorizer,
+			// With no merchant to go on, let keyword rules read the message itself.
+			categorizationText: resolved ? undefined : text
+		}
 	);
 	ctx.touchedAccounts.add(match.accountId);
 	ctx.waiting.push(created);

@@ -1,12 +1,19 @@
 import type { Account } from '../entities';
 
-export type CardMatchType = 'last4' | 'nickname';
+/** `account`: digits saved on a bank or wallet account, found by `findAccountMatches`. */
+export type CardMatchType = 'last4' | 'nickname' | 'account';
 
 export interface CardMatch {
 	accountId: string;
 	accountName: string;
 	matchedIdentifier: string;
 	matchType: CardMatchType;
+}
+
+/** How a match is worded to the user: `Matched by <this> "1234"`. */
+export function describeMatchType(match: Pick<CardMatch, 'matchType'>): string {
+	if (match.matchType === 'nickname') return 'nickname';
+	return match.matchType === 'account' ? 'account ending' : 'card ending';
 }
 
 /**

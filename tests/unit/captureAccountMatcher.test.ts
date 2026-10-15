@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { matchCaptureAccount } from '../../src/domain/capture/accountMatcher';
+import { findAccountMatches, matchCaptureAccount } from '../../src/domain/capture/accountMatcher';
 import type { Account } from '../../src/domain/entities';
 
 function account(id: string, overrides: Partial<Account> = {}): Account {
@@ -97,5 +97,77 @@ describe('matchCaptureAccount', () => {
 	it('returns null when nothing matches and there is no usable default', () => {
 		expect(matchCaptureAccount(tails('0000'), all, null)).toBeNull();
 		expect(matchCaptureAccount(tails('0000'), all, 'gone')).toBeNull();
+	});
+
+	it('prefers the bank account over a card that happens to share the digits', () => {
+		const bank = account('bank', { accountLast4: '1234' });
+		const sameDigitsCard = account('visa', { type: 'credit_card', cardLast4: '1234' });
+		expect(matchCaptureAccount(tails('1234'), [sameDigitsCard, bank], 'visa')).toMatchObject({
+			accountId: 'bank',
+			how: 'tail',
+			accountCheck: null
+		});
+	});
+
+	it('uses a card tagged with the digits when no bank account carries them', () => {
+		const sameDigitsCard = account('visa', { type: 'credit_card', cardLast4: '1234' });
+		expect(matchCaptureAccount(tails('1234'), [icici, sameDigitsCard], 'icici')).toMatchObject({
+			accountId: 'visa',
+			how: 'tail'
+		});
+	});
+
+	it('prefers the longer overlap when a three-digit and a four-digit tag both fit', () => {
+		const short = account('short', { accountLast4: '234' });
+		const long = account('long', { accountLast4: '1234' });
+		expect(matchCaptureAccount(tails('1234'), [short, long], null)?.accountId).toBe('long');
+	});
+
+	it('keeps the digits as a hint when several accounts fit', () => {
+		const clash = [account('a', { accountLast4: '1234' }), account('b', { accountLast4: '1234' })];
+		expect(matchCaptureAccount(tails('1234'), clash, 'a')?.tailHint).toBe('1234');
+	});
+});
+
+describe('findAccountMatches', () => {
+	const savings = account('savings', { name: 'HDFC Savings', accountLast4: '1234' });
+	const card = account('card', { name: 'ICICI Card', type: 'credit_card', cardLast4: '5678' });
+	const all = [savings, card];
+
+	it('finds a bank account named after "A/c" and says it is an account', () => {
+		expect(findAccountMatches('Rs.500 debited from A/c XX1234 to SWIGGY', all)).toEqual([
+			{
+				accountId: 'savings',
+				accountName: 'HDFC Savings',
+				matchedIdentifier: '1234',
+				matchType: 'account'
+			}
+		]);
+	});
+
+	it('finds a masked number with no "A/c" in front of it', () => {
+		expect(
+			findAccountMatches('Rs.500 debited from HDFC Bank XX1234', all).map((m) => m.accountId)
+		).toEqual(['savings']);
+	});
+
+	it('keeps the credit-card match as a card match and does not list it twice', () => {
+		const matches = findAccountMatches('Spent Rs.500 on card ending 5678', all);
+		expect(matches).toHaveLength(1);
+		expect(matches[0]).toMatchObject({ accountId: 'card', matchType: 'last4' });
+	});
+
+	it('returns both when the message names an account and a card', () => {
+		const matches = findAccountMatches('Rs.500 from A/c XX1234 on card ending 5678', all);
+		expect(matches.map((m) => m.accountId).sort()).toEqual(['card', 'savings']);
+	});
+
+	it('never reads an amount as an account number', () => {
+		expect(findAccountMatches('Paid Rs 1234.00 to SWIGGY', all)).toEqual([]);
+	});
+
+	it('ignores archived accounts', () => {
+		const archived = account('old', { accountLast4: '1234', isArchived: true });
+		expect(findAccountMatches('debited from A/c XX1234', [archived])).toEqual([]);
 	});
 });

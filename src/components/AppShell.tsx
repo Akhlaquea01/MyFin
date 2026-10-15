@@ -46,6 +46,8 @@ import { PageErrorBoundary } from './PageErrorBoundary';
 import { CommandPalette } from './CommandPalette';
 import { useQuickTour } from '../hooks/useQuickTour';
 import { useUnreadAlerts } from '../hooks/useUnreadAlerts';
+import { useWaitingReview } from '../hooks/useWaitingReview';
+import { HubTabs } from './HubTabs';
 import { useSession } from '../context/SessionContext';
 import { isNativeApp } from '../lib/native/platform';
 import { TransactionRepository } from '../data/dexie/transactionRepository';
@@ -190,6 +192,7 @@ function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
  * mistaken for page content, and the whole bar is gone from md up, where the sidebar takes over.
  */
 function BottomBar({ onOpenMenu }: { onOpenMenu: () => void }) {
+	const waiting = useWaitingReview(useLocation().pathname);
 	const tab = (isActive: boolean) =>
 		cn(
 			'relative flex flex-1 flex-col items-center justify-center gap-0.5 py-2 text-muted-foreground transition-colors',
@@ -246,10 +249,15 @@ function BottomBar({ onOpenMenu }: { onOpenMenu: () => void }) {
 			<NavLink
 				to="/review"
 				aria-label="Review queue"
-				data-label="Check"
+				data-label="Review"
 				className={({ isActive }) => tab(isActive)}
 			>
 				<Inbox className="size-5" />
+				{waiting > 0 && (
+					<span className="absolute top-1 left-1/2 ml-2 min-w-4 rounded-full bg-warning px-1 text-center text-[10px] leading-4 font-semibold text-background">
+						{waiting > 99 ? '99+' : waiting}
+					</span>
+				)}
 			</NavLink>
 			<button
 				type="button"
@@ -374,6 +382,7 @@ export function AppShell() {
 				</header>
 
 				<main className="min-w-0 flex-1 pb-20 md:pb-0">
+					<HubTabs />
 					{/* Keyed by pathname so navigating away from a crashed page fully remounts the
 					    boundary — a stale failure never lingers after the user moves on. */}
 					<PageErrorBoundary key={location.pathname}>

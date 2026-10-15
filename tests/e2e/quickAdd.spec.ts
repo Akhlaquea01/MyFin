@@ -59,7 +59,7 @@ test('Quick Add proposes a transaction from pasted text and it appears in review
 	await expect(page.getByLabel('Amount')).toHaveValue('250.00');
 	await expect(page.getByLabel('Merchant')).toHaveValue('Coffee Shop');
 
-	await page.getByRole('button', { name: 'Confirm & add to review queue' }).click();
+	await page.getByRole('button', { name: 'Add to review queue' }).click();
 	await expect(page.getByRole('heading', { name: 'Review Queue' })).toBeVisible();
 	await expect(page.getByText('Coffee Shop')).toBeVisible();
 });

@@ -33,3 +33,14 @@ if (!window.matchMedia) {
 		})
 	});
 }
+
+// cmdk (the type-to-search lists) measures with ResizeObserver and scrolls the highlighted row
+// into view; jsdom has neither.
+if (!window.ResizeObserver) {
+	window.ResizeObserver = class {
+		observe() {}
+		unobserve() {}
+		disconnect() {}
+	};
+}
+Element.prototype.scrollIntoView ??= () => {};

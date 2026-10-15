@@ -15,6 +15,7 @@ import {
 	DialogTitle
 } from './ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
+import { CategoryPicker } from './CategoryPicker';
 import { useSession } from '../context/SessionContext';
 import {
 	TransactionRepository,
@@ -36,7 +37,6 @@ import type {
 	Transaction,
 	TransactionSplit
 } from '../domain/entities';
-import { categoryOptions } from '../domain/categories/categoryHierarchy';
 
 type Kind = 'loading' | 'regular' | 'transfer' | 'loan';
 
@@ -357,19 +357,14 @@ export function EditTransactionDialog({
 							<>
 								<div className="flex flex-col gap-1.5">
 									<Label htmlFor="edit-tx-category">Category</Label>
-									<Select value={categoryId} onValueChange={setCategoryId} disabled={isSplit}>
-										<SelectTrigger id="edit-tx-category" className="w-full">
-											<SelectValue />
-										</SelectTrigger>
-										<SelectContent>
-											<SelectItem value={UNCATEGORIZED_CATEGORY_ID}>Uncategorized</SelectItem>
-											{categoryOptions(categories).map(({ id, label }) => (
-												<SelectItem key={id} value={id}>
-													{label}
-												</SelectItem>
-											))}
-										</SelectContent>
-									</Select>
+									<CategoryPicker
+										id="edit-tx-category"
+										value={categoryId}
+										onChange={setCategoryId}
+										categories={categories}
+										disabled={isSplit}
+										noneOption={{ value: UNCATEGORIZED_CATEGORY_ID, label: 'Uncategorized' }}
+									/>
 									{isSplit && (
 										<p className="text-xs text-muted-foreground">
 											This entry is split across several categories.

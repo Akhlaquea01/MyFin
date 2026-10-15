@@ -188,12 +188,15 @@ test('reconciliation prompt copies without navigating, and a reconciliation-shap
 	await page.getByRole('link', { name: 'Review', exact: true }).click();
 	await expect(page.getByRole('heading', { name: 'Review Queue' })).toBeVisible();
 
-	const groceries = page.locator('[data-slot="card"]').filter({ hasText: 'Groceries' });
-	const groceryStore = page.locator('[data-slot="card"]').filter({ hasText: 'Grocery Store' });
-	const refundCorrection = page
-		.locator('[data-slot="card"]')
-		.filter({ hasText: 'Refund Correction' });
-	const rent = page.locator('[data-slot="card"]').filter({ hasText: 'Rent' });
+	// A card is found by its own title: a flagged card also names the entry it looks like.
+	const cardTitled = (title: string) =>
+		page
+			.locator('[data-slot="card"]')
+			.filter({ has: page.locator('p.truncate', { hasText: title }) });
+	const groceries = cardTitled('Groceries');
+	const groceryStore = cardTitled('Grocery Store');
+	const refundCorrection = cardTitled('Refund Correction');
+	const rent = cardTitled('Rent');
 
 	await expect(groceries.getByText('Possible duplicate')).toHaveCount(0);
 	await expect(groceryStore.getByText('Possible duplicate')).toBeVisible();

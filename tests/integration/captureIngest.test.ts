@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { db } from '../../src/data/dexie/db';
 import { AccountRepository } from '../../src/data/dexie/accountRepository';
+import { CategoryRepository } from '../../src/data/dexie/categoryRepository';
+import { CategorizationRuleRepository } from '../../src/data/dexie/categorizationRuleRepository';
 import { MerchantRepository } from '../../src/data/dexie/merchantRepository';
 import { NotifiedItemRepository } from '../../src/data/dexie/notificationRepository';
 import { TransactionRepository } from '../../src/data/dexie/transactionRepository';
@@ -149,7 +151,8 @@ describe('ingestCapturedMessages', () => {
 	});
 
 	it('does not skip a replay after a crash that wrote the entry but not the ledger — it files a flagged duplicate', async () => {
-		const message = sms(HDFC_SWIGGY);
+		// No reference number, so nothing proves the replay is the same message: it is kept and flagged.
+		const message = sms('Rs.250.00 debited from A/C XX1234 to SWIGGY on 05/10/26');
 		await run([message]);
 		// Simulate losing the ledger row.
 		await db.notifiedItems.clear();
@@ -159,6 +162,56 @@ describe('ingestCapturedMessages', () => {
 		const entries = await unreviewed();
 		expect(entries).toHaveLength(2);
 		expect(entries.filter((tx) => tx.duplicateOfId !== null)).toHaveLength(1);
+	});
+
+	it('folds a replay into the entry it already made when the message carries a reference number', async () => {
+		const message = sms(HDFC_SWIGGY);
+		await run([message]);
+		await db.notifiedItems.clear();
+		const report = await run([{ ...message, id: 'q-replayed' }]);
+
+		expect(report).toMatchObject({ created: 0, paired: 1, duplicatesFlagged: 0 });
+		const entries = await unreviewed();
+		expect(entries).toHaveLength(1);
+		expect(entries[0].capture?.refNo).toBe('628123456789');
+		// The very same message adds nothing to show.
+		expect(entries[0].capture?.alsoSeenAs ?? []).toEqual([]);
+	});
+
+	it('finds the account from a masked number that has no "A/c" in front of it', async () => {
+		await run([sms('Rs.250.00 debited from HDFC Bank XX1234 on 05/10/26 to SWIGGY')]);
+		const [tx] = await unreviewed();
+		expect(tx.accountId).toBe(hdfc);
+		expect(tx.capture?.accountCheck).toBeNull();
+	});
+
+	it('clears the "account was guessed" flag once the user picks the account', async () => {
+		await run([note('Paid ₹250', 'Paid ₹250.00 to Swiggy')]);
+		const [guessed] = await unreviewed();
+		expect(guessed.capture?.accountCheck).toBe('default-account');
+
+		const fixed = await TransactionEngine.editTransaction(key, guessed.id, { accountId: hdfc });
+		expect(fixed.accountId).toBe(hdfc);
+		expect(fixed.capture).toMatchObject({ accountCheck: null, tailHint: null });
+		expect(fixed.capture?.text).toBe(guessed.capture?.text);
+	});
+
+	it('keeps the flag when an edit leaves the account alone', async () => {
+		await run([note('Paid ₹250', 'Paid ₹250.00 to Swiggy')]);
+		const [guessed] = await unreviewed();
+		const edited = await TransactionEngine.editTransaction(key, guessed.id, { date: '2026-10-04' });
+		expect(edited.capture?.accountCheck).toBe('default-account');
+	});
+
+	it('clears a possible-duplicate flag when the entry is confirmed', async () => {
+		await run([
+			sms(HDFC_SWIGGY, RECEIVED),
+			sms(HDFC_SWIGGY.replace('628123456789', '628123456790'), RECEIVED + 3_600_000)
+		]);
+		const flagged = (await unreviewed()).find((tx) => tx.duplicateOfId !== null)!;
+
+		const confirmed = await TransactionEngine.confirmTransaction(key, flagged.id);
+		expect(confirmed).toMatchObject({ reviewStatus: 'confirmed', duplicateOfId: null });
 	});
 
 	describe('SMS and notification for the same payment', () => {
@@ -239,6 +292,70 @@ describe('ingestCapturedMessages', () => {
 		});
 	});
 
+	describe('a reference number settles what a time window cannot', () => {
+		it('folds a re-posted copy into an entry the user already confirmed', async () => {
+			await run([sms(HDFC_SWIGGY, RECEIVED)]);
+			const [first] = await unreviewed();
+			await TransactionEngine.confirmTransaction(key, first.id);
+
+			const report = await run([sms(HDFC_SWIGGY, RECEIVED + 2 * 24 * 3_600_000, 'AX-HDFCBK')]);
+
+			expect(report).toMatchObject({ created: 0, paired: 1 });
+			expect(await unreviewed()).toHaveLength(0);
+			const all = await TransactionRepository.search(key, { accountId: hdfc });
+			expect(all).toHaveLength(1);
+			expect(all[0].capture?.alsoSeenAs).toHaveLength(1);
+		});
+
+		it('files one entry for a payment-app notification, the bank SMS and a messaging-app copy of it', async () => {
+			const at = RECEIVED;
+			const copyOfSms: IngestMessage = {
+				id: 'q-messages',
+				payload: {
+					channel: 'notification',
+					sender: 'Google Messages',
+					title: 'HDFCBK',
+					body: HDFC_SWIGGY,
+					receivedAt: at + 90_000
+				}
+			};
+			const report = await run([
+				note('Paid ₹250', 'Paid ₹250.00 to Swiggy', at),
+				sms(HDFC_SWIGGY, at + 60_000),
+				copyOfSms
+			]);
+
+			expect(report).toMatchObject({ created: 1, paired: 2, duplicatesFlagged: 0 });
+			const entries = await unreviewed();
+			expect(entries).toHaveLength(1);
+			expect(entries[0]).toMatchObject({ accountId: hdfc, duplicateOfId: null });
+			expect(entries[0].capture).toMatchObject({ accountCheck: null, refNo: '628123456789' });
+			expect(entries[0].capture?.alsoSeenAs).toHaveLength(2);
+		});
+
+		it('keeps two same-amount payments with different references as two entries', async () => {
+			const report = await run([
+				sms(HDFC_SWIGGY, RECEIVED),
+				sms(HDFC_SWIGGY.replace('628123456789', '628123456790'), RECEIVED + 60_000, 'AX-HDFCBK')
+			]);
+			expect(report.created).toBe(2);
+			expect(report.paired).toBe(0);
+		});
+
+		it('flags an entry whose account was only guessed against a twin on another account', async () => {
+			const first = await run([sms(HDFC_SWIGGY, RECEIVED)]);
+			expect(first.created).toBe(1);
+			// A notification with no digits lands on the default account (ICICI), a day later so it is not
+			// folded as a second sighting; the same amount already sits on HDFC.
+			const report = await run([
+				note('Paid ₹250', 'Paid ₹250.00 to Swiggy', RECEIVED + 3_600_000 * 3)
+			]);
+			expect(report).toMatchObject({ created: 1, duplicatesFlagged: 1 });
+			const flagged = (await unreviewed()).find((tx) => tx.duplicateOfId !== null)!;
+			expect(flagged.accountId).toBe(icici);
+		});
+	});
+
 	describe('likely duplicates are flagged, never skipped', () => {
 		it('creates both of two same-amount SMS and flags the second', async () => {
 			const report = await run([
@@ -310,5 +427,38 @@ describe('resolveCaptureDate', () => {
 
 	it('falls back to the arrival day when the message has no date', () => {
 		expect(resolveCaptureDate(null, received)).toBe('2026-10-05');
+	});
+});
+
+describe('ingestCapturedMessages keyword rules', () => {
+	it('lets a keyword rule read the message when no merchant could be parsed', async () => {
+		await db.delete();
+		await db.open();
+		resetBlindIndexSaltCache();
+		const key = await deriveEncryptionKey('8384', randomSaltBase64());
+		const account = await AccountRepository.create(key, {
+			name: 'HDFC',
+			type: 'bank',
+			openingBalance: 0,
+			creditLimit: null,
+			billingCycleDay: null,
+			accountLast4: '1234'
+		});
+		const food = await CategoryRepository.create(key, { name: 'Food' });
+		await CategorizationRuleRepository.create(key, { keyword: 'Swiggy', categoryId: food.id });
+
+		// No "to/at <name>" in it, so there is no merchant — only the word "Swiggy" in the text.
+		await ingestCapturedMessages(
+			key,
+			[sms('Rs.250.00 debited from A/c XX1234 on 05/10/26. Swiggy order settled')],
+			{ defaultAccountId: account.id }
+		);
+
+		const [tx] = await TransactionRepository.listUnreviewed(key);
+		expect(tx.merchantId).toBeNull();
+		const [split] = await TransactionRepository.getSplits(key, tx.id);
+		expect(split).toMatchObject({ categoryId: food.id, categorizationSource: 'rule' });
+		// The message is shown as the original, never copied into the row title.
+		expect(tx.notes).toBeNull();
 	});
 });

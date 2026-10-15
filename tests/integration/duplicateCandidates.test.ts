@@ -3,7 +3,11 @@ import { db } from '../../src/data/dexie/db';
 import { AccountRepository } from '../../src/data/dexie/accountRepository';
 import { MerchantRepository } from '../../src/data/dexie/merchantRepository';
 import { TransactionEngine } from '../../src/domain/transactions/transactionEngine';
-import { findDuplicateCandidates } from '../../src/domain/transactions/duplicateCandidates';
+import {
+	duplicateReason,
+	findDuplicateCandidates
+} from '../../src/domain/transactions/duplicateCandidates';
+import type { CaptureInfo, Transaction } from '../../src/domain/entities';
 import { deriveEncryptionKey, randomSaltBase64 } from '../../src/data/crypto/cryptoService';
 
 // Pasting the same bank SMS twice (or an SMS for something already entered by hand) should be
@@ -99,5 +103,101 @@ describe('findDuplicateCandidates', () => {
 		for (let i = 0; i < 5; i++) await record();
 		expect(await findDuplicateCandidates(key, query())).toHaveLength(3);
 		expect(await findDuplicateCandidates(key, query(), { limit: 2 })).toHaveLength(2);
+	});
+});
+
+describe('findDuplicateCandidates across accounts and references', () => {
+	let key: CryptoKey;
+	let checking: string;
+	let savings: string;
+
+	beforeEach(async () => {
+		await db.delete();
+		await db.open();
+		key = await deriveEncryptionKey('3940', randomSaltBase64());
+		const mk = (name: string) =>
+			AccountRepository.create(key, {
+				name,
+				type: 'bank',
+				openingBalance: 0,
+				creditLimit: null,
+				billingCycleDay: null
+			});
+		checking = (await mk('Checking')).id;
+		savings = (await mk('Savings')).id;
+	});
+
+	const record = (overrides: Record<string, unknown> = {}) =>
+		TransactionEngine.recordTransaction(key, {
+			accountId: checking,
+			date: '2026-03-10',
+			amount: -25_000,
+			type: 'expense',
+			...overrides
+		});
+	const captured = (refNo: string | null) => ({
+		channel: 'sms' as const,
+		sender: 'VM-HDFCBK',
+		receivedAt: 0,
+		text: 'x',
+		refNo
+	});
+
+	it('looks on every account when the account is null', async () => {
+		const onSavings = await record({ accountId: savings });
+		const found = await findDuplicateCandidates(key, {
+			accountId: null,
+			amount: -25_000,
+			date: '2026-03-10'
+		});
+		expect(found.map((t) => t.id)).toEqual([onSavings.id]);
+	});
+
+	it('reaches five days for the same reference, but not for the same amount alone', async () => {
+		const sameRef = await record({ date: '2026-03-14', capture: captured('R1') });
+		await record({ date: '2026-03-14', capture: captured('R2') });
+		const found = await findDuplicateCandidates(
+			key,
+			{ accountId: checking, amount: -25_000, date: '2026-03-10' },
+			{ refNo: 'R1' }
+		);
+		expect(found.map((t) => t.id)).toEqual([sameRef.id]);
+	});
+
+	it('ranks the same reference first, then the same merchant', async () => {
+		const merchant = await MerchantRepository.create(key, { name: 'Swiggy' });
+		const other = await MerchantRepository.create(key, { name: 'Zomato' });
+		const sameMerchant = await record({ merchantId: merchant.id });
+		const sameRef = await record({
+			date: '2026-03-09',
+			merchantId: other.id,
+			capture: captured('R1')
+		});
+		const plain = await record({ date: '2026-03-11' });
+		const found = await findDuplicateCandidates(
+			key,
+			{ accountId: checking, amount: -25_000, date: '2026-03-10' },
+			{ merchantId: merchant.id, refNo: 'R1' }
+		);
+		expect(found.map((t) => t.id)).toEqual([sameRef.id, sameMerchant.id, plain.id]);
+	});
+});
+
+describe('duplicateReason', () => {
+	const tx = (overrides: Partial<Transaction>) =>
+		({ merchantId: null, ...overrides }) as Transaction;
+	const withRef = (refNo: string) =>
+		({ channel: 'sms', sender: 's', receivedAt: 0, text: 'x', refNo }) as CaptureInfo;
+
+	it('names the strongest tie first', () => {
+		expect(
+			duplicateReason(
+				tx({ capture: withRef('R1') }),
+				tx({ capture: withRef('R1'), merchantId: 'm' })
+			)
+		).toBe('same-reference');
+		expect(duplicateReason(tx({ merchantId: 'm' }), tx({ merchantId: 'm' }))).toBe('same-merchant');
+		expect(duplicateReason(tx({ merchantId: 'm' }), tx({ merchantId: 'n' }))).toBe('same-amount');
+		expect(duplicateReason(tx({}), tx({}))).toBe('same-amount');
 	});
 });

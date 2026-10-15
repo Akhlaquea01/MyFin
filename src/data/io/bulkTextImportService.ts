@@ -1,6 +1,6 @@
 import { parseQuickAddText, isConfident } from '../../domain/parser/quickAddParser';
 import { resolveMerchant, normalizeMerchantText } from '../../domain/parser/merchantResolver';
-import { findCardMatches } from '../../domain/parser/cardIdentifierMatcher';
+import { findAccountMatches } from '../../domain/capture/accountMatcher';
 import { detectCardPayment } from '../../domain/parser/cardPaymentDetector';
 import { TransactionRepository } from '../dexie/transactionRepository';
 import { TransactionEngine } from '../../domain/transactions/transactionEngine';
@@ -110,7 +110,7 @@ export async function importBulkText(
 		// tagged card instead of the pre-matched/manually-chosen default; an ambiguous or
 		// unmatched line falls back to the default without blocking the rest of the import.
 		// A card *payment* line names the card but belongs to the paying account — see importService.ts.
-		const lineMatches = detectCardPayment(line) ? [] : findCardMatches(line, accounts);
+		const lineMatches = detectCardPayment(line) ? [] : findAccountMatches(line, accounts);
 		const distinctLineAccountIds = [...new Set(lineMatches.map((m) => m.accountId))];
 		const lineAccountId =
 			distinctLineAccountIds.length === 1 ? distinctLineAccountIds[0] : accountId;

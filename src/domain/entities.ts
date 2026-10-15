@@ -103,8 +103,11 @@ export interface CaptureInfo {
 	accountCheck?: 'default-account' | 'unmatched-tail' | null;
 	/** The account digits the message mentioned that matched nothing, to help the user pick. */
 	tailHint?: string | null;
-	/** The same payment also seen on the other channel (SMS and a payment-app notification), folded
-	 *  into this one entry rather than creating a second. */
+	/** The bank's UPI/UTR/reference number from the message. The one thing that tells a replayed
+	 *  message from a second, identical payment. */
+	refNo?: string | null;
+	/** The same payment also seen again (the SMS and a payment-app notification, or a messaging
+	 *  app's copy of that SMS), folded into this one entry rather than creating another. */
 	alsoSeenAs?: { channel: CaptureChannel; sender: string; receivedAt: EpochMillis }[];
 }
 

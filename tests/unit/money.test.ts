@@ -9,6 +9,7 @@ import {
 	formatMinorUnits,
 	formatMoney,
 	formatAmount,
+	formatMoneyCompact,
 	CURRENCY_SYMBOL
 } from '../../src/domain/shared/money';
 
@@ -177,5 +178,26 @@ describe('formatMoney / formatAmount (display)', () => {
 
 	it('names the one currency it deals in', () => {
 		expect(CURRENCY_SYMBOL).toBe('₹');
+	});
+});
+
+describe('formatMoneyCompact (chart labels)', () => {
+	it.each([
+		[0, '₹0'],
+		[95_000, '₹950'],
+		[100_000, '₹1K'],
+		[123_400, '₹1.2K'],
+		[9_950_000, '₹99.5K'],
+		[10_000_000, '₹1L'],
+		[345_000_00, '₹3.5L'],
+		[1_000_000_000, '₹1Cr'],
+		[21_500_000_000, '₹21.5Cr'],
+		[-250_000, '-₹2.5K']
+	])('writes %i minor units as %s', (minor, expected) => {
+		expect(formatMoneyCompact(minor)).toBe(expected);
+	});
+
+	it('carries a value that rounds up to 1000K into the next unit, not "1000K"', () => {
+		expect(formatMoneyCompact(99_996_00)).toBe('₹1L');
 	});
 });

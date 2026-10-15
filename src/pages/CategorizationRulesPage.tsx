@@ -16,6 +16,7 @@ import {
 	SelectTrigger,
 	SelectValue
 } from '../components/ui/select';
+import { CategoryPicker } from '../components/CategoryPicker';
 import {
 	Dialog,
 	DialogContent,
@@ -43,7 +44,6 @@ import {
 } from '../domain/categorization/resolveCategorization';
 import { MIN_KEYWORD_LENGTH, validateKeyword } from '../domain/categorization/keywordMatching';
 import type { Category, Merchant, MerchantAlias, Tag } from '../domain/entities';
-import { categoryOptions } from '../domain/categories/categoryHierarchy';
 import { buildCategoryLabels } from '../domain/categories/categoryHierarchy';
 import { useConfirm } from '../lib/confirm';
 
@@ -470,21 +470,13 @@ export function CategorizationRulesPage() {
 							)}
 							<div className="flex flex-col gap-1.5">
 								<Label htmlFor="rule-category">Category</Label>
-								<Select
+								<CategoryPicker
+									id="rule-category"
 									value={form.watch('categoryId')}
-									onValueChange={(v) => form.setValue('categoryId', v)}
-								>
-									<SelectTrigger id="rule-category" className="w-full">
-										<SelectValue placeholder="Choose category…" />
-									</SelectTrigger>
-									<SelectContent>
-										{categoryOptions(categories).map(({ id, label }) => (
-											<SelectItem key={id} value={id}>
-												{label}
-											</SelectItem>
-										))}
-									</SelectContent>
-								</Select>
+									onChange={(v) => form.setValue('categoryId', v)}
+									categories={categories}
+									placeholder="Choose category…"
+								/>
 								{form.formState.errors.categoryId && (
 									<p className="text-sm text-destructive">
 										{form.formState.errors.categoryId.message}

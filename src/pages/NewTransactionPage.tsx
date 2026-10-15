@@ -18,6 +18,7 @@ import {
 	SelectTrigger,
 	SelectValue
 } from '../components/ui/select';
+import { CategoryPicker } from '../components/CategoryPicker';
 import { useSession } from '../context/SessionContext';
 import { AccountRepository } from '../data/dexie/accountRepository';
 import { CategoryRepository } from '../data/dexie/categoryRepository';
@@ -32,7 +33,6 @@ import type { Account, Category } from '../domain/entities';
 import { isPositiveMoney, parseMoneyOrZero, formatMoney } from '../domain/shared/money';
 import { allocatedMinor, analyzeSplits } from '../domain/transactions/splitInput';
 import { todayLocalISO } from '../domain/shared/dateMath';
-import { categoryOptions } from '../domain/categories/categoryHierarchy';
 import { buildCategoryLabels } from '../domain/categories/categoryHierarchy';
 import { useUnsavedChanges } from '../lib/unsavedChanges';
 
@@ -432,18 +432,13 @@ export function NewTransactionPage() {
 										control={form.control}
 										name={`splits.${i}.categoryId`}
 										render={({ field: selectField }) => (
-											<Select value={selectField.value} onValueChange={selectField.onChange}>
-												<SelectTrigger className="flex-1">
-													<SelectValue placeholder="Category…" />
-												</SelectTrigger>
-												<SelectContent>
-													{categoryOptions(categories).map(({ id, label }) => (
-														<SelectItem key={id} value={id}>
-															{label}
-														</SelectItem>
-													))}
-												</SelectContent>
-											</Select>
+											<CategoryPicker
+												value={selectField.value}
+												onChange={selectField.onChange}
+												categories={categories}
+												placeholder="Category…"
+												className="min-w-0 flex-1"
+											/>
 										)}
 									/>
 									<Input

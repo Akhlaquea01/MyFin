@@ -13,6 +13,7 @@ import { toast } from 'sonner';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Sparkline } from '../components/Sparkline';
+import { SegmentedBar } from '../components/charts/SegmentedBar';
 import { ChartCanvas } from '../components/ChartCanvas';
 import { useSession } from '../context/SessionContext';
 import { getChartPalette, getAxisColor, getGridColor, withAlpha } from '../lib/chartColors';
@@ -131,6 +132,25 @@ export function NetWorthPage() {
 				<CardContent>
 					<p className="font-mono text-3xl font-semibold">{formatMoney(breakdown.netWorth)}</p>
 					{history.length > 1 && <Sparkline values={history.map((s) => s.netWorth)} />}
+					{breakdown.totalAssets + Math.abs(breakdown.totalLiabilities) > 0 && (
+						<div className="mt-4 flex flex-col gap-1.5">
+							<SegmentedBar
+								showLegend={false}
+								segments={[
+									{ label: 'Assets', value: breakdown.totalAssets, color: 'var(--income)' },
+									{
+										label: 'Debts',
+										value: Math.abs(breakdown.totalLiabilities),
+										color: 'var(--expense)'
+									}
+								]}
+							/>
+							<p className="text-xs text-muted-foreground">
+								Assets {formatMoney(breakdown.totalAssets)} · Debts{' '}
+								{formatMoney(Math.abs(breakdown.totalLiabilities))}
+							</p>
+						</div>
+					)}
 					{/* FR-005/FR-006: every category is a distinct, labeled subtotal that sums exactly to
 					    the total above (SC-002) — never one undifferentiated figure. */}
 					<div className="mt-4 flex flex-col divide-y">

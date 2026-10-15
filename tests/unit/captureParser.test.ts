@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseCapturedMessage } from '../../src/domain/capture/captureParser';
+import { extractAccountTails, parseCapturedMessage } from '../../src/domain/capture/captureParser';
 import type { CapturePayload } from '../../src/domain/capture/captureTypes';
 
 const sms = (body: string): CapturePayload => ({
@@ -28,7 +28,8 @@ describe('parseCapturedMessage', () => {
 			type: 'expense',
 			accountTail: '0146',
 			merchantText: 'MDMAHFOOZ',
-			txnDate: '2026-10-12'
+			txnDate: '2026-10-12',
+			refNo: '548275113159'
 		});
 	});
 
@@ -226,5 +227,36 @@ describe('parseCapturedMessage', () => {
 
 	it('returns null when there is no amount', () => {
 		expect(parseCapturedMessage(sms('Your account was debited'))).toBeNull();
+	});
+});
+
+describe('extractAccountTails', () => {
+	it.each<[string, string | null, string | null]>([
+		['Rs.500 debited from A/c XXXX XXXX 1234 to SWIGGY', '1234', null],
+		['Rs.500 debited from a/c XXXXXXXX1234 to SWIGGY', '1234', null],
+		['Rs.500 debited from A/c no. 123456789012', '9012', null],
+		['Rs.500 debited from HDFC Bank XX1234 to SWIGGY', '1234', null],
+		['Rs.500 debited from HDFC Bank **987 to SWIGGY', '987', null],
+		['Spent Rs.500 on card XXXX-5678 at AMAZON', null, '5678'],
+		['Spent Rs.500 on card XXXX XXXX XXXX 5678 at AMAZON', null, '5678'],
+		['Spent Rs.500 on Amex card ending 51001 at AMAZON', null, '1001'],
+		['Rs.500 from A/c XX1234 on card ending 5678', '1234', '5678']
+	])('reads %s', (text, accountTail, cardTail) => {
+		expect(extractAccountTails(text)).toEqual({ accountTail, cardTail });
+	});
+
+	it.each([
+		'Paid Rs 1234.00 to SWIGGY',
+		'Paid Rs 500 to xx123@okbank',
+		'Order 1234 shipped, Rs 500 debited',
+		'Debited Rs 100 on 12-10-2026'
+	])('does not read an account out of "%s"', (text) => {
+		expect(extractAccountTails(text)).toEqual({ accountTail: null, cardTail: null });
+	});
+
+	it('stays fast on a long run of mask characters', () => {
+		const started = Date.now();
+		extractAccountTails(`A/c ${'X '.repeat(3000)} and card ${'X '.repeat(3000)}`);
+		expect(Date.now() - started).toBeLessThan(500);
 	});
 });

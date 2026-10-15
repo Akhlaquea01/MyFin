@@ -1,4 +1,5 @@
 import type { Category } from '../entities';
+import { normalizeMatchText } from '../categorization/keywordMatching';
 
 // Categories form a tree (`parentId`), and until now nothing but the Categories page knew it: a
 // budget on "Food" counted only spending filed directly under "Food", a chart showed "Groceries"
@@ -99,4 +100,24 @@ export function categoryOptions(categories: Category[]): { id: string; label: st
 		id: c.id,
 		label: labels.get(c.id) ?? c.name
 	}));
+}
+
+/**
+ * The picker options matching what the user typed. Every typed word must begin a word of the
+ * full path, so "gro" finds "Food › Groceries" and "fo gr" narrows to it, while "ood" finds
+ * nothing. Options that start with the whole query come first; otherwise tree order is kept.
+ */
+export function filterCategoryOptions<T extends { label: string }>(
+	options: T[],
+	query: string
+): T[] {
+	const words = normalizeMatchText(query).split(' ').filter(Boolean);
+	if (words.length === 0) return options;
+	const whole = words.join(' ');
+	const matches = options.filter((option) => {
+		const labelWords = normalizeMatchText(option.label).split(' ');
+		return words.every((word) => labelWords.some((labelWord) => labelWord.startsWith(word)));
+	});
+	const startsWithQuery = (option: T) => normalizeMatchText(option.label).startsWith(whole);
+	return [...matches.filter(startsWithQuery), ...matches.filter((o) => !startsWithQuery(o))];
 }
