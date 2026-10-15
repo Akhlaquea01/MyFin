@@ -9,7 +9,7 @@ import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Badge } from '../components/ui/badge';
-import { Progress } from '../components/ui/progress';
+import { ProgressBar } from '../components/charts/ProgressBar';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import {
 	Dialog,
@@ -214,7 +214,10 @@ export function AccountsPage() {
 		editForm.reset({
 			name: account.name,
 			type: account.type,
-			openingBalance: storedToOpeningBalanceInput(account.openingBalance, account.type === 'credit_card'),
+			openingBalance: storedToOpeningBalanceInput(
+				account.openingBalance,
+				account.type === 'credit_card'
+			),
 			creditLimit: account.creditLimit !== null ? String(account.creditLimit / 100) : '',
 			billingCycleDay: account.billingCycleDay !== null ? String(account.billingCycleDay) : '',
 			cardLast4: account.cardLast4 ?? '',
@@ -253,7 +256,10 @@ export function AccountsPage() {
 	function openAdjustDialog(account: Account) {
 		setAdjustTarget(account);
 		adjustForm.reset({
-			actualBalance: storedToOpeningBalanceInput(account.currentBalance, account.type === 'credit_card')
+			actualBalance: storedToOpeningBalanceInput(
+				account.currentBalance,
+				account.type === 'credit_card'
+			)
 		});
 	}
 
@@ -601,7 +607,11 @@ export function AccountsPage() {
 														<span>Used {formatMoney(utilization.used)}</span>
 														<span>Available {formatMoney(utilization.available)}</span>
 													</div>
-													<Progress value={Math.min(100, utilization.utilizationPercent)} />
+													<ProgressBar
+														value={utilization.utilizationPercent}
+														max={100}
+														label={`${account.name} credit used`}
+													/>
 													<p className="text-right text-xs text-muted-foreground">
 														{utilization.utilizationPercent}% utilized
 													</p>
@@ -794,7 +804,10 @@ export function AccountsPage() {
 						<DialogTitle>Adjust balance</DialogTitle>
 					</DialogHeader>
 					{adjustTarget && (
-						<form className="flex flex-col gap-4" onSubmit={adjustForm.handleSubmit(onAdjustSubmit)}>
+						<form
+							className="flex flex-col gap-4"
+							onSubmit={adjustForm.handleSubmit(onAdjustSubmit)}
+						>
 							<p className="text-sm text-muted-foreground">
 								{adjustTarget.type === 'credit_card'
 									? `${adjustTarget.name} is currently tracked as owing ${formatMoney(-adjustTarget.currentBalance)}. Enter what the card statement says you owe and a balancing transaction will be added to close the gap.`

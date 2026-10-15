@@ -48,6 +48,18 @@ import {
 } from '../domain/shared/money';
 import { useConfirm } from '../lib/confirm';
 import { formatMoney } from '../domain/shared/money';
+import { SegmentedBar } from '../components/charts/SegmentedBar';
+
+/** One fixed hue per kind of holding, so "Stocks" is the same colour on every visit. */
+const TYPE_COLORS: Record<InvestmentType, string> = {
+	stock: 'var(--cat-1)',
+	mutual_fund: 'var(--cat-2)',
+	etf: 'var(--cat-3)',
+	bond: 'var(--cat-4)',
+	fixed_deposit: 'var(--cat-5)',
+	crypto: 'var(--cat-7)',
+	other: 'var(--muted-foreground)'
+};
 
 function isPositiveUnits(raw: string): boolean {
 	const n = Number(raw);
@@ -438,6 +450,25 @@ export function InvestmentsPage() {
 							</span>
 						</div>
 						{Object.keys(portfolioSummary.byType).length > 1 && (
+							<SegmentedBar
+								className="mt-4"
+								showLegend={false}
+								format={formatMoney}
+								segments={(
+									Object.entries(portfolioSummary.byType) as [
+										InvestmentType,
+										(typeof portfolioSummary.byType)[InvestmentType]
+									][]
+								)
+									.filter(([, typeSummary]) => !!typeSummary && typeSummary.currentValue > 0)
+									.map(([type, typeSummary]) => ({
+										label: TYPE_LABELS[type],
+										value: typeSummary!.currentValue,
+										color: TYPE_COLORS[type]
+									}))}
+							/>
+						)}
+						{Object.keys(portfolioSummary.byType).length > 1 && (
 							<dl className="mt-4 flex flex-col gap-1.5 border-t pt-3 text-sm">
 								{(
 									Object.entries(portfolioSummary.byType) as [
@@ -448,7 +479,12 @@ export function InvestmentsPage() {
 									([type, typeSummary]) =>
 										typeSummary && (
 											<div key={type} className="flex items-center justify-between">
-												<dt className="text-muted-foreground">
+												<dt className="flex items-center gap-2 text-muted-foreground">
+													<span
+														aria-hidden
+														className="size-2.5 shrink-0 rounded-full"
+														style={{ backgroundColor: TYPE_COLORS[type] }}
+													/>
 													{TYPE_LABELS[type]}
 													{typeSummary.hasEstimatedValue && (
 														<span className="ml-1 text-xs italic">(est.)</span>

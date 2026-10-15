@@ -2,7 +2,8 @@ import type { ReactNode } from 'react';
 import { PiggyBank, AlertTriangle } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Badge } from './ui/badge';
-import { Progress } from './ui/progress';
+import { ProgressBar } from './charts/ProgressBar';
+import { meterTone } from './charts/meterTone';
 import type { BudgetItem } from '../domain/entities';
 import { formatMoney } from '../domain/shared/money';
 
@@ -21,8 +22,8 @@ export function BudgetProgressCard({
 	actions?: ReactNode;
 }) {
 	const isOverspent = item.actualAmount > item.plannedAmount;
-	const percent =
-		item.plannedAmount > 0 ? Math.min(100, (item.actualAmount / item.plannedAmount) * 100) : 0;
+	const tone = meterTone(item.actualAmount, item.plannedAmount);
+	const left = item.plannedAmount - item.actualAmount;
 
 	return (
 		<Card>
@@ -45,10 +46,26 @@ export function BudgetProgressCard({
 					<span className="font-mono">{formatMoney(item.actualAmount)}</span>
 					<span className="text-muted-foreground">of {formatMoney(item.plannedAmount)}</span>
 				</div>
-				<Progress
-					value={percent}
-					className={isOverspent ? '[&_[data-slot=progress-indicator]]:bg-destructive' : undefined}
+				<ProgressBar
+					value={item.actualAmount}
+					max={item.plannedAmount}
+					label={`${categoryName} budget used`}
 				/>
+				<p className="mt-1.5 flex items-center gap-1.5 text-xs text-muted-foreground">
+					{tone === 'danger' ? (
+						<>
+							<AlertTriangle className="size-3.5 text-expense" aria-hidden /> Over by{' '}
+							{formatMoney(-left)}
+						</>
+					) : tone === 'warning' ? (
+						<>
+							<AlertTriangle className="size-3.5 text-warning" aria-hidden /> Close to the limit ·{' '}
+							{formatMoney(left)} left
+						</>
+					) : (
+						<>{formatMoney(left)} left</>
+					)}
+				</p>
 				{item.rolloverInAmount !== 0 && (
 					<p className="mt-2 text-xs text-muted-foreground">
 						{item.rolloverInAmount > 0

@@ -25,6 +25,7 @@ import {
 } from '../components/ui/select';
 import { useSession } from '../context/SessionContext';
 import { CategoryRepository } from '../data/dexie/categoryRepository';
+import { buildCategoryColors, categoryColorOf } from '../domain/categories/categoryColor';
 import type { Category } from '../domain/entities';
 import { useConfirm } from '../lib/confirm';
 
@@ -68,6 +69,8 @@ export function CategoriesPage() {
 
 	/** One category and, indented below it, its subcategories — at any depth (an imported file can
 	 *  nest further than this page lets you create). */
+	const colors = buildCategoryColors(categories);
+
 	function renderCategory(category: Category, depth: number): ReactNode {
 		const children = childrenOf(category.id);
 		return (
@@ -79,7 +82,14 @@ export function CategoriesPage() {
 							: 'flex items-center justify-between rounded-lg border px-4 py-2 text-sm'
 					}
 				>
-					<span className={depth === 0 ? 'font-medium' : undefined}>{category.name}</span>
+					<span className="flex min-w-0 items-center gap-2.5">
+						<span
+							aria-hidden
+							className="size-3 shrink-0 rounded-full"
+							style={{ backgroundColor: categoryColorOf(colors, category.id) }}
+						/>
+						<span className={depth === 0 ? 'font-medium' : undefined}>{category.name}</span>
+					</span>
 					<Button
 						variant="ghost"
 						size="icon-sm"

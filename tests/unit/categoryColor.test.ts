@@ -50,10 +50,14 @@ describe('buildCategoryColors', () => {
 		expect(colors.get('b')).toBe('var(--cat-2)');
 	});
 
-	it('wraps around after the palette is used up', () => {
-		const many = Array.from({ length: CATEGORY_COLOR_COUNT + 1 }, (_, i) => cat(`c${i}`, i));
+	it('leaves categories past the palette neutral instead of repeating a hue', () => {
+		const many = Array.from({ length: CATEGORY_COLOR_COUNT + 2 }, (_, i) => cat(`c${i}`, i));
 		const colors = buildCategoryColors(many);
-		expect(colors.get(`c${CATEGORY_COLOR_COUNT}`)).toBe(colors.get('c0'));
+		expect(colors.get(`c${CATEGORY_COLOR_COUNT - 1}`)).toBe(`var(--cat-${CATEGORY_COLOR_COUNT})`);
+		expect(colors.get(`c${CATEGORY_COLOR_COUNT}`)).toBe(NEUTRAL_CATEGORY_COLOR);
+		expect(colors.get(`c${CATEGORY_COLOR_COUNT + 1}`)).toBe(NEUTRAL_CATEGORY_COLOR);
+		const coloured = [...colors.values()].filter((c) => c !== NEUTRAL_CATEGORY_COLOR);
+		expect(new Set(coloured).size).toBe(CATEGORY_COLOR_COUNT);
 	});
 });
 

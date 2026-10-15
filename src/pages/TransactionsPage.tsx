@@ -310,9 +310,13 @@ export function TransactionsPage() {
 		} catch {
 			// If the check itself fails, fall through to the normal confirmation rather than block.
 		}
-		const confirmed = await confirm({ message: tx.transferPairId
+		const confirmed = await confirm({
+			message: tx.transferPairId
 				? 'This is a transfer — both sides (the money leaving one account and arriving in the other) will move to trash. You can undo this right after.'
-				: 'Move this transaction to trash? You can undo this right after.', confirmLabel: 'Move to trash', destructive: true });
+				: 'Move this transaction to trash? You can undo this right after.',
+			confirmLabel: 'Move to trash',
+			destructive: true
+		});
 		if (!confirmed) return;
 		try {
 			await TransactionEngine.deleteTransaction(key, tx.id);
@@ -340,7 +344,13 @@ export function TransactionsPage() {
 		try {
 			const existing = await SavedFilterViewRepository.findByName(key, newViewName.trim());
 			if (existing) {
-				if (!(await confirm({ message: `A view named "${existing.name}" already exists. Overwrite?`, confirmLabel: 'Overwrite', destructive: false }))) {
+				if (
+					!(await confirm({
+						message: `A view named "${existing.name}" already exists. Overwrite?`,
+						confirmLabel: 'Overwrite',
+						destructive: false
+					}))
+				) {
 					setSavingView(false);
 					return;
 				}
@@ -390,7 +400,14 @@ export function TransactionsPage() {
 	}
 
 	async function handleDeleteView(id: string) {
-		if (!(await confirm({ message: 'Delete this saved view?', confirmLabel: 'Delete view', destructive: true }))) return;
+		if (
+			!(await confirm({
+				message: 'Delete this saved view?',
+				confirmLabel: 'Delete view',
+				destructive: true
+			}))
+		)
+			return;
 		try {
 			await SavedFilterViewRepository.delete(id);
 			toast.success('Saved view deleted.');
@@ -748,7 +765,7 @@ export function TransactionsPage() {
 													)}
 										</TableCell>
 										<TableCell
-											className={`text-right font-mono ${tx.amount < 0 ? 'text-destructive' : 'text-emerald-600 dark:text-emerald-400'}`}
+											className={`text-right font-mono ${tx.amount < 0 ? 'text-expense' : 'text-income'}`}
 										>
 											{formatMoney(tx.amount)}
 										</TableCell>
@@ -959,7 +976,14 @@ function AttachmentsDialog({
 	async function removeAttachment(attachment: Attachment) {
 		// AttachmentRepository.remove is a permanent hard delete (no Trash entry, no undo) —
 		// unlike a transaction's own soft-delete above, this needs its own confirmation.
-		if (!(await confirm({ message: 'Permanently delete this receipt? This cannot be undone.', confirmLabel: 'Delete receipt', destructive: true }))) return;
+		if (
+			!(await confirm({
+				message: 'Permanently delete this receipt? This cannot be undone.',
+				confirmLabel: 'Delete receipt',
+				destructive: true
+			}))
+		)
+			return;
 		try {
 			await AttachmentRepository.remove(key, attachment.id);
 			await refreshAttachments();

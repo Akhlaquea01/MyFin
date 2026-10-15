@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { resolveDashboardLayout, DASHBOARD_WIDGETS } from '../../src/domain/analytics/dashboardLayout';
+import {
+	resolveDashboardLayout,
+	DASHBOARD_WIDGETS
+} from '../../src/domain/analytics/dashboardLayout';
 
 describe('Dashboard layout resolver', () => {
 	it('returns the built-in default when no layout is stored', () => {
@@ -53,8 +56,37 @@ describe('Dashboard layout resolver', () => {
 		const stored = DASHBOARD_WIDGETS.map((w) => ({ widgetId: w.id, visible: false }));
 		const resolved = resolveDashboardLayout(stored);
 		const coreIds = DASHBOARD_WIDGETS.filter((w) => w.core).map((w) => w.id);
-		expect(resolved.some((w) => coreIds.includes(w.widgetId as (typeof coreIds)[number]) && w.visible)).toBe(
-			true
-		);
+		expect(
+			resolved.some((w) => coreIds.includes(w.widgetId as (typeof coreIds)[number]) && w.visible)
+		).toBe(true);
+	});
+
+	it('keeps a layout saved before the charts existed and adds them at the end, visible', () => {
+		const saved = [
+			{ widgetId: 'net-worth', visible: true },
+			{ widgetId: 'total-balance', visible: true },
+			{ widgetId: 'lending', visible: false },
+			{ widgetId: 'unreviewed', visible: true },
+			{ widgetId: 'recent-transactions', visible: true }
+		];
+		const resolved = resolveDashboardLayout(saved);
+		expect(resolved.slice(0, 5).map((w) => w.widgetId)).toEqual(saved.map((w) => w.widgetId));
+		expect(resolved[2].visible).toBe(false);
+		const added = resolved.slice(5);
+		expect(added.map((w) => w.widgetId).sort()).toEqual([
+			'budgets',
+			'month-summary',
+			'spending',
+			'trend'
+		]);
+		expect(added.every((w) => w.visible)).toBe(true);
+	});
+
+	it('has the charts in the built-in layout, after the headline balance', () => {
+		const ids = DASHBOARD_WIDGETS.map((w) => w.id);
+		expect(ids[0]).toBe('total-balance');
+		for (const id of ['month-summary', 'spending', 'trend', 'budgets'] as const) {
+			expect(ids).toContain(id);
+		}
 	});
 });

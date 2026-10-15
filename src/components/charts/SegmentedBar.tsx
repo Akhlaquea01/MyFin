@@ -15,12 +15,15 @@ export interface BarSegment {
 export function SegmentedBar({
 	segments,
 	className,
-	format = (n) => String(n)
+	format = (n) => String(n),
+	showLegend = true
 }: {
 	segments: BarSegment[];
 	className?: string;
 	/** How a value is written in the legend. */
 	format?: (value: number) => string;
+	/** Off when the same parts are listed right beside the bar. */
+	showLegend?: boolean;
 }) {
 	const shown = segments.filter((s) => s.value > 0);
 	const total = shown.reduce((sum, s) => sum + s.value, 0);
@@ -41,7 +44,7 @@ export function SegmentedBar({
 					/>
 				))}
 			</div>
-			{shown.length > 0 && (
+			{showLegend && shown.length > 0 && (
 				<ul className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
 					{shown.map((s) => (
 						<li key={s.label} className="flex items-center gap-1.5">
