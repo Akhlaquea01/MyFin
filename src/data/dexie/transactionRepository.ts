@@ -492,21 +492,26 @@ export const TransactionRepository = {
 	 * FR-020/FR-038 duplicate rule: same account, same amount, date within ±1 day.
 	 * Narrows via the indexed accountId+date columns before decrypting the (small)
 	 * candidate set — never a full-table scan (research.md #11).
+	 *
+	 * `accountId: null` looks across every account (the date index narrows it), for a message whose
+	 * account was only guessed; `windowDays` widens the date range for a reference-number match.
 	 */
 	async findPossibleDuplicates(
 		key: CryptoKey,
-		accountId: string,
+		accountId: string | null,
 		amount: number,
-		date: string
+		date: string,
+		windowDays = 1
 	): Promise<Transaction[]> {
 		const target = new Date(date).getTime();
-		const from = new Date(target - ONE_DAY_MS).toISOString().slice(0, 10);
-		const to = new Date(target + ONE_DAY_MS).toISOString().slice(0, 10);
-		const rows = await db.transactions
-			.where('accountId')
-			.equals(accountId)
-			.filter((row) => row.deletedAt === NOT_DELETED && row.date >= from && row.date <= to)
-			.toArray();
+		const from = new Date(target - windowDays * ONE_DAY_MS).toISOString().slice(0, 10);
+		const to = new Date(target + windowDays * ONE_DAY_MS).toISOString().slice(0, 10);
+		const live = (row: TransactionRow) =>
+			row.deletedAt === NOT_DELETED && row.date >= from && row.date <= to;
+		const rows =
+			accountId === null
+				? await db.transactions.where('date').between(from, to, true, true).filter(live).toArray()
+				: await db.transactions.where('accountId').equals(accountId).filter(live).toArray();
 		const candidates = await decryptRows<TransactionRow, Transaction>(key, rows);
 		return candidates.filter((tx) => tx.amount === amount);
 	},

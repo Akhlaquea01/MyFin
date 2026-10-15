@@ -77,6 +77,13 @@ export function extractAccountTails(text: string): {
 
 const REF_NO =
 	/\b(?:ref(?:erence)?\s*(?:no|number|#)?|refno|upi|utr|rrn|txn\s*(?:id|no)?)\.?\s*[:#-]?\s*(\d{9,18})\b/i;
+// Axis-style "UPI/P2M/548275113159/MERCHANT" carries the reference inside the path.
+const UPI_PATH_REF = /\bUPI\/(?:P2[MA]|CR|DR)\/(\d{9,18})\b/i;
+
+/** The bank's reference number in a message or statement line, if it names one. */
+export function extractRefNo(text: string): string | null {
+	return REF_NO.exec(text)?.[1] ?? UPI_PATH_REF.exec(text)?.[1] ?? null;
+}
 
 // ---- merchant -------------------------------------------------------------------------------
 
@@ -156,7 +163,7 @@ export function parseCapturedMessage(payload: CapturePayload): ParsedCapture | n
 		merchantText: parseMerchant(text, type),
 		...extractAccountTails(text),
 		txnDate: parseDateFromText(text),
-		refNo: REF_NO.exec(text)?.[1] ?? null,
+		refNo: extractRefNo(text),
 		isCardPayment: detectCardPayment(text) !== null
 	};
 }

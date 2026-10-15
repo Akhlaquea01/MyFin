@@ -91,6 +91,46 @@ describe('Import service', () => {
 		expect(result.flaggedDuplicates).toHaveLength(1);
 	});
 
+	it("flags a statement row that quotes a captured entry's reference number, even days later", async () => {
+		await TransactionRepository.create(
+			key,
+			{
+				accountId,
+				date: '2026-03-05',
+				amount: -4000,
+				type: 'expense',
+				capture: {
+					channel: 'sms',
+					sender: 'VM-HDFCBK',
+					receivedAt: 0,
+					text: 'x',
+					refNo: '548275113159'
+				}
+			},
+			[]
+		);
+		const mapping: ColumnMapping = {
+			dateColumn: 'Date',
+			amountColumn: 'Amount',
+			descriptionColumn: 'Description',
+			accountId,
+			dateFormat: 'YYYY-MM-DD',
+			amountSignConvention: 'negative-is-expense'
+		};
+		const result = await importRows(
+			key,
+			[
+				// Posted four days after the SMS: outside the one-day window, but the reference matches.
+				{ Date: '2026-03-09', Description: 'UPI/P2M/548275113159/SWIGGY', Amount: '-40.00' },
+				// Same reference, different amount: not the same payment.
+				{ Date: '2026-03-09', Description: 'UPI/P2M/548275113159/SWIGGY', Amount: '-41.00' }
+			],
+			mapping
+		);
+		expect(result.createdCount).toBe(2);
+		expect(result.flaggedDuplicates.map((d) => d.rowNumber)).toEqual([2]);
+	});
+
 	it('supports separate debit/credit columns as an alternative sign convention', async () => {
 		const mapping: ColumnMapping = {
 			dateColumn: 'Date',

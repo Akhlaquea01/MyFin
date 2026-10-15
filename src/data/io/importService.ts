@@ -5,6 +5,7 @@ import { TransactionEngine } from '../../domain/transactions/transactionEngine';
 import { createCategorizationResolver } from '../../domain/categorization/resolveCategorization';
 import { resolveMerchant, normalizeMerchantText } from '../../domain/parser/merchantResolver';
 import { findCardMatches } from '../../domain/parser/cardIdentifierMatcher';
+import { extractRefNo } from '../../domain/capture/captureParser';
 import { detectCardPayment } from '../../domain/parser/cardPaymentDetector';
 import { parseMoneyToMinorUnits } from '../../domain/shared/money';
 import type { Account } from '../../domain/entities';
@@ -64,6 +65,12 @@ export function shiftIsoDay(date: string, deltaDays: number): string {
 	if (Number.isNaN(parsed.getTime())) return date;
 	parsed.setUTCDate(parsed.getUTCDate() + deltaDays);
 	return parsed.toISOString().slice(0, 10);
+}
+
+/** Index key for a captured entry's bank reference, so a statement row quoting it matches however
+ *  late the bank posted it. */
+export function referenceKey(refNo: string, amount: number): string {
+	return `ref|${refNo}|${amount}`;
 }
 
 export function findDuplicateId(
@@ -294,7 +301,10 @@ export async function importRows(
 		if (!index) {
 			const existing = await TransactionRepository.search(key, { accountId });
 			index = new Map<string, string>();
-			for (const tx of existing) index.set(duplicateKey(tx.date, tx.amount), tx.id);
+			for (const tx of existing) {
+				index.set(duplicateKey(tx.date, tx.amount), tx.id);
+				if (tx.capture?.refNo) index.set(referenceKey(tx.capture.refNo, tx.amount), tx.id);
+			}
 			duplicateIndexes.set(accountId, index);
 		}
 		return index;
@@ -377,8 +387,11 @@ export async function importRows(
 		}
 
 		const duplicateIndex = await duplicateIndexFor(txAccountId);
-		const duplicateOfId = findDuplicateId(duplicateIndex, dateIso, amount.amountPaise);
 		const notes = mapping.descriptionColumn ? (row[mapping.descriptionColumn] ?? null) : null;
+		const rowRef = notes ? extractRefNo(notes) : null;
+		const duplicateOfId =
+			findDuplicateId(duplicateIndex, dateIso, amount.amountPaise) ??
+			(rowRef ? (duplicateIndex.get(referenceKey(rowRef, amount.amountPaise)) ?? null) : null);
 		// Auto-categorization (spec 006, FR-002) needs a resolved Merchant to match rules/
 		// suggestions against. The raw description is normalized first: bank descriptions carry
 		// per-transaction reference numbers, so passing them verbatim created one Merchant and

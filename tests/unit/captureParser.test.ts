@@ -28,7 +28,8 @@ describe('parseCapturedMessage', () => {
 			type: 'expense',
 			accountTail: '0146',
 			merchantText: 'MDMAHFOOZ',
-			txnDate: '2026-10-12'
+			txnDate: '2026-10-12',
+			refNo: '548275113159'
 		});
 	});
 
