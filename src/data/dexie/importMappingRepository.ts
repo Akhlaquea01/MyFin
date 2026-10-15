@@ -1,15 +1,25 @@
-import { db, type ImportMappingRow } from './db';
-import { putEncrypted, decryptRows } from './encryptedTable';
+import { db } from './db';
+import { putEncrypted } from './encryptedTable';
+import { decrypt } from '../crypto/cryptoService';
 import type { ImportMappingPreset } from '../../domain/entities';
 import type { ImportMappingPresetInput } from '../../domain/io/importMappingPresets';
 
 export const ImportMappingRepository = {
-	/** All remembered layouts — one per bank format, so a handful of rows at most. */
+	/**
+	 * All remembered layouts — one per bank format, so a handful of rows at most. A row the key
+	 * cannot open (left from before a PIN change or restore) is dropped rather than failing the
+	 * whole list, which would stop the importer remembering anything ever again.
+	 */
 	async list(key: CryptoKey): Promise<ImportMappingPreset[]> {
-		return decryptRows<ImportMappingRow, ImportMappingPreset>(
-			key,
-			await db.importMappings.toArray()
+		const rows = await db.importMappings.toArray();
+		const settled = await Promise.allSettled(
+			rows.map((row) => decrypt<ImportMappingPreset>(key, row.encryptedData))
 		);
+		const stale = rows.filter((_, index) => settled[index].status === 'rejected');
+		if (stale.length > 0) {
+			await db.importMappings.bulkDelete(stale.map((row) => row.id)).catch(() => undefined);
+		}
+		return settled.flatMap((result) => (result.status === 'fulfilled' ? [result.value] : []));
 	},
 
 	async findBySignature(key: CryptoKey, signature: string): Promise<ImportMappingPreset | null> {

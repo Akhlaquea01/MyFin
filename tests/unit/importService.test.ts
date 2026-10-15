@@ -5,6 +5,7 @@ import { TransactionRepository } from '../../src/data/dexie/transactionRepositor
 import {
 	parseCsv,
 	parseXlsx,
+	cellToText,
 	parseDateWithFormat,
 	importRows,
 	resolveAccountForRow,
@@ -204,6 +205,107 @@ describe('Import service', () => {
 		const parsed = await parseXlsx(buffer as ArrayBuffer);
 		expect(parsed.rows).toHaveLength(2);
 		expect(parsed.rows.map((r) => r.Date)).toEqual(['2026-03-05', '2026-03-06']);
+	});
+
+	describe('parseDateWithFormat — formats real bank exports use', () => {
+		it('ignores a clock time after the date', () => {
+			expect(parseDateWithFormat('05/03/2026 14:30:05', 'DD/MM/YYYY')).toBe('2026-03-05');
+			expect(parseDateWithFormat('05/03/2026 2:30 PM', 'DD/MM/YYYY')).toBe('2026-03-05');
+			expect(parseDateWithFormat('2026-03-05T14:30:05Z', 'YYYY-MM-DD')).toBe('2026-03-05');
+		});
+
+		it('reads two-digit years, pivoting at 70', () => {
+			expect(parseDateWithFormat('05/03/26', 'DD/MM/YY')).toBe('2026-03-05');
+			expect(parseDateWithFormat('05/03/99', 'DD/MM/YY')).toBe('1999-03-05');
+			expect(parseDateWithFormat('05/03/2026', 'DD/MM/YY')).toBeNull();
+		});
+
+		it('reads month names in any case, with or without the full word', () => {
+			expect(parseDateWithFormat('05-Mar-2026', 'DD-MMM-YYYY')).toBe('2026-03-05');
+			expect(parseDateWithFormat('5 SEPTEMBER 26', 'DD MMMM YY')).toBe('2026-09-05');
+			expect(parseDateWithFormat('05-Foo-2026', 'DD-MMM-YYYY')).toBeNull();
+		});
+
+		it('accepts an ISO date whatever format was chosen, since it cannot be ambiguous', () => {
+			expect(parseDateWithFormat('2026-03-05', 'DD/MM/YYYY')).toBe('2026-03-05');
+			expect(parseDateWithFormat('2026-02-31', 'DD/MM/YYYY')).toBeNull();
+		});
+
+		it('still rejects dates that do not exist or are not dates', () => {
+			expect(parseDateWithFormat('31/02/2026', 'DD/MM/YYYY')).toBeNull();
+			expect(parseDateWithFormat('05/13/2026', 'DD/MM/YYYY')).toBeNull();
+			expect(parseDateWithFormat('', 'DD/MM/YYYY')).toBeNull();
+			expect(parseDateWithFormat('5a/03/2026', 'DD/MM/YYYY')).toBeNull();
+		});
+	});
+
+	describe('XLSX cells that are not plain text', () => {
+		it('converts dates, formulas, rich text and hyperlinks instead of "[object Object]"', () => {
+			expect(cellToText(new Date(Date.UTC(2026, 2, 5)))).toBe('2026-03-05');
+			expect(cellToText({ formula: 'A1+1', result: 12 })).toBe('12');
+			expect(cellToText({ richText: [{ text: 'Swiggy ' }, { text: 'Order' }] })).toBe(
+				'Swiggy Order'
+			);
+			expect(cellToText({ text: 'link', hyperlink: 'https://example.com' })).toBe('link');
+			expect(cellToText(null)).toBe('');
+			expect(cellToText(-40.5)).toBe('-40.5');
+		});
+
+		it('rounds floating-point noise from a computed amount cell to two decimals', () => {
+			expect(cellToText(1234.5600000000002)).toBe('1234.56');
+			expect(cellToText(0.1 + 0.2)).toBe('0.3');
+		});
+
+		it('imports a workbook whose dates and amounts are real Excel cells', async () => {
+			const workbook = new ExcelJS.Workbook();
+			const sheet = workbook.addWorksheet('Sheet1');
+			sheet.addRow(['Date', 'Description', 'Amount']);
+			sheet.addRow([new Date(Date.UTC(2026, 2, 5)), 'Groceries', -40.5]);
+			sheet.addRow([new Date(Date.UTC(2026, 2, 6)), 'Salary', { formula: 'A1', result: 500 }]);
+			const parsed = await parseXlsx((await workbook.xlsx.writeBuffer()) as ArrayBuffer);
+
+			const result = await importRows(key, parsed.rows, {
+				dateColumn: 'Date',
+				amountColumn: 'Amount',
+				descriptionColumn: 'Description',
+				accountId,
+				dateFormat: 'DD/MM/YYYY',
+				amountSignConvention: 'negative-is-expense'
+			});
+
+			expect(result.skippedMalformedRows).toEqual([]);
+			expect(result.createdCount).toBe(2);
+			const transactions = await TransactionRepository.search(key, { accountId });
+			expect(transactions.map((t) => [t.date, t.amount]).sort()).toEqual([
+				['2026-03-05', -4050],
+				['2026-03-06', 50000]
+			]);
+		});
+	});
+
+	describe('positive-is-expense (credit-card statements)', () => {
+		it('treats positive amounts as spending and negative ones as payments or refunds', async () => {
+			const result = await importRows(
+				key,
+				[
+					{ Date: '2026-03-05', Amount: '1,250.00' },
+					{ Date: '2026-03-06', Amount: '-300.00' }
+				],
+				{
+					dateColumn: 'Date',
+					amountColumn: 'Amount',
+					accountId,
+					dateFormat: 'YYYY-MM-DD',
+					amountSignConvention: 'positive-is-expense'
+				}
+			);
+			expect(result.createdCount).toBe(2);
+			const byDate = new Map(
+				(await TransactionRepository.search(key, { accountId })).map((t) => [t.date, t])
+			);
+			expect(byDate.get('2026-03-05')).toMatchObject({ amount: -125000, type: 'expense' });
+			expect(byDate.get('2026-03-06')).toMatchObject({ amount: 30000, type: 'income' });
+		});
 	});
 
 	describe('resolveAccountForRow (FR-003)', () => {

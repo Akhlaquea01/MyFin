@@ -12,7 +12,7 @@ import {
 	recordConfirmation,
 	type CategorizationResolver
 } from '../categorization/resolveCategorization';
-import { addDaysISO } from '../shared/dateMath';
+import { addDaysISO, isValidIsoDate } from '../shared/dateMath';
 import { linkedTransactionNotice } from './linkedTransactionNotice';
 import type { Transaction } from '../../domain/entities';
 
@@ -392,6 +392,9 @@ export const TransactionEngine = {
 		if (!pair) throw new Error('The other side of this transfer is missing.');
 		if (changes.amount !== undefined && Math.abs(changes.amount) <= 0) {
 			throw new Error('Transfer amount must be positive.');
+		}
+		if (changes.date !== undefined && !isValidIsoDate(changes.date)) {
+			throw new Error('Enter a valid date.');
 		}
 
 		const now = Date.now();

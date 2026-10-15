@@ -30,6 +30,7 @@ import { resolveMerchant } from '../domain/parser/merchantResolver';
 import { recordConfirmation } from '../domain/categorization/resolveCategorization';
 import { shouldLearnFromEdit } from '../domain/transactions/editLearning';
 import { formatMinorUnits, isPositiveMoney, parseMoneyOrZero } from '../domain/shared/money';
+import { isValidIsoDate } from '../domain/shared/dateMath';
 import type {
 	Account,
 	Category,
@@ -141,6 +142,10 @@ export function EditTransactionDialog({
 	async function save() {
 		if (!amountValid) {
 			toast.error('Enter a positive amount.');
+			return;
+		}
+		if (!isValidIsoDate(date)) {
+			toast.error('Enter a valid date.');
 			return;
 		}
 		setSaving(true);

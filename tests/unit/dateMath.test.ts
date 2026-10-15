@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { addDaysISO, localDateAsUtc, todayLocalISO } from '../../src/domain/shared/dateMath';
+import {
+	addDaysISO,
+	isValidIsoDate,
+	localDateAsUtc,
+	todayLocalISO
+} from '../../src/domain/shared/dateMath';
 
 describe('todayLocalISO', () => {
 	it('uses the local calendar date, not the UTC date', () => {
@@ -46,5 +51,22 @@ describe('localDateAsUtc', () => {
 		expect(localDateAsUtc(new Date(2026, 5, 15, 17, 45)).toISOString()).toBe(
 			'2026-06-15T00:00:00.000Z'
 		);
+	});
+});
+
+describe('isValidIsoDate', () => {
+	it('accepts real calendar dates, including a leap day', () => {
+		expect(isValidIsoDate('2026-03-05')).toBe(true);
+		expect(isValidIsoDate('2028-02-29')).toBe(true);
+	});
+
+	it('rejects what an emptied date input or a bad import produces', () => {
+		expect(isValidIsoDate('')).toBe(false);
+		expect(isValidIsoDate('2026-02-31')).toBe(false);
+		expect(isValidIsoDate('2026-02-29')).toBe(false);
+		expect(isValidIsoDate('2026-13-01')).toBe(false);
+		expect(isValidIsoDate('05/03/2026')).toBe(false);
+		expect(isValidIsoDate('2026-3-5')).toBe(false);
+		expect(isValidIsoDate('0050-03-05')).toBe(false);
 	});
 });

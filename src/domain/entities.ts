@@ -586,7 +586,8 @@ export interface ImportMappingPreset extends Timestamped {
 	signature: string;
 	dateColumn: string;
 	dateFormat: string;
-	amountSignConvention: 'negative-is-expense' | 'separate-debit-credit-columns';
+	amountSignConvention:
+		'negative-is-expense' | 'positive-is-expense' | 'separate-debit-credit-columns';
 	amountColumn: string | null;
 	debitColumn: string | null;
 	creditColumn: string | null;

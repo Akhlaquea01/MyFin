@@ -12,6 +12,7 @@ import { deletedAtIndex, nullableIdIndex, NOT_DELETED } from './indexable';
 import { AttachmentRepository } from './attachmentRepository';
 import { TagRepository } from './tagRepository';
 import { linkedTransactionNotice } from '../../domain/transactions/linkedTransactionNotice';
+import { isValidIsoDate } from '../../domain/shared/dateMath';
 import {
 	normalizeTagText,
 	transactionMatchesFreeText
@@ -95,6 +96,10 @@ function sortNewestFirst(transactions: Transaction[]): Transaction[] {
 	);
 }
 
+function assertValidDate(date: string): void {
+	if (!isValidIsoDate(date)) throw new Error('Enter a valid date.');
+}
+
 function toRow(tx: Transaction): Omit<TransactionRow, 'id' | 'encryptedData'> {
 	return {
 		accountId: tx.accountId,
@@ -112,6 +117,7 @@ export const TransactionRepository = {
 		input: NewTransactionInput,
 		splits: SplitInput[]
 	): Promise<Transaction> {
+		assertValidDate(input.date);
 		const now = Date.now();
 		const transaction: Transaction = {
 			id: input.id ?? crypto.randomUUID(),
@@ -184,6 +190,9 @@ export const TransactionRepository = {
 		changes: Partial<Transaction>,
 		splits?: SplitInput[]
 	): Promise<Transaction> {
+		// Only a date being *changed* is checked, so an entry that already holds an odd date from an
+		// older import can still be confirmed, deleted or restored.
+		if (changes.date !== undefined) assertValidDate(changes.date);
 		const existing = await getDecrypted<TransactionRow, Transaction>(db.transactions, key, id);
 		if (!existing) throw new Error(`Transaction ${id} not found`);
 		const updated: Transaction = { ...existing, ...changes, id, updatedAt: Date.now() };
@@ -432,6 +441,7 @@ export const TransactionRepository = {
 			notes?: string;
 		}
 	): Promise<[Transaction, Transaction]> {
+		assertValidDate(params.date);
 		const outId = crypto.randomUUID();
 		const inId = crypto.randomUUID();
 		const now = Date.now();

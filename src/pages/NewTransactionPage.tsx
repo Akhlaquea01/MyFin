@@ -32,7 +32,7 @@ import { validateAttachmentFile, compressImage } from '../lib/imageAttachment';
 import type { Account, Category } from '../domain/entities';
 import { isPositiveMoney, parseMoneyOrZero, formatMoney } from '../domain/shared/money';
 import { allocatedMinor, analyzeSplits } from '../domain/transactions/splitInput';
-import { todayLocalISO } from '../domain/shared/dateMath';
+import { isValidIsoDate, todayLocalISO } from '../domain/shared/dateMath';
 import { buildCategoryLabels } from '../domain/categories/categoryHierarchy';
 import { useUnsavedChanges } from '../lib/unsavedChanges';
 
@@ -40,7 +40,7 @@ const formSchema = z.object({
 	accountId: z.string().min(1, 'Choose an account.'),
 	type: z.enum(['expense', 'income']),
 	amount: z.string().refine((v) => isPositiveMoney(v), 'Enter a positive amount.'),
-	date: z.string().min(1),
+	date: z.string().refine(isValidIsoDate, 'Enter a valid date.'),
 	merchantName: z.string(),
 	notes: z.string(),
 	tagsInput: z.string(),
@@ -419,6 +419,9 @@ export function NewTransactionPage() {
 							<div className="flex flex-col gap-1.5">
 								<Label htmlFor="date">Date</Label>
 								<Input id="date" type="date" {...form.register('date')} />
+								{form.formState.errors.date && (
+									<p className="text-sm text-destructive">{form.formState.errors.date.message}</p>
+								)}
 							</div>
 						</div>
 

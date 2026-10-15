@@ -26,7 +26,7 @@ import {
 	formatMoney
 } from '../domain/shared/money';
 import { useUnsavedChanges } from '../lib/unsavedChanges';
-import { todayLocalISO } from '../domain/shared/dateMath';
+import { isValidIsoDate, todayLocalISO } from '../domain/shared/dateMath';
 import { computeCardUtilization } from '../domain/wealth/wealthEngine';
 
 // spec 018, User Story 4 (FR-016/FR-019): passed by AccountsPage.tsx's "Pay bill" action — and by
@@ -51,7 +51,7 @@ const formSchema = z
 		fromAccountId: z.string().min(1, 'Choose an account.'),
 		toAccountId: z.string().min(1, 'Choose an account.'),
 		amount: z.string().refine((v) => isPositiveMoney(v), 'Enter a positive amount.'),
-		date: z.string().min(1),
+		date: z.string().refine(isValidIsoDate, 'Enter a valid date.'),
 		notes: z.string()
 	})
 	.refine((v) => v.fromAccountId !== v.toAccountId, {
@@ -299,6 +299,9 @@ export function TransferPage() {
 							<div className="flex flex-col gap-1.5">
 								<Label htmlFor="date">Date</Label>
 								<Input id="date" type="date" {...form.register('date')} />
+								{form.formState.errors.date && (
+									<p className="text-sm text-destructive">{form.formState.errors.date.message}</p>
+								)}
 							</div>
 						</div>
 						<div className="flex flex-col gap-1.5">

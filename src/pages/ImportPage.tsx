@@ -237,7 +237,7 @@ export function ImportPage() {
 		const hasAccountColumn = accountColumn !== NONE;
 		if (!parsed || !dateColumn || !dateFormat) return;
 		if (!hasAccountColumn && !accountId) return;
-		if (signConvention === 'negative-is-expense' && !amountColumn) return;
+		if (signConvention !== 'separate-debit-credit-columns' && !amountColumn) return;
 		if (signConvention === 'separate-debit-credit-columns' && (!debitColumn || !creditColumn))
 			return;
 		if (accountNameCollisions.length > 0) return;
@@ -284,7 +284,9 @@ export function ImportPage() {
 		accountNameCollisions.length === 0 &&
 		!!dateColumn &&
 		!!dateFormat &&
-		(signConvention === 'negative-is-expense' ? !!amountColumn : !!debitColumn && !!creditColumn);
+		(signConvention !== 'separate-debit-credit-columns'
+			? !!amountColumn
+			: !!debitColumn && !!creditColumn);
 
 	return (
 		<div className="mx-auto max-w-3xl px-4 py-8 sm:px-6">
@@ -482,13 +484,16 @@ export function ImportPage() {
 											<SelectItem value="negative-is-expense">
 												Single amount column (negative = expense)
 											</SelectItem>
+											<SelectItem value="positive-is-expense">
+												Single amount column (positive = expense, e.g. card statements)
+											</SelectItem>
 											<SelectItem value="separate-debit-credit-columns">
 												Separate debit/credit columns
 											</SelectItem>
 										</SelectContent>
 									</Select>
 								</div>
-								{signConvention === 'negative-is-expense' ? (
+								{signConvention !== 'separate-debit-credit-columns' ? (
 									<div className="col-span-2 flex flex-col gap-1.5">
 										<Label htmlFor="import-amount-col">Amount column</Label>
 										<Select value={amountColumn} onValueChange={setAmountColumn}>

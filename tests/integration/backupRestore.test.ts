@@ -11,6 +11,8 @@ import {
 	LiabilityRepository
 } from '../../src/data/dexie/wealthRepository';
 import { UserProfileRepository } from '../../src/data/dexie/userProfileRepository';
+import { ImportMappingRepository } from '../../src/data/dexie/importMappingRepository';
+import { presetFromMapping } from '../../src/domain/io/importMappingPresets';
 import {
 	createBackup,
 	validateAndDecryptBackup,
@@ -152,5 +154,48 @@ describe('Backup-then-restore round trip against Dexie', () => {
 		const accounts = await AccountRepository.list(key);
 		expect(accounts).toHaveLength(1);
 		expect(accounts[0].name).toBe('Checking');
+	});
+	it('drops remembered import layouts on restore, since they are sealed under the old key', async () => {
+		const layout = ['Date', 'Merchant', 'Amount'];
+		const input = presetFromMapping(layout, {
+			dateColumn: 'Date',
+			amountColumn: 'Amount',
+			dateFormat: 'YYYY-MM-DD',
+			amountSignConvention: 'negative-is-expense'
+		});
+		await ImportMappingRepository.save(key, input);
+		const backup = await createBackup(key, encryptionSalt, pin);
+		const { payload } = await validateAndDecryptBackup(backup, pin);
+
+		// Restoring onto a device that has a different PIN and salt: the data key changes.
+		const otherPin = '2468';
+		const otherSalt = randomSaltBase64();
+		const restoreKey = await deriveEncryptionKey(otherPin, otherSalt);
+		payload.exportedEntities.userProfile = {
+			...payload.exportedEntities.userProfile!,
+			encryptionSalt: otherSalt
+		};
+		await restoreBackup(restoreKey, payload);
+
+		expect(await db.importMappings.count()).toBe(0);
+		await expect(ImportMappingRepository.save(restoreKey, input)).resolves.toMatchObject({
+			signature: input.signature
+		});
+	});
+
+	it('does not let one unreadable remembered layout stop the importer remembering new ones', async () => {
+		const layout = ['Date', 'Merchant', 'Amount'];
+		const input = presetFromMapping(layout, {
+			dateColumn: 'Date',
+			amountColumn: 'Amount',
+			dateFormat: 'YYYY-MM-DD',
+			amountSignConvention: 'negative-is-expense'
+		});
+		const staleKey = await deriveEncryptionKey('1357', randomSaltBase64());
+		await ImportMappingRepository.save(staleKey, input);
+
+		expect(await ImportMappingRepository.list(key)).toEqual([]);
+		const saved = await ImportMappingRepository.save(key, input);
+		expect((await ImportMappingRepository.list(key)).map((p) => p.id)).toEqual([saved.id]);
 	});
 });

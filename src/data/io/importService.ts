@@ -19,7 +19,11 @@ export interface ColumnMapping {
 	 *  account it names instead of `accountId` (FR-002/FR-003). */
 	accountColumn?: string;
 	dateFormat: string; // e.g. "DD/MM/YYYY", tokens: YYYY, MM, DD
-	amountSignConvention: 'negative-is-expense' | 'separate-debit-credit-columns';
+	amountSignConvention:
+		| 'negative-is-expense'
+		/** Credit-card statements list purchases as positive amounts and payments/refunds as negative. */
+		| 'positive-is-expense'
+		| 'separate-debit-credit-columns';
 	debitColumn?: string;
 	creditColumn?: string;
 }
@@ -99,6 +103,31 @@ export function parseCsv(fileText: string): ParsedFile {
 	};
 }
 
+/**
+ * A worksheet cell as the text a CSV would have carried. `String(cell.value)` turned a real Excel
+ * date into "Thu Mar 05 2026 …" and a formula, rich-text or hyperlink cell into "[object Object]",
+ * so every row of a typical bank workbook was skipped as an unparseable date or amount.
+ */
+export function cellToText(value: ExcelJS.CellValue): string {
+	if (value === null || value === undefined) return '';
+	if (value instanceof Date) {
+		// Excel dates carry no timezone; ExcelJS hands them back as UTC midnight (plus any time of day).
+		return Number.isNaN(value.getTime()) ? '' : value.toISOString().slice(0, 10);
+	}
+	if (typeof value === 'number') {
+		// A computed cell can come back as 1234.5600000000002; two decimals is all a rupee amount has.
+		const rounded = Math.round(value * 100) / 100;
+		return Math.abs(value - rounded) < 1e-6 ? String(rounded) : String(value);
+	}
+	if (typeof value === 'object') {
+		if ('result' in value) return cellToText(value.result as ExcelJS.CellValue);
+		if ('richText' in value) return value.richText.map((part) => part.text).join('');
+		if ('text' in value) return String(value.text);
+		if ('error' in value) return '';
+	}
+	return String(value);
+}
+
 /** Parses the first worksheet of an XLSX file's header row and data rows. */
 export async function parseXlsx(buffer: ArrayBuffer): Promise<ParsedFile> {
 	const workbook = new ExcelJS.Workbook();
@@ -109,7 +138,7 @@ export async function parseXlsx(buffer: ArrayBuffer): Promise<ParsedFile> {
 	const headerRow = sheet.getRow(1);
 	const headers: string[] = [];
 	headerRow.eachCell({ includeEmpty: false }, (cell, colNumber) => {
-		headers[colNumber - 1] = String(cell.value ?? '');
+		headers[colNumber - 1] = cellToText(cell.value);
 	});
 
 	const rows: Record<string, string>[] = [];
@@ -119,7 +148,7 @@ export async function parseXlsx(buffer: ArrayBuffer): Promise<ParsedFile> {
 		const record: Record<string, string> = {};
 		headers.forEach((header, i) => {
 			const cell = row.getCell(i + 1);
-			record[header] = cell.value == null ? '' : String(cell.value);
+			record[header] = cellToText(cell.value);
 		});
 		// A styled-but-empty spacer/border row (common in real bank exports) has cells with no
 		// values, so `cellCount` alone doesn't catch it — mirrors parseCsv's `skipEmptyLines`.
@@ -134,53 +163,103 @@ export function previewRows(parsed: ParsedFile, limit = 5): Record<string, strin
 	return parsed.rows.slice(0, limit);
 }
 
-/**
- * Parses a date string against a simple token format (YYYY, MM, DD separated by a single
- * non-alphanumeric literal, e.g. "DD/MM/YYYY") into an ISO "YYYY-MM-DD" string, or null if
- * it doesn't match — the format is required precisely because the source format is unknown
- * (contracts/csv-import-contract.md).
- */
-export function parseDateWithFormat(value: string, format: string): string | null {
-	const separatorMatch = format.match(/[^A-Za-z]/);
-	const separator = separatorMatch ? separatorMatch[0] : '-';
-	const formatParts = format.split(separator);
-	const valueParts = value.trim().split(separator);
-	if (formatParts.length !== 3 || valueParts.length !== 3) return null;
+const MONTH_ABBREVIATIONS = [
+	'jan',
+	'feb',
+	'mar',
+	'apr',
+	'may',
+	'jun',
+	'jul',
+	'aug',
+	'sep',
+	'oct',
+	'nov',
+	'dec'
+];
 
-	let year = '';
-	let month = '';
-	let day = '';
-	for (let i = 0; i < formatParts.length; i++) {
-		const token = formatParts[i];
-		// Trimmed so a loosely-formatted value (e.g. "06 / 09 / 2026", from a hand-edited or
-		// copy-pasted statement) isn't rejected just for whitespace around the separator —
-		// padStart alone doesn't remove it.
-		const part = valueParts[i]?.trim();
-		if (!part) return null;
-		if (token.startsWith('Y')) year = part;
-		else if (token.startsWith('M')) month = part.padStart(2, '0');
-		else if (token.startsWith('D')) day = part.padStart(2, '0');
-		else return null;
-	}
-	if (year.length !== 4 || month.length !== 2 || day.length !== 2) return null;
-	const iso = `${year}-${month}-${day}`;
+/** A trailing clock time ("14:30", "14:30:05", "2:30 PM", "T14:30:05Z"): banks that stamp one still
+ *  mean the calendar date in front of it. */
+const TRAILING_TIME =
+	/[T\s]+\d{1,2}:\d{2}(?::\d{2}(?:\.\d+)?)?\s*(?:[AaPp][Mm])?\s*(?:Z|[+-]\d{2}:?\d{2})?$/;
 
-	// Round-trip the parts through a Date and check they survive. `new Date('2026-02-31')` does
-	// not fail — it rolls forward to 3 March — so a plain NaN check accepted dates that do not
-	// exist. The bogus string then sorted as the 31st in the indexed `date` column while every
-	// downstream `new Date()` silently shifted it into the next month.
-	const y = Number(year);
-	const mo = Number(month);
-	const d = Number(day);
-	const asDate = new Date(Date.UTC(y, mo - 1, d));
+/** Builds "YYYY-MM-DD" from numeric parts, or null if they do not name a real calendar day. */
+function toIsoDate(year: number, month: number, day: number): string | null {
+	const asDate = new Date(Date.UTC(year, month - 1, day));
+	// Round-trip through a Date and check the parts survive: `new Date('2026-02-31')` does not fail,
+	// it rolls forward to 3 March, so a plain NaN check accepted dates that do not exist. The bogus
+	// string then sorted as the 31st in the indexed `date` column while every downstream
+	// `new Date()` silently shifted it into the next month.
 	if (
-		asDate.getUTCFullYear() !== y ||
-		asDate.getUTCMonth() !== mo - 1 ||
-		asDate.getUTCDate() !== d
+		year < 1000 ||
+		asDate.getUTCFullYear() !== year ||
+		asDate.getUTCMonth() !== month - 1 ||
+		asDate.getUTCDate() !== day
 	) {
 		return null;
 	}
-	return iso;
+	return `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+}
+
+/**
+ * Parses a date string against a simple token format into an ISO "YYYY-MM-DD" string, or null if
+ * it doesn't match — the format is required precisely because the source format is unknown
+ * (contracts/csv-import-contract.md). Tokens are separated by one literal (`/`, `-`, `.` or a
+ * space): YYYY or YY for the year, MM for a numeric month or MMM for a name ("Mar"), DD for the day.
+ * A clock time after the date is ignored, and an unambiguous ISO date is accepted whatever the
+ * format says (an Excel date cell is handed over as one).
+ */
+export function parseDateWithFormat(value: string, format: string): string | null {
+	const text = value.trim().replace(TRAILING_TIME, '').trim();
+
+	const isoMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(text);
+	if (isoMatch && !format.trim().toUpperCase().startsWith('Y')) {
+		return toIsoDate(Number(isoMatch[1]), Number(isoMatch[2]), Number(isoMatch[3]));
+	}
+
+	const separatorMatch = format.match(/[^A-Za-z]/);
+	const separator = separatorMatch ? separatorMatch[0] : '-';
+	const formatParts = format.split(separator);
+	const valueParts = /\s/.test(separator) ? text.split(/\s+/) : text.split(separator);
+	if (formatParts.length !== 3 || valueParts.length !== 3) return null;
+
+	let year = NaN;
+	let month = NaN;
+	let day = NaN;
+	for (let i = 0; i < formatParts.length; i++) {
+		const token = formatParts[i];
+		// Trimmed so a loosely-formatted value (e.g. "06 / 09 / 2026", from a hand-edited or
+		// copy-pasted statement) isn't rejected just for whitespace around the separator.
+		const part = valueParts[i]?.trim();
+		if (!part) return null;
+		if (token.startsWith('Y')) {
+			if (!/^\d+$/.test(part)) return null;
+			if (token.length <= 2) {
+				if (part.length !== 2) return null;
+				// Two-digit years: 00-69 are this century, 70-99 the last.
+				year = Number(part) + (Number(part) <= 69 ? 2000 : 1900);
+			} else {
+				if (part.length !== 4) return null;
+				year = Number(part);
+			}
+		} else if (token.startsWith('M')) {
+			if (token.length >= 3) {
+				const index = MONTH_ABBREVIATIONS.indexOf(part.slice(0, 3).toLowerCase());
+				if (index === -1) return null;
+				month = index + 1;
+			} else {
+				if (!/^\d{1,2}$/.test(part)) return null;
+				month = Number(part);
+			}
+		} else if (token.startsWith('D')) {
+			if (!/^\d{1,2}$/.test(part)) return null;
+			day = Number(part);
+		} else {
+			return null;
+		}
+	}
+	if (Number.isNaN(year) || Number.isNaN(month) || Number.isNaN(day)) return null;
+	return toIsoDate(year, month, day);
 }
 
 /**
@@ -205,7 +284,7 @@ function parseAmount(
 	}
 	const raw = parseMoneyToMinorUnits(row[mapping.amountColumn]);
 	if (raw === null) return null;
-	return { amountPaise: raw };
+	return { amountPaise: mapping.amountSignConvention === 'positive-is-expense' ? -raw : raw };
 }
 
 /**

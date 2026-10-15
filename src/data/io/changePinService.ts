@@ -3,7 +3,6 @@
 // reused here: read the whole database into a payload under the old key, swap in a profile that
 // carries the new PIN's verifier and salts, and write it back under the new key in ONE
 // transaction. A failure rolls back and leaves the old PIN and the old data untouched.
-import { db } from '../dexie/db';
 import { UserProfileRepository } from '../dexie/userProfileRepository';
 import {
 	decrypt,
@@ -83,8 +82,6 @@ export async function changePin(
 
 	await restoreBackup(newKey, payload);
 
-	// Device-local convenience data encrypted under the old key and not part of a backup. Left in
-	// place it would be unreadable; it is only remembered import column layouts.
-	await db.importMappings.clear();
+	// Remembered import layouts (encrypted under the old key) are cleared by the restore itself.
 	if (isNativeBiometricAvailable()) await clearNativeBiometric();
 }

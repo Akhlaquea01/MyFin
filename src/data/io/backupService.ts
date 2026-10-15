@@ -229,7 +229,10 @@ export async function collectPayload(key: CryptoKey): Promise<BackupPayload> {
 		),
 		decryptRows<PersonRow, Person>(key, await db.people.toArray()),
 		decryptRows<PersonLoanRow, PersonLoan>(key, await db.personLoans.toArray()),
-		decryptRows<PersonLoanRepaymentRow, LoanRepayment>(key, await db.personLoanRepayments.toArray()),
+		decryptRows<PersonLoanRepaymentRow, LoanRepayment>(
+			key,
+			await db.personLoanRepayments.toArray()
+		),
 		decryptRows<SavedFilterViewRow, SavedFilterView>(key, await db.savedFilterViews.toArray()),
 		db.userProfile.get('local-user')
 	]);
@@ -676,10 +679,14 @@ export async function restoreBackup(key: CryptoKey, payload: BackupPayload): Pro
 			// that follows a restore, leaving the app "unlocked" with a key that decrypts
 			// nothing. Clearing it inside this transaction means a rolled-back restore keeps
 			// the still-valid session, and a committed one always forces a fresh unlock.
-			db.sessionKeys
+			db.sessionKeys,
+			// Remembered import layouts are sealed under the previous key and are not part of a
+			// backup; left behind they would be unreadable under the restored key.
+			db.importMappings
 		],
 		async () => {
 			await clearAllTables();
+			await db.importMappings.clear();
 			await Promise.all([
 				db.accounts.bulkPut(accountRows),
 				db.categories.bulkPut(categoryRows),

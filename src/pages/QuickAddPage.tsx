@@ -36,7 +36,7 @@ import { detectCardPayment } from '../domain/parser/cardPaymentDetector';
 import type { TransferLocationState } from './TransferPage';
 import type { Account, Category, Merchant, Transaction, TransactionType } from '../domain/entities';
 import { formatMinorUnits, parseMoneyToMinorUnits, formatMoney } from '../domain/shared/money';
-import { todayLocalISO } from '../domain/shared/dateMath';
+import { isValidIsoDate, todayLocalISO } from '../domain/shared/dateMath';
 import { useUnsavedChanges } from '../lib/unsavedChanges';
 
 // User Story 4 (P4): paste a payment-notification-style text and get a proposed,
@@ -210,6 +210,10 @@ export function QuickAddPage() {
 	async function handleConfirm() {
 		if (!accountId || !amountInput) {
 			toast.error('Choose an account and enter an amount.');
+			return;
+		}
+		if (!isValidIsoDate(date)) {
+			toast.error('Enter a valid date.');
 			return;
 		}
 		setSubmitting(true);
