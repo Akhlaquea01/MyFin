@@ -332,7 +332,12 @@ async function ingestOne(message: IngestMessage, ctx: RunContext): Promise<'done
 			capture
 		},
 		[],
-		{ deferBalance: true, categorizer: ctx.categorizer }
+		{
+			deferBalance: true,
+			categorizer: ctx.categorizer,
+			// With no merchant to go on, let keyword rules read the message itself.
+			categorizationText: resolved ? undefined : text
+		}
 	);
 	ctx.touchedAccounts.add(match.accountId);
 	ctx.waiting.push(created);

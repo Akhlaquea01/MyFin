@@ -16,6 +16,22 @@
 	--color-sidebar-primary: var(--sidebar-primary);
 	--color-sidebar-foreground: var(--sidebar-foreground);
 	--color-sidebar: var(--sidebar);
+	--color-income: var(--income);
+	--color-expense: var(--expense);
+	--color-warning: var(--warning);
+	--color-info: var(--info);
+	--color-cat-1: var(--cat-1);
+	--color-cat-2: var(--cat-2);
+	--color-cat-3: var(--cat-3);
+	--color-cat-4: var(--cat-4);
+	--color-cat-5: var(--cat-5);
+	--color-cat-6: var(--cat-6);
+	--color-cat-7: var(--cat-7);
+	--color-cat-8: var(--cat-8);
+	--color-cat-9: var(--cat-9);
+	--color-cat-10: var(--cat-10);
+	--color-cat-11: var(--cat-11);
+	--color-cat-12: var(--cat-12);
 	--color-chart-5: var(--chart-5);
 	--color-chart-4: var(--chart-4);
 	--color-chart-3: var(--chart-3);
@@ -67,6 +83,25 @@
 	--border: oklch(0.922 0 0);
 	--input: oklch(0.922 0 0);
 	--ring: oklch(0.708 0 0);
+	/* Money direction and status colours, used for amounts, chips and bars so "money in" is always
+	   green, "money out" always rose and "needs a look" always amber. */
+	--income: oklch(0.527 0.154 150.069);
+	--expense: oklch(0.586 0.253 17.585);
+	--warning: oklch(0.666 0.179 58.318);
+	--info: oklch(0.588 0.158 241.966);
+	/* Twelve evenly spread hues for categories: a category keeps one colour everywhere. */
+	--cat-1: oklch(0.65 0.17 25);
+	--cat-2: oklch(0.67 0.16 55);
+	--cat-3: oklch(0.7 0.15 85);
+	--cat-4: oklch(0.65 0.16 125);
+	--cat-5: oklch(0.62 0.15 155);
+	--cat-6: oklch(0.63 0.12 185);
+	--cat-7: oklch(0.62 0.14 215);
+	--cat-8: oklch(0.6 0.17 245);
+	--cat-9: oklch(0.58 0.2 275);
+	--cat-10: oklch(0.6 0.2 305);
+	--cat-11: oklch(0.62 0.21 335);
+	--cat-12: oklch(0.62 0.2 5);
 	/* Chart series palette: teal / indigo / amber / rose / violet — real hues instead of the
 	   previous all-grayscale placeholders, which meant nothing rendered in color by default. */
 	--chart-1: oklch(0.704 0.14 182.503);
@@ -86,24 +121,42 @@
 }
 
 .dark {
-	--background: oklch(0.145 0 0);
+	/* Neutrals carry a faint blue-slate tint (same lightness as before, so contrast is unchanged)
+	   instead of pure grey. */
+	--background: oklch(0.15 0.014 265);
 	--foreground: oklch(0.985 0 0);
-	--card: oklch(0.205 0 0);
+	--card: oklch(0.21 0.016 265);
 	--card-foreground: oklch(0.985 0 0);
-	--popover: oklch(0.205 0 0);
+	--popover: oklch(0.21 0.016 265);
 	--popover-foreground: oklch(0.985 0 0);
 	--primary: oklch(0.777 0.152 181.912);
 	--primary-foreground: oklch(0.205 0 0);
-	--secondary: oklch(0.269 0 0);
+	--secondary: oklch(0.27 0.016 265);
 	--secondary-foreground: oklch(0.985 0 0);
-	--muted: oklch(0.269 0 0);
-	--muted-foreground: oklch(0.708 0 0);
-	--accent: oklch(0.269 0 0);
+	--muted: oklch(0.27 0.016 265);
+	--muted-foreground: oklch(0.72 0.02 265);
+	--accent: oklch(0.27 0.016 265);
 	--accent-foreground: oklch(0.985 0 0);
 	--destructive: oklch(0.704 0.191 22.216);
 	--border: oklch(1 0 0 / 10%);
 	--input: oklch(1 0 0 / 15%);
 	--ring: oklch(0.556 0 0);
+	--income: oklch(0.792 0.209 151.711);
+	--expense: oklch(0.712 0.194 13.428);
+	--warning: oklch(0.828 0.189 84.429);
+	--info: oklch(0.746 0.16 232.661);
+	--cat-1: oklch(0.75 0.15 25);
+	--cat-2: oklch(0.77 0.15 55);
+	--cat-3: oklch(0.82 0.16 85);
+	--cat-4: oklch(0.78 0.17 125);
+	--cat-5: oklch(0.76 0.16 155);
+	--cat-6: oklch(0.76 0.12 185);
+	--cat-7: oklch(0.75 0.13 215);
+	--cat-8: oklch(0.72 0.15 245);
+	--cat-9: oklch(0.7 0.17 275);
+	--cat-10: oklch(0.72 0.18 305);
+	--cat-11: oklch(0.74 0.18 335);
+	--cat-12: oklch(0.74 0.17 5);
 	/* Same series as :root, lifted a step brighter (400 instead of 500) for contrast against
 	   the dark background — see the :root block's comment. */
 	--chart-1: oklch(0.777 0.152 181.912);
@@ -111,11 +164,11 @@
 	--chart-3: oklch(0.828 0.189 84.429);
 	--chart-4: oklch(0.712 0.194 13.428);
 	--chart-5: oklch(0.702 0.183 293.541);
-	--sidebar: oklch(0.205 0 0);
+	--sidebar: oklch(0.21 0.016 265);
 	--sidebar-foreground: oklch(0.985 0 0);
 	--sidebar-primary: oklch(0.488 0.243 264.376);
 	--sidebar-primary-foreground: oklch(0.985 0 0);
-	--sidebar-accent: oklch(0.269 0 0);
+	--sidebar-accent: oklch(0.27 0.016 265);
 	--sidebar-accent-foreground: oklch(0.985 0 0);
 	--sidebar-border: oklch(1 0 0 / 10%);
 	--sidebar-ring: oklch(0.556 0 0);

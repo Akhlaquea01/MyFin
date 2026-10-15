@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { db } from '../../src/data/dexie/db';
 import { AccountRepository } from '../../src/data/dexie/accountRepository';
+import { CategoryRepository } from '../../src/data/dexie/categoryRepository';
+import { CategorizationRuleRepository } from '../../src/data/dexie/categorizationRuleRepository';
 import { MerchantRepository } from '../../src/data/dexie/merchantRepository';
 import { NotifiedItemRepository } from '../../src/data/dexie/notificationRepository';
 import { TransactionRepository } from '../../src/data/dexie/transactionRepository';
@@ -425,5 +427,38 @@ describe('resolveCaptureDate', () => {
 
 	it('falls back to the arrival day when the message has no date', () => {
 		expect(resolveCaptureDate(null, received)).toBe('2026-10-05');
+	});
+});
+
+describe('ingestCapturedMessages keyword rules', () => {
+	it('lets a keyword rule read the message when no merchant could be parsed', async () => {
+		await db.delete();
+		await db.open();
+		resetBlindIndexSaltCache();
+		const key = await deriveEncryptionKey('8384', randomSaltBase64());
+		const account = await AccountRepository.create(key, {
+			name: 'HDFC',
+			type: 'bank',
+			openingBalance: 0,
+			creditLimit: null,
+			billingCycleDay: null,
+			accountLast4: '1234'
+		});
+		const food = await CategoryRepository.create(key, { name: 'Food' });
+		await CategorizationRuleRepository.create(key, { keyword: 'Swiggy', categoryId: food.id });
+
+		// No "to/at <name>" in it, so there is no merchant — only the word "Swiggy" in the text.
+		await ingestCapturedMessages(
+			key,
+			[sms('Rs.250.00 debited from A/c XX1234 on 05/10/26. Swiggy order settled')],
+			{ defaultAccountId: account.id }
+		);
+
+		const [tx] = await TransactionRepository.listUnreviewed(key);
+		expect(tx.merchantId).toBeNull();
+		const [split] = await TransactionRepository.getSplits(key, tx.id);
+		expect(split).toMatchObject({ categoryId: food.id, categorizationSource: 'rule' });
+		// The message is shown as the original, never copied into the row title.
+		expect(tx.notes).toBeNull();
 	});
 });

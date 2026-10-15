@@ -54,6 +54,11 @@ export interface RecordOptions {
 	 * to the streak a second time.
 	 */
 	skipLearning?: boolean;
+	/**
+	 * Extra text for keyword rules to read when the entry has no description of its own, such as a
+	 * captured message whose merchant could not be parsed. Matching only; it is never stored.
+	 */
+	categorizationText?: string;
 }
 
 export const TransactionEngine = {
@@ -73,12 +78,13 @@ export const TransactionEngine = {
 		// An entry needs *something* to match on: a merchant (merchant rules, learned suggestions) or
 		// a description (keyword rules). A statement row whose description normalizes to no merchant
 		// is still categorizable by keyword.
-		if (splits.length === 0 && (input.merchantId || input.notes) && input.type !== 'transfer') {
+		const matchText = input.notes ?? options.categorizationText ?? null;
+		if (splits.length === 0 && (input.merchantId || matchText) && input.type !== 'transfer') {
 			const categorizer = options.categorizer ?? (await createCategorizationResolver(key));
 			const result = await categorizer.resolve({
 				merchantId: input.merchantId ?? null,
 				aliasId: input.merchantAliasId ?? null,
-				notes: input.notes ?? null
+				notes: matchText
 			});
 			if (result) {
 				resolvedSplits = [

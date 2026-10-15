@@ -2,7 +2,9 @@ import { describe, it, expect } from 'vitest';
 import {
 	ancestorIds,
 	buildCategoryLabels,
+	categoryOptions,
 	categoryWithDescendantIds,
+	filterCategoryOptions,
 	sortCategoriesByLabel,
 	topLevelAncestorId
 } from '../../src/domain/categories/categoryHierarchy';
@@ -108,5 +110,46 @@ describe('ancestorIds / topLevelAncestorId', () => {
 	it('stops at a deleted parent and returns the id itself when unknown', () => {
 		expect(topLevelAncestorId([groceries, fruit], 'fruit')).toBe('groceries');
 		expect(topLevelAncestorId(all, 'deleted-category')).toBe('deleted-category');
+	});
+});
+
+describe('filterCategoryOptions', () => {
+	const options = categoryOptions(all);
+	const labels = (query: string) => filterCategoryOptions(options, query).map((o) => o.label);
+
+	it('returns every option, in tree order, for an empty query', () => {
+		expect(labels('')).toEqual(options.map((o) => o.label));
+		expect(labels('   ')).toEqual(options.map((o) => o.label));
+	});
+
+	it('matches the start of any word of the full path', () => {
+		expect(labels('gro')).toEqual(['Food › Groceries', 'Food › Groceries › Fruit']);
+		expect(labels('fruit')).toEqual(['Food › Groceries › Fruit']);
+		expect(labels('out')).toEqual(['Food › Dining out']);
+	});
+
+	it('needs every typed word, in any order, to begin a word of the path', () => {
+		expect(labels('food oth')).toEqual(['Food › Other']);
+		expect(labels('oth food')).toEqual(['Food › Other']);
+		expect(labels('travel gro')).toEqual([]);
+	});
+
+	it('does not match inside a word', () => {
+		expect(labels('ood')).toEqual([]);
+	});
+
+	it('ignores case and punctuation, and lists paths that start with the query first', () => {
+		expect(labels('  OTHER ')).toEqual(['Food › Other', 'Travel › Other']);
+		expect(labels('travel › oth')).toEqual(['Travel › Other']);
+		// "food" starts the path "Food › …" but only appears mid-path in none of these.
+		expect(labels('food')[0]).toBe('Food');
+	});
+
+	it('puts a path that begins with the whole query ahead of one that merely contains its words', () => {
+		const extra = [
+			{ id: 'a', label: 'Gifts › Food' },
+			{ id: 'b', label: 'Food › Gifts' }
+		];
+		expect(filterCategoryOptions(extra, 'food').map((o) => o.id)).toEqual(['b', 'a']);
 	});
 });

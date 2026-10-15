@@ -25,13 +25,13 @@ import {
 	SelectTrigger,
 	SelectValue
 } from '../components/ui/select';
+import { CategoryPicker } from '../components/CategoryPicker';
 import { useSession } from '../context/SessionContext';
 import { AccountRepository } from '../data/dexie/accountRepository';
 import { CategoryRepository } from '../data/dexie/categoryRepository';
 import { RecurringRepository } from '../data/dexie/recurringRepository';
 import type { Account, Category, RecurringFrequency, RecurringRule } from '../domain/entities';
 import { isPositiveMoney, parseMoneyOrZero, formatMoney } from '../domain/shared/money';
-import { categoryOptions } from '../domain/categories/categoryHierarchy';
 import { buildCategoryLabels } from '../domain/categories/categoryHierarchy';
 // The valid `dayOfPeriod` range per frequency lives with the engine's other recurring rules, so
 // this page and the Review screen's "Mark as recurring" dialog cannot disagree about it.
@@ -121,7 +121,8 @@ export function RecurringPage() {
 		// expense, positive = income) so matching against real transactions works by exact
 		// value, not just magnitude — see recurringEngine.matchTransaction.
 		const magnitude = parseMoneyOrZero(values.amount);
-		const signedAmount = values.direction === 'expense' ? -Math.abs(magnitude) : Math.abs(magnitude);
+		const signedAmount =
+			values.direction === 'expense' ? -Math.abs(magnitude) : Math.abs(magnitude);
 		try {
 			await RecurringRepository.create(key, {
 				accountId: values.accountId,
@@ -197,18 +198,13 @@ export function RecurringPage() {
 											control={form.control}
 											name="categoryId"
 											render={({ field }) => (
-												<Select value={field.value} onValueChange={field.onChange}>
-													<SelectTrigger id="rule-category" className="w-full">
-														<SelectValue placeholder="Choose…" />
-													</SelectTrigger>
-													<SelectContent>
-														{categoryOptions(categories).map(({ id, label }) => (
-<SelectItem key={id} value={id}>
-{label}
-</SelectItem>
-))}
-													</SelectContent>
-												</Select>
+												<CategoryPicker
+													id="rule-category"
+													value={field.value}
+													onChange={field.onChange}
+													categories={categories}
+													placeholder="Choose…"
+												/>
 											)}
 										/>
 									</div>
