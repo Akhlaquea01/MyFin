@@ -14,6 +14,7 @@ import {
 	SelectValue
 } from '../components/ui/select';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
+import { DataIntegrityCard } from '../components/DataIntegrityCard';
 import { Alert, AlertDescription, AlertTitle } from '../components/ui/alert';
 import {
 	Dialog,
@@ -468,6 +469,8 @@ export function BackupSettingsPage() {
 					)}
 				</CardContent>
 			</Card>
+
+			<DataIntegrityCard />
 
 			<Card className="mb-6">
 				<CardHeader>
