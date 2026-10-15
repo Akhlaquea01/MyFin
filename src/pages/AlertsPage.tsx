@@ -114,6 +114,14 @@ export function AlertsPage() {
 				)}
 			</div>
 
+			<p className="-mt-3 mb-5 text-sm text-muted-foreground">
+				Reminders for bills, budgets and loans. New bank messages to check wait in{' '}
+				<Link to="/review" className="text-primary underline underline-offset-2">
+					Review
+				</Link>
+				.
+			</p>
+
 			{items === null ? (
 				<p className="text-sm text-muted-foreground">Loading…</p>
 			) : items.length === 0 ? (

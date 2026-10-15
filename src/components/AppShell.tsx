@@ -47,6 +47,7 @@ import { CommandPalette } from './CommandPalette';
 import { useQuickTour } from '../hooks/useQuickTour';
 import { useUnreadAlerts } from '../hooks/useUnreadAlerts';
 import { useWaitingReview } from '../hooks/useWaitingReview';
+import { HubTabs } from './HubTabs';
 import { useSession } from '../context/SessionContext';
 import { isNativeApp } from '../lib/native/platform';
 import { TransactionRepository } from '../data/dexie/transactionRepository';
@@ -381,6 +382,7 @@ export function AppShell() {
 				</header>
 
 				<main className="min-w-0 flex-1 pb-20 md:pb-0">
+					<HubTabs />
 					{/* Keyed by pathname so navigating away from a crashed page fully remounts the
 					    boundary — a stale failure never lingers after the user moves on. */}
 					<PageErrorBoundary key={location.pathname}>
