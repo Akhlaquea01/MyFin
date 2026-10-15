@@ -26,7 +26,7 @@ Every transaction, account balance, category, payee, and receipt attachment is e
 
 ## ✨ Features
 
-- 🔐 **Zero-Knowledge Encryption**: All records encrypted with AES-256-GCM and PBKDF2 (600,000 rounds). Supports fingerprint unlock (WebAuthn in the browser, Android's own fingerprint prompt in the APK).
+- 🔐 **Zero-Knowledge Encryption**: All records encrypted with AES-256-GCM and PBKDF2 (210,000 rounds to unlock, 600,000 for backup files). Supports fingerprint unlock (WebAuthn in the browser, Android's own fingerprint prompt in the APK).
 - 💳 **Multi-Account Ledger**: Track checking, savings, credit cards, investments, cash wallets, and loans in one unified double-sided register.
 - 📉 **Debt Payoff Planner**: Simulate and execute **Debt Snowball** and **Debt Avalanche** payoff schedules with custom amortization modeling.
 - 🎯 **Savings Goals**: Set visual milestone targets with dynamic pace projections based on your real savings rate.
@@ -57,7 +57,7 @@ Every transaction, account balance, category, payee, and receipt attachment is e
 MyFin follows a strict **zero-knowledge architecture**:
 
 - **Symmetric Cipher**: **AES-256-GCM** with a cryptographically secure, unique 96-bit Initialization Vector (IV) per record.
-- **Key Derivation**: **PBKDF2-HMAC-SHA256** with **600,000 iterations** derived from the user's master PIN.
+- **Key Derivation**: **PBKDF2-HMAC-SHA256** derived from the user's master PIN: **210,000 iterations** for the on-device key (it runs on every unlock, and is backed by an attempt lockout) and **600,000 iterations** for backup files, which leave the device and can be attacked offline.
 - **Biometric Authentication**: Hardware-backed **WebAuthn PRF (Pseudo-Random Function)** extension in the browser; in the Android app, Android's **BiometricPrompt** with a Keystore key that only a fresh strong-biometric check can use. In both, biometrics only recover the PIN — they never replace it.
 - **Searchable Encryption**: **HMAC-SHA256 Blind Indexing** with per-column salts enables indexed search on encrypted fields without leaking plaintexts.
 - **Concurrency Isolation**: **Web Locks API** single-instance coordinator prevents concurrent tab write conflicts.

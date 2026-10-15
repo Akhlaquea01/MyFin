@@ -69,7 +69,7 @@ graph TD
 
 ### 1. Zero-Knowledge Local Storage
 
-- Encryption keys are derived in volatile memory from the user's PIN or WebAuthn biometrics using PBKDF2 with 600,000 rounds.
+- Encryption keys are derived in volatile memory from the user's PIN or WebAuthn biometrics using PBKDF2 (210,000 rounds for the on-device key, 600,000 for exported backups).
 - Unencrypted financial data (account numbers, balances, payees, notes, amounts, tags) **never exists in persistent storage**.
 - Only ciphertext and initialization vectors (IVs) are committed to IndexedDB.
 
@@ -112,7 +112,7 @@ graph TD
 | Primitive                   | Implementation                                                              | Specification / Purpose                                                                                                                    |
 | :-------------------------- | :-------------------------------------------------------------------------- | :----------------------------------------------------------------------------------------------------------------------------------------- |
 | **Cipher**                  | AES-256-GCM                                                                 | Authenticated encryption with 96-bit unique IV per record                                                                                  |
-| **Key Derivation**          | PBKDF2-HMAC-SHA256                                                          | 600,000 iterations (exceeding OWASP recommendations)                                                                                       |
+| **Key Derivation**          | PBKDF2-HMAC-SHA256                                                          | 210,000 iterations on-device (interactive unlock, with attempt lockout); 600,000 for backup files                                          |
 | **Biometrics**              | WebAuthn PRF Extension (browser) · Android BiometricPrompt + Keystore (APK) | Hardware-backed release of a secret that unwraps the PIN; never a replacement for the PIN                                                  |
 | **Captured messages (APK)** | RSA-2048 OAEP (SHA-1) wrapping a per-message AES-256-GCM key                | Native receivers can only lock messages away; the private key is stored encrypted with the PIN-derived key, so they open only after unlock |
 | **Searchable Encryption**   | Blind Indexing (HMAC-SHA256)                                                | Unique per-column salt to allow indexed exact-match queries on encrypted fields without leaking plaintexts                                 |
@@ -123,7 +123,7 @@ graph TD
 - **Dexie.js v4**: IndexedDB wrapper providing type-safe table schemas and indices.
 - **EncryptedTable Pattern**: Intercepts writes to encrypt payloads into `ciphertext` + `iv` and decrypts on reads.
 - **Blind Index Maintenance**: Background migration (`blindIndexMaintenance.ts`) calculates search digests after schema upgrades when the interactive key becomes available.
-- **Data Migrations**: Versioned migration chains (`src/data/io/migrations/v1.ts` to `v1_3.ts`) safely transition data structures across releases.
+- **Data Migrations**: Versioned migration chains (`src/data/io/migrations/v1.ts` to `v1_4.ts`) safely transition data structures across releases.
 
 ### 3.5 Interoperability & Data I/O (`src/data/io/`)
 
@@ -161,7 +161,7 @@ sequenceDiagram
         else Profile exists
             UI->>User: Render LockScreen (PIN / Biometrics)
             User->>UI: Enters PIN / Scans Fingerprint
-            UI->>Crypto: PBKDF2 deriveKey(pin, salt, 600000)
+            UI->>Crypto: PBKDF2 deriveKey(pin, salt, 210000)
             Crypto-->>Session: Return CryptoKey
             Session->>UI: Set unlocked state
             UI->>Storage: Run post-unlock background tasks (blind index, notifications)
