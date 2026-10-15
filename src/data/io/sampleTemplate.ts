@@ -8,7 +8,7 @@ export const SAMPLE_DATA_TEMPLATE: DataTemplate = {
 		accounts: [
 			{
 				id: '3d71c774-55e6-4c08-86fc-81d0881faffd',
-				name: 'Ac',
+				name: 'Everyday Account',
 				type: 'bank',
 				openingBalance: 101000,
 				currentBalance: 101000,
@@ -21,10 +21,10 @@ export const SAMPLE_DATA_TEMPLATE: DataTemplate = {
 			},
 			{
 				id: 'e489f6cd-6245-474c-87c2-3a3cfc44b1a8',
-				name: 'Akhlaque',
+				name: 'Savings Account',
 				type: 'bank',
-				openingBalance: 88888888888800,
-				currentBalance: 88888888888800,
+				openingBalance: 5000000,
+				currentBalance: 5000000,
 				creditLimit: null,
 				billingCycleDay: null,
 				isArchived: false,

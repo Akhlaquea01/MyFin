@@ -38,6 +38,7 @@ import {
 } from '../dexie/personLoanRepository';
 import { SavedFilterViewRepository } from '../dexie/savedFilterViewRepository';
 import { TransactionEngine } from '../../domain/transactions/transactionEngine';
+import { isValidIsoDate } from '../../domain/shared/dateMath';
 import { duplicateKey, findDuplicateId } from './importService';
 
 export const CURRENT_TEMPLATE_VERSION = 1;
@@ -908,8 +909,10 @@ export async function importDataTemplate(
 
 		const tx = rawTransactions[i];
 		const resolvedAccountId = accountRemap.get(tx.accountId);
-		if (!resolvedAccountId) {
-			recordSkipped('transactions', 'unresolved-relationship');
+		// An entry without a real date cannot be placed in any period; skip it and say so rather
+		// than let the rest of the file fail on it.
+		if (!resolvedAccountId || !isValidIsoDate(tx.date)) {
+			recordSkipped('transactions', 'unresolved-relationship', tx.id);
 			continue;
 		}
 
@@ -926,7 +929,13 @@ export async function importDataTemplate(
 		// Resolve splits
 		const fileSplits = (entities.transactionSplits ?? []).filter((s) => s.transactionId === tx.id);
 		const resolvedSplits = fileSplits.map((s) => {
-			const resolvedCategoryId = categoryRemap.get(s.categoryId);
+			// "Uncategorized" is a built-in placeholder, not a category row, so it never appears in
+			// `categoryRemap`; reporting it as unresolved flagged every transfer leg and every
+			// uncategorized entry as a skipped split.
+			const resolvedCategoryId =
+				s.categoryId === UNCATEGORIZED_CATEGORY_ID
+					? UNCATEGORIZED_CATEGORY_ID
+					: categoryRemap.get(s.categoryId);
 			if (!resolvedCategoryId) {
 				recordSkipped('transactionSplits', 'unresolved-relationship');
 			}
@@ -936,6 +945,13 @@ export async function importDataTemplate(
 				categorizationSource: s.categorizationSource
 			};
 		});
+
+		// A hand-edited or damaged file can carry splits that do not add up to the amount. Storing
+		// them throws, which used to abort the whole import half-way; keep the entry, uncategorized.
+		if (resolvedSplits.reduce((sum, split) => sum + split.amount, 0) !== tx.amount) {
+			recordSkipped('transactionSplits', 'unresolved-relationship', tx.id);
+			resolvedSplits.length = 0;
+		}
 
 		if (resolvedSplits.length === 0) {
 			resolvedSplits.push({
