@@ -131,6 +131,17 @@ describe('validateRepaymentAmount', () => {
 		expect(result.ok).toBe(false);
 	});
 
+	it('states the remaining balance in rupees, not in paise', () => {
+		// 500,000 paise is ₹5,000.00; the message used to print the raw 500000.
+		const result = validateRepaymentAmount({ amount: 600_000, pendingBalance: 500_000 });
+		expect(result.ok).toBe(false);
+		if (!result.ok) {
+			// Grouping separators depend on the machine's locale, so only the shape is pinned.
+			expect(result.message).toMatch(/balance of ₹5\D?000\D00\.$/);
+			expect(result.message).not.toContain('500000');
+		}
+	});
+
 	it('accepts a valid partial or exact amount', () => {
 		expect(validateRepaymentAmount({ amount: 400, pendingBalance: 600 })).toEqual({ ok: true });
 		expect(validateRepaymentAmount({ amount: 600, pendingBalance: 600 })).toEqual({ ok: true });

@@ -13,6 +13,7 @@ import type {
 	ValidationResult
 } from './types';
 import { todayLocalISO } from '../shared/dateMath';
+import { formatMoney } from '../shared/money';
 
 /** Pure — per contracts/loan-progress-engine.md. Never clamps; every write path that could
  *  drive this negative rejects the write before it happens (see validate* below). */
@@ -67,7 +68,7 @@ export function validateRepaymentAmount(input: ValidateRepaymentAmountInput): Va
 	if (input.amount > input.pendingBalance) {
 		return {
 			ok: false,
-			message: `Repayment cannot exceed the remaining balance of ${input.pendingBalance}.`
+			message: `Repayment cannot exceed the remaining balance of ${formatMoney(input.pendingBalance)}.`
 		};
 	}
 	return { ok: true };
