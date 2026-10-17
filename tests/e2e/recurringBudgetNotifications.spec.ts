@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { lockAndReload } from './helpers';
+import { lockAndReload, openScreen } from './helpers';
 
 // Feature 004 (Recurring & Budget Notifications), User Stories 1-3.
 // Playwright cannot observe a real OS notification popup, so each test installs a fake
@@ -239,7 +239,7 @@ test('disabling notifications suppresses all dispatch even with qualifying data 
 	await page.getByRole('button', { name: 'Set PIN' }).click();
 	await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible();
 
-	await page.getByRole('link', { name: 'Notifications' }).click();
+	await openScreen(page, 'Automation', 'Notifications');
 	await expect(page.getByRole('heading', { name: 'Notifications' })).toBeVisible();
 	await page.getByLabel('Enable notifications').click();
 
@@ -289,7 +289,7 @@ test('a widened reminder lead time picks up a previously out-of-window event', a
 	await page.getByRole('button', { name: 'Set PIN' }).click();
 	await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible();
 
-	await page.getByRole('link', { name: 'Notifications' }).click();
+	await openScreen(page, 'Automation', 'Notifications');
 	await page.getByLabel('Recurring reminder lead time (days)').fill('3');
 	await page.getByLabel('Recurring reminder lead time (days)').blur();
 	await expect(page.getByText('Reminder lead time updated')).toBeVisible();

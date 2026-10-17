@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { HUBS, hubForPath } from '../../src/lib/hubs';
+import { HUBS, hubEntryPath, hubForPath } from '../../src/lib/hubs';
 
 describe('hubForPath', () => {
 	it('finds the hub of a screen and marks that screen open', () => {
@@ -33,8 +33,45 @@ describe('hubForPath', () => {
 	});
 
 	it('lists the Android-only screen only in the app', () => {
-		expect(hubForPath('/security', false)!.items.map((i) => i.to)).not.toContain('/auto-capture');
-		expect(hubForPath('/security', true)!.items.map((i) => i.to)).toContain('/auto-capture');
+		const rules = '/categorization-rules';
+		expect(hubForPath(rules, false)!.items.map((i) => i.to)).not.toContain('/auto-capture');
+		expect(hubForPath(rules, true)!.items.map((i) => i.to)).toContain('/auto-capture');
+	});
+
+	it('groups Import, Export and Backup under Data', () => {
+		for (const path of ['/import', '/import/bulk-text', '/export', '/backup']) {
+			expect(hubForPath(path, false)!.hub.id, path).toBe('data');
+		}
+	});
+
+	it('groups Auto-capture, Auto-Categorize and Notifications under Automation', () => {
+		for (const path of ['/auto-capture', '/categorization-rules', '/notification-settings']) {
+			expect(hubForPath(path, true)!.hub.id, path).toBe('automation');
+		}
+	});
+
+	it('keeps Categories with the money screens it organises', () => {
+		expect(hubForPath('/categories', false)!.hub.id).toBe('money');
+	});
+
+	it('folds only the hubs the sidebar shows as one entry', () => {
+		expect(HUBS.filter((h) => h.folded).map((h) => h.id)).toEqual([
+			'data',
+			'automation',
+			'settings'
+		]);
+	});
+
+	it('opens a folded hub on its first screen that exists on this platform', () => {
+		const automation = HUBS.find((h) => h.id === 'automation')!;
+		expect(hubEntryPath(automation, false)).toBe('/categorization-rules');
+		expect(hubEntryPath(automation, true)).toBe('/auto-capture');
+		expect(
+			hubEntryPath(
+				HUBS.find((h) => h.id === 'data')!,
+				false
+			)
+		).toBe('/import');
 	});
 
 	it('gives every screen to exactly one hub', () => {

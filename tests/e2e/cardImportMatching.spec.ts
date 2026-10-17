@@ -2,6 +2,7 @@ import { test, expect, type Page } from '@playwright/test';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { openScreen } from './helpers';
 
 // spec 017, User Story 5 (P5): tag credit cards with a last-4 identifier, auto-match imported/
 // pasted transactions to the right card, disambiguate on multiple matches, fall back to the
@@ -127,7 +128,8 @@ test.describe('card identifier matching', () => {
 				'2026-01-16,Card ending 8765 at Flipkart,-30.00\n'
 		);
 
-		await goTo(page, 'Import', 'Import Transactions');
+		await openScreen(page, 'Data', 'Import');
+		await expect(page.getByRole('heading', { name: 'Import Transactions' })).toBeVisible();
 		await page.locator('input[type="file"]').setInputFiles(csvPath);
 		await page.getByLabel('Date column').click();
 		await page.getByRole('option', { name: 'Date', exact: true }).click();

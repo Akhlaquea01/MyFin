@@ -3,17 +3,12 @@ import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
 import {
 	ArrowLeftRight,
 	BarChart3,
-	Bell,
 	BellRing,
 	CalendarClock,
 	CreditCard,
-	DatabaseBackup,
-	Download,
+	Database,
 	HeartPulse,
 	Inbox,
-	Info,
-	ShieldCheck,
-	Smartphone,
 	Landmark,
 	LayoutDashboard,
 	LineChart,
@@ -21,12 +16,12 @@ import {
 	MoreHorizontal,
 	Plus,
 	PiggyBank,
+	Settings,
 	Sparkles,
 	TrendingDown,
 	Tags,
 	Target,
 	TrendingUp,
-	Upload,
 	Users,
 	Wallet,
 	Wand2
@@ -46,6 +41,7 @@ import { useQuickTour } from '../hooks/useQuickTour';
 import { useUnreadAlerts } from '../hooks/useUnreadAlerts';
 import { useWaitingReview } from '../hooks/useWaitingReview';
 import { HubTabs } from './HubTabs';
+import { HUBS, hubEntryPath, hubForPath, type Hub } from '../lib/hubs';
 import { useSession } from '../context/SessionContext';
 import { isNativeApp } from '../lib/native/platform';
 import { TransactionRepository } from '../data/dexie/transactionRepository';
@@ -61,17 +57,26 @@ const SEARCH_INDEX_TRANSACTION_LIMIT = 500;
 /** Tailwind's `md` breakpoint (768px) — the point at which the sidebar replaces this sheet. */
 const MOBILE_BREAKPOINT_QUERY = '(max-width: 767px)';
 
-interface NavItem {
-	to: string;
+type NavItem = {
 	label: string;
 	icon: typeof LayoutDashboard;
-	end?: boolean;
 	dataTour?: string;
-	nativeOnly?: boolean;
+} & (
+	| { to: string; end?: boolean }
+	// A folded hub: one entry for several screens, which the strip along the top of each one lists.
+	| { hub: Hub }
+);
+
+/** The sidebar entry of a folded hub (see `Hub.folded`); its name is the hub's. */
+function hubEntry(id: string, icon: NavItem['icon'], dataTour?: string): NavItem {
+	const hub = HUBS.find((h) => h.id === id);
+	if (!hub) throw new Error(`Unknown hub: ${id}`);
+	return { hub, label: hub.label, icon, dataTour };
 }
 
 // Grouped so a menu of this length can be scanned: the everyday screens first, the rarely-opened
-// settings last.
+// ones last. The last group folds Data, Automation and Settings down to one entry each (their
+// screens are in `HUBS`), where they used to take nine.
 const NAV_GROUPS: { label: string | null; items: NavItem[] }[] = [
 	{
 		label: null,
@@ -84,6 +89,7 @@ const NAV_GROUPS: { label: string | null; items: NavItem[] }[] = [
 				icon: ArrowLeftRight,
 				dataTour: 'transactions-nav'
 			},
+			{ to: '/categories', label: 'Categories', icon: Tags, dataTour: 'categories-nav' },
 			{ to: '/quick-add', label: 'Quick Add', icon: Sparkles },
 			{ to: '/review', label: 'Review', icon: Inbox },
 			{ to: '/alerts', label: 'Alerts', icon: BellRing }
@@ -117,67 +123,74 @@ const NAV_GROUPS: { label: string | null; items: NavItem[] }[] = [
 		]
 	},
 	{
-		label: 'Data & settings',
+		label: 'Manage',
 		items: [
-			{ to: '/import', label: 'Import', icon: Upload },
-			{ to: '/export', label: 'Export', icon: Download },
-			{ to: '/backup', label: 'Backup', icon: DatabaseBackup, dataTour: 'settings-nav' },
-			{ to: '/security', label: 'Security', icon: ShieldCheck },
-			// Reading bank SMS and payment notifications only exists in the Android app.
-			{ to: '/auto-capture', label: 'Auto-capture', icon: Smartphone, nativeOnly: true },
-			{ to: '/notification-settings', label: 'Notifications', icon: Bell },
-			{ to: '/categorization-rules', label: 'Auto-Categorize', icon: Wand2 },
-			{ to: '/categories', label: 'Categories', icon: Tags, dataTour: 'categories-nav' },
-			{ to: '/about', label: 'About', icon: Info }
+			hubEntry('data', Database),
+			hubEntry('automation', Wand2),
+			hubEntry('settings', Settings, 'settings-nav')
 		]
 	}
 ];
 
+const navItemClass = (isActive: boolean) =>
+	cn(
+		'flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
+		isActive
+			? 'bg-primary/10 text-primary'
+			: 'text-muted-foreground hover:bg-muted hover:text-foreground'
+	);
+
 function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
 	const unreadAlerts = useUnreadAlerts();
+	const native = isNativeApp();
+	const openHub = hubForPath(useLocation().pathname, native)?.hub.id;
 	return (
 		<nav className="flex flex-col gap-1">
-			{NAV_GROUPS.map((group, index) => {
-				const items = group.items.filter((item) => !item.nativeOnly || isNativeApp());
-				if (items.length === 0) return null;
-				return (
-					<div
-						key={group.label ?? 'main'}
-						className={cn('flex flex-col gap-1', index > 0 && 'mt-3')}
-					>
-						{group.label && (
-							<p className="px-3 pb-0.5 text-[11px] font-semibold tracking-wide text-muted-foreground/70 uppercase">
-								{group.label}
-							</p>
-						)}
-						{items.map(({ to, label, icon: Icon, end, dataTour }) => (
+			{NAV_GROUPS.map((group, index) => (
+				<div key={group.label ?? 'main'} className={cn('flex flex-col gap-1', index > 0 && 'mt-3')}>
+					{group.label && (
+						<p className="px-3 pb-0.5 text-[11px] font-semibold tracking-wide text-muted-foreground/70 uppercase">
+							{group.label}
+						</p>
+					)}
+					{group.items.map((item) => {
+						const { label, icon: Icon, dataTour } = item;
+						if ('hub' in item) {
+							return (
+								<Link
+									key={item.hub.id}
+									to={hubEntryPath(item.hub, native)}
+									onClick={onNavigate}
+									data-tour={dataTour}
+									aria-current={openHub === item.hub.id ? 'page' : undefined}
+									className={navItemClass(openHub === item.hub.id)}
+								>
+									<Icon className="size-4" />
+									{label}
+								</Link>
+							);
+						}
+						return (
 							<NavLink
-								key={to}
-								to={to}
-								end={end}
+								key={item.to}
+								to={item.to}
+								end={item.end}
 								onClick={onNavigate}
 								data-tour={dataTour}
-								className={({ isActive }) =>
-									cn(
-										'flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
-										isActive
-											? 'bg-primary/10 text-primary'
-											: 'text-muted-foreground hover:bg-muted hover:text-foreground'
-									)
-								}
+								className={({ isActive }) => navItemClass(isActive)}
 							>
 								<Icon className="size-4" />
 								{label}
-								{to === '/alerts' && unreadAlerts > 0 && (
+								{item.to === '/alerts' && unreadAlerts > 0 && (
 									<span className="ml-auto rounded-full bg-primary px-1.5 py-0.5 text-[10px] leading-none font-semibold text-primary-foreground">
 										{unreadAlerts}
 									</span>
 								)}
 							</NavLink>
-						))}
-					</div>
-				);
-			})}
+						);
+					})}
+				</div>
+			))}
 		</nav>
 	);
 }

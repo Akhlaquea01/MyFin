@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { openScreen } from './helpers';
 
 // Spec 011 (Year-in-Review / Monthly PDF Report): a generated summary matches manually-entered
 // figures, an in-progress period is flagged, a period with no data still renders cleanly, and
@@ -51,7 +52,7 @@ test('generates a report matching entered figures for the current month and down
 	await expect(page.getByRole('heading', { name: 'Transactions' })).toBeVisible();
 
 	// Report defaults to the current month, which is the one this data was recorded in.
-	await page.getByRole('link', { name: 'Export' }).click();
+	await openScreen(page, 'Data', 'Export');
 	await expect(page.getByRole('heading', { name: 'Export Transactions' })).toBeVisible();
 	await page.getByRole('button', { name: 'Generate Report' }).click();
 
@@ -78,7 +79,7 @@ test('generates a valid, non-erroring report for a period with no data', async (
 	await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible();
 
 	// A brand-new profile has no transactions and no net worth snapshots at all.
-	await page.getByRole('link', { name: 'Export' }).click();
+	await openScreen(page, 'Data', 'Export');
 	await expect(page.getByRole('heading', { name: 'Export Transactions' })).toBeVisible();
 	await page.getByRole('button', { name: 'Generate Report' }).click();
 

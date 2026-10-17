@@ -2,6 +2,7 @@ import { test, expect } from '@playwright/test';
 import { mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { openScreen } from './helpers';
 
 test('Data Template export and import round trip', async ({ page }) => {
 	const pin = '951234';
@@ -23,7 +24,7 @@ test('Data Template export and import round trip', async ({ page }) => {
 	await expect(accountDialog).not.toBeVisible();
 
 	// Go to Export page
-	await page.getByRole('link', { name: 'Export' }).click();
+	await openScreen(page, 'Data', 'Export');
 	await expect(page.getByRole('heading', { name: 'Export Transactions' })).toBeVisible();
 
 	// Export Data Template (JSON)

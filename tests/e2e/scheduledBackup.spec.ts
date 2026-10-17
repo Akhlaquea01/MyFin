@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { openScreen } from './helpers';
 
 // User Story 7 (P4, spec 019): scheduled local encrypted backups. Headless Chromium cannot
 // drive the native `showDirectoryPicker()` OS dialog non-interactively, so this covers the
@@ -12,7 +13,7 @@ test('shows the automatic-backup setup option when the browser supports it', asy
 	await page.getByRole('button', { name: 'Set PIN' }).click();
 	await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible();
 
-	await page.getByRole('link', { name: 'Backup' }).click();
+	await openScreen(page, 'Data', 'Backup');
 	await expect(page.getByText('Automatic backups')).toBeVisible();
 	await expect(page.getByRole('button', { name: 'Choose backup folder' })).toBeVisible();
 });
@@ -33,7 +34,7 @@ test('shows an honest unsupported-browser message when the File System Access AP
 	await page.getByRole('button', { name: 'Set PIN' }).click();
 	await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible();
 
-	await page.getByRole('link', { name: 'Backup' }).click();
+	await openScreen(page, 'Data', 'Backup');
 	await expect(page.getByText('Automatic backups', { exact: true })).toBeVisible();
 	await expect(page.getByText(/aren't available in this browser/)).toBeVisible();
 	await expect(page.getByRole('button', { name: 'Choose backup folder' })).toHaveCount(0);

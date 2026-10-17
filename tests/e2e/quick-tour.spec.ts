@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
+import { openScreen } from './helpers';
 
 async function onboard(page: Page, pin: string) {
 	await page.goto('/');
@@ -17,7 +18,7 @@ test.describe('Quick Tour', () => {
 	test('replaying the tour highlights the desktop sidebar nav item', async ({ page }) => {
 		await onboard(page, '740261');
 
-		await page.getByRole('link', { name: 'About' }).click();
+		await openScreen(page, 'Settings', 'About');
 		await expect(page.getByRole('heading', { name: 'About' })).toBeVisible();
 		await page.getByRole('button', { name: /Replay quick tour/i }).click();
 

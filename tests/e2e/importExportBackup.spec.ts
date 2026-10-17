@@ -2,6 +2,7 @@ import { test, expect } from '@playwright/test';
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { openScreen } from './helpers';
 
 // User Story 9 (P9): CSV import, export, backup, restore, and corrupted-backup rejection.
 
@@ -29,7 +30,7 @@ test('CSV import, export, backup, and restore round trip; a corrupted backup is 
 	const csvPath = join(tmpDir, 'transactions.csv');
 	writeFileSync(csvPath, 'Date,Description,Amount\n2026-01-15,Groceries,-40.00\n');
 
-	await page.getByRole('link', { name: 'Import' }).click();
+	await openScreen(page, 'Data', 'Import');
 	await expect(page.getByRole('heading', { name: 'Import Transactions' })).toBeVisible();
 	// setInputFiles sets the file directly without triggering a native file-picker dialog.
 	await page.locator('input[type="file"]').setInputFiles(csvPath);
@@ -47,7 +48,7 @@ test('CSV import, export, backup, and restore round trip; a corrupted backup is 
 	await expect(page.getByText('Created 1 unreviewed transaction')).toBeVisible();
 
 	// --- CSV export ---
-	await page.getByRole('link', { name: 'Export' }).click();
+	await openScreen(page, 'Data', 'Export');
 	await expect(page.getByRole('heading', { name: 'Export Transactions' })).toBeVisible();
 	const [exportDownload] = await Promise.all([
 		page.waitForEvent('download'),
@@ -56,7 +57,7 @@ test('CSV import, export, backup, and restore round trip; a corrupted backup is 
 	expect(exportDownload.suggestedFilename()).toMatch(/^myfin-transactions-.*\.csv$/);
 
 	// --- Backup ---
-	await page.getByRole('link', { name: 'Backup' }).click();
+	await openScreen(page, 'Data', 'Backup');
 	await expect(page.getByRole('heading', { name: 'Backup & Restore' })).toBeVisible();
 	await page.getByLabel('Confirm your PIN').fill(pin);
 	const [backupDownload] = await Promise.all([
@@ -79,7 +80,7 @@ test('CSV import, export, backup, and restore round trip; a corrupted backup is 
 	await expect(page.getByText('Checking', { exact: true })).toBeVisible();
 
 	// --- Legitimate restore ---
-	await page.getByRole('link', { name: 'Backup' }).click();
+	await openScreen(page, 'Data', 'Backup');
 	await page.getByLabel('Backup PIN').fill(pin);
 	await page.locator('input[type="file"]').setInputFiles(backupPath);
 

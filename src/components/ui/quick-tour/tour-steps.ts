@@ -32,6 +32,6 @@ export const QUICK_TOUR_STEPS: TourStep[] = [
 		selector: '[data-tour="settings-nav"]',
 		title: 'Security & Backup',
 		description:
-			'Your data is encrypted by default. Go to settings to manage your PIN and enable automatic backups.'
+			'Your data is encrypted by default. Manage your PIN under Settings, and find backups, import and export under Data.'
 	}
 ];

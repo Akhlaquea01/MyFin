@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { acceptConfirm } from './helpers';
+import { acceptConfirm, openScreen } from './helpers';
 
 // Keyword ("description contains") auto-categorization rules.
 
@@ -58,7 +58,8 @@ test('a keyword rule previews its matches, files existing entries, and files new
 	await addExpense(page, 'Swiggy Instamart order', '310');
 	await addExpense(page, 'Zomato dinner', '400');
 
-	await goTo(page, 'Auto-Categorize', 'Auto-Categorize');
+	await openScreen(page, 'Automation', 'Auto-Categorize');
+	await expect(page.getByRole('heading', { name: 'Auto-Categorize' })).toBeVisible();
 	await page.getByRole('button', { name: 'Add rule' }).click();
 	const ruleDialog = page.getByRole('dialog');
 	await ruleDialog.getByRole('radio', { name: 'Match description text' }).click();
@@ -116,7 +117,8 @@ test('the same keyword cannot be added twice, however it is written', async ({ p
 	await categoryDialog.getByRole('button', { name: 'Add category' }).click();
 	await expect(categoryDialog).not.toBeVisible();
 
-	await goTo(page, 'Auto-Categorize', 'Auto-Categorize');
+	await openScreen(page, 'Automation', 'Auto-Categorize');
+	await expect(page.getByRole('heading', { name: 'Auto-Categorize' })).toBeVisible();
 	for (const keyword of ['Swiggy', ' SWIGGY!']) {
 		await page.getByRole('button', { name: 'Add rule' }).click();
 		const dialog = page.getByRole('dialog');

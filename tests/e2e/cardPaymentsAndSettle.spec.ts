@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { acceptConfirm } from './helpers';
+import { acceptConfirm, openScreen } from './helpers';
 
 // Credit card bill payments as ONE action, settling loans in one click, editing transactions,
 // and the Auto-Categorize clarity fixes.
@@ -278,7 +278,8 @@ test('a merchant with a rule is not offered back as a suggestion, and a rule can
 		await expect(page.getByRole('heading', { name: 'Transactions' })).toBeVisible();
 	}
 
-	await goTo(page, 'Auto-Categorize', 'Auto-Categorize');
+	await openScreen(page, 'Automation', 'Auto-Categorize');
+	await expect(page.getByRole('heading', { name: 'Auto-Categorize' })).toBeVisible();
 	await page.getByRole('button', { name: 'Add rule' }).click();
 	const ruleDialog = page.getByRole('dialog');
 	await ruleDialog.getByLabel('Merchant').click();

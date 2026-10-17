@@ -1,6 +1,6 @@
 # MyFin — Feature Documentation
 
-This document provides a comprehensive reference of all 24 features built into the MyFin application, detailing user workflows, business logic, domain engines, data models, and UI surfaces.
+This document provides a comprehensive reference of all 25 features built into the MyFin application, detailing user workflows, business logic, domain engines, data models, and UI surfaces.
 
 ---
 
@@ -25,6 +25,7 @@ This document provides a comprehensive reference of all 24 features built into t
 17. [Feature 017: Financial Visibility & Control Enhancements](#feature-017-financial-visibility--control-enhancements)
 18. [Feature 018: Financial Planning & Productivity Enhancements](#feature-018-financial-planning--productivity-enhancements)
 19. [Feature 024: Purpose Tags, Card Capture, One Recurring Page & a Categories Revamp](#feature-024-purpose-tags-card-capture-one-recurring-page--a-categories-revamp)
+20. [Feature 025: A Shorter Sidebar — Data, Automation & Settings](#feature-025-a-shorter-sidebar--data-automation--settings)
 
 ---
 
@@ -612,3 +613,30 @@ Five related changes: an expense can be marked as debt, savings, an investment o
 
 - The native filter and SMS receiver changes were checked by compiling `CaptureFilter.java` and running the shared cases against it with plain `javac`; the Gradle unit tests and the SMS/notification paths themselves need an Android build and a phone.
 - The bank SMS wording used in the tests is from memory of common card alert formats; **Auto-capture → Messages MyFin could not read** shows what a real phone could not parse.
+
+---
+
+## Feature 025: A Shorter Sidebar — Data, Automation & Settings
+
+### Overview
+
+The sidebar's last group, "Data & settings", listed nine links. It is now **Manage**, with three entries, and each opens the first of its screens with a strip of the others along the top of the page. The sidebar went from 27 links to 22 (26 to 22 on the web, where Auto-capture does not exist).
+
+### Key Capabilities
+
+- **Data**: Import, Bulk import, Export, Backup. The entry opens Import.
+- **Automation**: Auto-capture (Android app only), Auto-Categorize, Notifications. The entry opens Auto-capture in the app and Auto-Categorize on the web.
+- **Settings**: Security, About.
+- **Categories** moved up beside Accounts and Transactions: it organises the ledger and is opened far more often than the rest of the old group.
+- **Same strip everywhere**: the phone already showed a strip of sibling screens above each page. A hub marked `folded` now draws it at every screen size, since the sidebar no longer lists its screens; the other hubs (Money, Plan, Wealth, Insights) keep a phone-only strip and a desktop sidebar that lists every screen. The sidebar entry stays highlighted while any of its screens is open.
+- **No address changed**: every screen keeps its URL (`/import`, `/export`, `/backup`, `/notification-settings`, `/categorization-rules`, `/security`, `/auto-capture`, `/about`), so bookmarks, notification taps and in-page links still work. The Quick Tour's last step now points at the Settings entry and mentions Data.
+
+### Domain Engine & Architecture
+
+- **Hubs**: `Hub.folded` and `hubEntryPath` in [`hubs.ts`](../src/lib/hubs.ts) are the single description of which screens belong together; the sidebar's folded entries are built from it (`hubEntry` in [`AppShell.tsx`](../src/components/AppShell.tsx)), and [`HubTabs.tsx`](../src/components/HubTabs.tsx) draws the strip.
+- **Tests**: `openScreen` in [`tests/e2e/helpers.ts`](../tests/e2e/helpers.ts) opens a screen through its entry and strip; [`sidebarNavigation.spec.ts`](../tests/e2e/sidebarNavigation.spec.ts) covers the grouping.
+- **No data or schema change.**
+
+### Not done
+
+- Planning and Wealth still list a link per screen. Budget vs. Actual (a report on Budgets) and Payoff Planner (a tool on Liabilities) would fold into their parents the same way; their end-to-end specs click those links directly, so that is a separate change.

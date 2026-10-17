@@ -2,6 +2,7 @@ import { test, expect, type Page } from '@playwright/test';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { openScreen } from './helpers';
 
 // A bank's statement export has the same layout every month. The import form used to start from
 // nothing each time; now the columns and date format the user chose last time are filled in for a
@@ -35,7 +36,7 @@ async function setUp(page: Page, pin: string) {
 async function openImportFresh(page: Page) {
 	await page.getByRole('link', { name: 'Dashboard' }).click();
 	await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible();
-	await page.getByRole('link', { name: 'Import', exact: true }).click();
+	await openScreen(page, 'Data', 'Import');
 	await expect(page.getByRole('heading', { name: 'Import Transactions' })).toBeVisible();
 }
 

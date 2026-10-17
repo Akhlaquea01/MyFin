@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
+import { openScreen } from './helpers';
 
 // Feature 006 (Auto-Categorization Rules & Learning), Stories 1-3.
 
@@ -69,7 +70,8 @@ test('an explicit rule pre-fills every new proposal, visibly different from a su
 	await confirmInReview(page, 'Coffee Shop', 'Dining');
 
 	// Story 1: create an explicit rule for this merchant.
-	await goTo(page, 'Auto-Categorize', 'Auto-Categorize');
+	await openScreen(page, 'Automation', 'Auto-Categorize');
+	await expect(page.getByRole('heading', { name: 'Auto-Categorize' })).toBeVisible();
 	await page.getByRole('button', { name: 'Add rule' }).click();
 	let dialog = page.getByRole('dialog');
 	await dialog.getByLabel('Merchant').click();
@@ -92,7 +94,8 @@ test('an explicit rule pre-fills every new proposal, visibly different from a su
 	await expect(preFilledCard).not.toBeVisible();
 
 	// Editing the rule only changes future proposals — not the already-confirmed ones above.
-	await goTo(page, 'Auto-Categorize', 'Auto-Categorize');
+	await openScreen(page, 'Automation', 'Auto-Categorize');
+	await expect(page.getByRole('heading', { name: 'Auto-Categorize' })).toBeVisible();
 	await page.getByRole('button', { name: 'Edit rule' }).click();
 	dialog = page.getByRole('dialog');
 	await dialog.getByLabel('Category').click();
@@ -129,7 +132,8 @@ test('a learned suggestion appears after a consistent streak, and can be promote
 	await suggestedCard.getByRole('button', { name: 'Confirm transaction' }).click();
 
 	// Story 3: promote the suggestion into a permanent rule.
-	await goTo(page, 'Auto-Categorize', 'Auto-Categorize');
+	await openScreen(page, 'Automation', 'Auto-Categorize');
+	await expect(page.getByRole('heading', { name: 'Auto-Categorize' })).toBeVisible();
 	await expect(page.getByText('Uber → Transport')).toBeVisible();
 	await page.getByRole('button', { name: 'Promote' }).click();
 	await expect(page.getByText('Any alias → Transport')).toBeVisible();
@@ -147,7 +151,8 @@ test('a learned suggestion appears after a consistent streak, and can be promote
 		await quickAdd(page, 'Checking', 'Metro', amount);
 		await confirmInReview(page, 'Metro', 'Transport');
 	}
-	await goTo(page, 'Auto-Categorize', 'Auto-Categorize');
+	await openScreen(page, 'Automation', 'Auto-Categorize');
+	await expect(page.getByRole('heading', { name: 'Auto-Categorize' })).toBeVisible();
 	const metroSuggestion = page
 		.locator('[data-slot="card"]')
 		.filter({ hasText: 'Metro → Transport' });

@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { acceptConfirm } from './helpers';
+import { acceptConfirm, openScreen } from './helpers';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -40,7 +40,7 @@ test('imports one file covering multiple accounts, with a per-account result bre
 			'2026-01-17,ATM,-50.00,Savings\n'
 	);
 
-	await page.getByRole('link', { name: 'Import' }).click();
+	await openScreen(page, 'Data', 'Import');
 	await expect(page.getByRole('heading', { name: 'Import Transactions' })).toBeVisible();
 	await page.locator('input[type="file"]').setInputFiles(csvPath);
 
@@ -69,7 +69,7 @@ test('a file with no account column behaves exactly as before (Scenario 2)', asy
 	const csvPath = join(tmpDir, 'single-account.csv');
 	writeFileSync(csvPath, 'Date,Description,Amount\n2026-01-15,Groceries,-40.00\n');
 
-	await page.getByRole('link', { name: 'Import' }).click();
+	await openScreen(page, 'Data', 'Import');
 	await page.locator('input[type="file"]').setInputFiles(csvPath);
 
 	await page.getByLabel('Account', { exact: true }).click();
@@ -100,7 +100,7 @@ test('blank and unresolved account values are flagged and excluded, not silently
 			'2026-01-17,Typo Account,-20.00,Chekcing\n'
 	);
 
-	await page.getByRole('link', { name: 'Import' }).click();
+	await openScreen(page, 'Data', 'Import');
 	await page.locator('input[type="file"]').setInputFiles(csvPath);
 
 	await page.getByLabel('Date column').click();
@@ -132,7 +132,7 @@ test('reconciliation prompt copies without navigating, and a reconciliation-shap
 	const tmpDir = mkdtempSync(join(tmpdir(), 'myfin-e2e-'));
 	await setUpAppWithAccounts(page, ['Checking', 'Savings']);
 
-	await page.getByRole('link', { name: 'Import' }).click();
+	await openScreen(page, 'Data', 'Import');
 	await expect(page.getByRole('heading', { name: 'Import Transactions' })).toBeVisible();
 
 	// --- Copy action: no file needed, no navigation, no existing-data reference (FR-007/FR-011) ---
@@ -171,7 +171,7 @@ test('reconciliation prompt copies without navigating, and a reconciliation-shap
 			'2026-01-15,Refund Correction,-40.00\n' +
 			'2026-01-20,Rent,-500.00\n'
 	);
-	await page.getByRole('link', { name: 'Import' }).click();
+	await openScreen(page, 'Data', 'Import');
 	await page.locator('input[type="file"]').setInputFiles(reconciliationCsv);
 	await page.getByLabel('Account', { exact: true }).click();
 	await page.getByRole('option', { name: 'Checking', exact: true }).click();
@@ -220,7 +220,7 @@ test('reconciliation prompt copies without navigating, and a reconciliation-shap
 
 	// --- A brand-new account with zero existing transactions imports cleanly with nothing
 	//     flagged (spec Edge Cases) ---
-	await page.getByRole('link', { name: 'Import' }).click();
+	await openScreen(page, 'Data', 'Import');
 	const freshCsv = join(tmpDir, 'fresh.csv');
 	writeFileSync(freshCsv, 'Date,Description,Amount\n2026-01-15,First Deposit,1000.00\n');
 	await page.locator('input[type="file"]').setInputFiles(freshCsv);
@@ -257,7 +257,7 @@ test('a duplicated account name blocks the entire import (Scenario 5)', async ({
 			'2026-01-16,ATM,-50.00,Savings\n'
 	);
 
-	await page.getByRole('link', { name: 'Import' }).click();
+	await openScreen(page, 'Data', 'Import');
 	await page.locator('input[type="file"]').setInputFiles(csvPath);
 
 	await page.getByLabel('Date column').click();

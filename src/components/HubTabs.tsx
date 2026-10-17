@@ -7,8 +7,9 @@ import { MOBILE_QUERY, useMediaQuery } from '../hooks/useMediaQuery';
 
 /**
  * A strip of the open screen's sibling screens along the top of a phone page, so related screens
- * (Budgets, Budget vs. Actual, Goals…) are one tap apart instead of a trip through the menu. It is
- * only drawn on a phone: from md up the sidebar already shows every screen.
+ * (Budgets, Budget vs. Actual, Goals…) are one tap apart instead of a trip through the menu. Drawn
+ * on a phone for every hub; from md up only for a folded hub (Data, Automation, Settings), whose
+ * screens the sidebar lists as a single entry, while it already shows every other screen itself.
  */
 export function HubTabs() {
 	const { pathname } = useLocation();
@@ -20,13 +21,13 @@ export function HubTabs() {
 		activeRef.current?.scrollIntoView({ inline: 'center', block: 'nearest' });
 	}, [pathname]);
 
-	if (!isMobile || !match || match.items.length < 2) return null;
+	if (!match || match.items.length < 2 || (!isMobile && !match.hub.folded)) return null;
 	return (
 		<nav
 			aria-label={`${match.hub.label} screens`}
 			className="sticky top-0 z-20 border-b bg-background/95 backdrop-blur"
 		>
-			<ul className="flex [scrollbar-width:none] gap-2 overflow-x-auto px-4 py-2 [&::-webkit-scrollbar]:hidden">
+			<ul className="flex [scrollbar-width:none] gap-2 overflow-x-auto px-4 py-2 md:px-6 [&::-webkit-scrollbar]:hidden">
 				{match.items.map((item) => {
 					const isActive = item.to === match.active.to;
 					return (

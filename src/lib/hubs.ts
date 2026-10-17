@@ -12,6 +12,11 @@ export interface HubItem {
 export interface Hub {
 	id: string;
 	label: string;
+	/**
+	 * The sidebar lists the hub as one entry (opening its first screen) instead of one entry per
+	 * screen, and the strip of its screens is drawn at every screen size, not just on a phone.
+	 */
+	folded?: boolean;
 	items: HubItem[];
 }
 
@@ -22,6 +27,7 @@ export const HUBS: Hub[] = [
 		items: [
 			{ to: '/accounts', label: 'Accounts' },
 			{ to: '/transactions', label: 'Transactions' },
+			{ to: '/categories', label: 'Categories' },
 			{ to: '/quick-add', label: 'Quick Add' },
 			{ to: '/review', label: 'Review' }
 		]
@@ -59,6 +65,7 @@ export const HUBS: Hub[] = [
 	{
 		id: 'data',
 		label: 'Data',
+		folded: true,
 		items: [
 			{ to: '/import', label: 'Import' },
 			{ to: '/import/bulk-text', label: 'Bulk import' },
@@ -67,18 +74,30 @@ export const HUBS: Hub[] = [
 		]
 	},
 	{
+		id: 'automation',
+		label: 'Automation',
+		folded: true,
+		items: [
+			{ to: '/auto-capture', label: 'Auto-capture', nativeOnly: true },
+			{ to: '/categorization-rules', label: 'Auto-Categorize' },
+			{ to: '/notification-settings', label: 'Notifications' }
+		]
+	},
+	{
 		id: 'settings',
 		label: 'Settings',
+		folded: true,
 		items: [
-			{ to: '/categories', label: 'Categories' },
-			{ to: '/categorization-rules', label: 'Auto-Categorize' },
-			{ to: '/notification-settings', label: 'Notifications' },
 			{ to: '/security', label: 'Security' },
-			{ to: '/auto-capture', label: 'Auto-capture', nativeOnly: true },
 			{ to: '/about', label: 'About' }
 		]
 	}
 ];
+
+/** The screen a folded hub's sidebar entry opens: its first one that exists on this platform. */
+export function hubEntryPath(hub: Hub, isNative: boolean): string {
+	return (hub.items.find((i) => !i.nativeOnly || isNative) ?? hub.items[0]).to;
+}
 
 export interface HubMatch {
 	hub: Hub;

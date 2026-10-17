@@ -2,6 +2,7 @@ import { test, expect } from '@playwright/test';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { openScreen } from './helpers';
 
 // Polish (T097, SC-008): past VIRTUALIZE_THRESHOLD rows, the transaction list must only
 // mount the rows within the scrolled viewport, not one <tr> per transaction.
@@ -33,7 +34,7 @@ test('the transaction list virtualizes rendering once the ledger is large', asyn
 	await accountDialog.getByRole('button', { name: 'Add account' }).click();
 	await expect(accountDialog).not.toBeVisible();
 
-	await page.getByRole('link', { name: 'Import' }).click();
+	await openScreen(page, 'Data', 'Import');
 	await page.locator('input[type="file"]').setInputFiles(csvPath);
 	await page.getByLabel('Account', { exact: true }).click();
 	await page.getByRole('option', { name: 'Checking', exact: true }).click();

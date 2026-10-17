@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { acceptConfirm } from './helpers';
+import { acceptConfirm, openScreen } from './helpers';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -43,7 +43,8 @@ async function seedLongQueue(page: Page, pin: string) {
 	await categoryDialog.getByRole('button', { name: 'Add category' }).click();
 	await expect(categoryDialog).not.toBeVisible();
 
-	await goTo(page, 'Auto-Categorize', 'Auto-Categorize');
+	await openScreen(page, 'Automation', 'Auto-Categorize');
+	await expect(page.getByRole('heading', { name: 'Auto-Categorize' })).toBeVisible();
 	await page.getByRole('button', { name: 'Add rule' }).click();
 	const ruleDialog = page.getByRole('dialog');
 	await ruleDialog.getByRole('radio', { name: 'Match description text' }).click();

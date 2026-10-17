@@ -73,3 +73,20 @@ export async function autoAcceptConfirms(page: Page): Promise<void> {
 		await dialog.locator('[data-slot="alert-dialog-action"]').click();
 	});
 }
+
+/**
+ * Opens one of the screens the sidebar folds into a single entry: Data (Import, Export, Backup),
+ * Automation (Auto-capture, Auto-Categorize, Notifications) or Settings (Security, About). The
+ * entry opens the hub's first screen and the strip along the top of the page reaches the rest.
+ */
+export async function openScreen(
+	page: Page,
+	hub: 'Data' | 'Automation' | 'Settings',
+	screen: string
+): Promise<void> {
+	await page.getByRole('link', { name: hub, exact: true }).click();
+	await page
+		.getByRole('navigation', { name: `${hub} screens` })
+		.getByRole('link', { name: screen, exact: true })
+		.click();
+}
