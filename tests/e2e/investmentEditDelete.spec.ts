@@ -116,7 +116,7 @@ test('a holding can be deleted for good', async ({ page }) => {
 	await expect(cardFor(page, 'BEL')).toBeVisible();
 
 	await page.getByRole('button', { name: 'Delete BEL' }).click();
-	await acceptConfirm(page, 'Delete BEL?');
+	await acceptConfirm(page, 'Delete BEL and its recorded values?');
 	await expect(page.getByText('BEL deleted')).toBeVisible();
 	await expect(page.getByRole('button', { name: 'Edit BEL' })).toHaveCount(0);
 	// It stops counting toward the portfolio.
