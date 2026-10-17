@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { db } from '../../src/data/dexie/db';
 import { AccountRepository } from '../../src/data/dexie/accountRepository';
+import { TransactionRepository } from '../../src/data/dexie/transactionRepository';
 import {
 	PersonRepository,
 	PersonLoanRepository,
@@ -184,7 +185,8 @@ describe('Person/PersonLoan/LoanRepayment repositories against Dexie', () => {
 			accountId: account.id
 		});
 
-		await expect(PersonRepository.softDelete(key, person.id)).rejects.toThrow();
+		await expect(PersonRepository.remove(key, person.id)).rejects.toThrow();
+		expect(await PersonRepository.getById(key, person.id)).toBeDefined();
 
 		await LoanRepaymentRepository.create(key, {
 			loanId: loan.id,
@@ -192,11 +194,15 @@ describe('Person/PersonLoan/LoanRepayment repositories against Dexie', () => {
 			date: '2026-09-02',
 			accountId: account.id
 		});
-		await PersonRepository.softDelete(key, person.id);
+		await PersonRepository.remove(key, person.id);
 		expect((await PersonRepository.list(key)).map((p) => p.id)).not.toContain(person.id);
+		// The settled loan and its repayment go with the person; the money movements stay.
+		expect(await PersonLoanRepository.listAllOpen(key)).toEqual([]);
+		expect(await LoanRepaymentRepository.listAll(key)).toEqual([]);
+		expect(await TransactionRepository.getById(key, loan.transactionId)).not.toBeNull();
 	});
 
-	it('soft-deleting a repayment reverses its transaction, and restore re-applies it', async () => {
+	it('removing a repayment reverses its transaction', async () => {
 		const account = await cashAccount();
 		const person = await PersonRepository.create(key, { name: 'Priya' });
 		const loan = await PersonLoanRepository.create(key, {
@@ -220,13 +226,11 @@ describe('Person/PersonLoan/LoanRepayment repositories against Dexie', () => {
 			?.currentBalance;
 		expect(afterRepaymentBalance).toBe((afterLoanBalance ?? 0) + 400);
 
-		await LoanRepaymentRepository.softDelete(key, repayment.id);
+		await LoanRepaymentRepository.remove(key, repayment.id);
 		const afterUndoBalance = (await AccountRepository.getById(key, account.id))?.currentBalance;
 		expect(afterUndoBalance).toBe(afterLoanBalance);
-
-		await LoanRepaymentRepository.restore(key, repayment.id);
-		const afterRestoreBalance = (await AccountRepository.getById(key, account.id))?.currentBalance;
-		expect(afterRestoreBalance).toBe(afterRepaymentBalance);
+		expect(await LoanRepaymentRepository.listForLoan(key, loan.id)).toEqual([]);
+		expect(await TransactionRepository.getById(key, repayment.transactionId)).toBeNull();
 	});
 
 	it('writing off a loan does not change the account balance', async () => {

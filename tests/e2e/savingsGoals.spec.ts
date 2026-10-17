@@ -87,7 +87,7 @@ test('projected completion date and behind-schedule flag (Scenario 2)', async ({
 	await expect(goalCard.getByText('On track')).toBeVisible();
 });
 
-test('goals overview shows mixed statuses and a correct total (Scenario 3), and delete/restore keeps contributions (Scenario 6)', async ({
+test('goals overview shows mixed statuses and a correct total (Scenario 3), and deleting a goal removes it with its contributions (Scenario 6)', async ({
 	page
 }) => {
 	// Deleting a goal asks for confirmation; Playwright dismisses an unhandled dialog.
@@ -119,19 +119,14 @@ test('goals overview shows mixed statuses and a correct total (Scenario 3), and 
 	const laptopCard = page.locator('[data-slot="card"]').filter({ hasText: 'New Laptop' });
 	await expect(laptopCard.getByText('Log more contributions to see a projection.')).toBeVisible();
 
-	// Scenario 6: delete New Laptop, confirm it's gone, restore it, confirm it's back with its contribution.
+	// Scenario 6: delete New Laptop; it and its contribution are gone for good.
 	await laptopCard.getByRole('button', { name: 'Delete goal' }).click();
 	await expect(page.locator('[data-slot="card"]').filter({ hasText: 'New Laptop' })).toHaveCount(0);
 	await expect(page.getByText('17,000.00')).toBeVisible(); // total drops by the removed goal's 500
 
-	await page.getByRole('link', { name: 'Trash' }).click();
-	const trashRow = page.locator('div.rounded-lg.border', { hasText: 'New Laptop' });
-	await trashRow.getByRole('button', { name: 'Restore' }).click();
-
-	await page.getByRole('link', { name: 'Savings Goals' }).click();
-	const restoredCard = page.locator('[data-slot="card"]').filter({ hasText: 'New Laptop' });
-	await expect(restoredCard).toBeVisible();
-	await expect(restoredCard.getByText('₹500.00', { exact: true })).toBeVisible();
+	await page.reload();
+	await expect(page.locator('[data-slot="card"]').filter({ hasText: 'New Laptop' })).toHaveCount(0);
+	await expect(page.getByText('17,000.00')).toBeVisible();
 });
 
 test('logging a contribution says it only tracks progress, and points to Transfer for moving money', async ({

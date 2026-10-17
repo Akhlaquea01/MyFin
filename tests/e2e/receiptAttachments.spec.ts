@@ -176,9 +176,7 @@ test('attach, view, and remove a receipt; rejects unsupported/oversized files; c
 	await expect(attachmentsButton).not.toContainText('1');
 });
 
-test('soft-delete/restore keeps attachments, and up to 5 independent attachments are supported (Scenarios 4, 5)', async ({
-	page
-}) => {
+test('up to 5 independent attachments are supported (Scenario 5)', async ({ page }) => {
 	// Removing an attachment is a permanent hard delete and now asks for confirmation.
 	await autoAcceptConfirms(page);
 	await onboard(page, '500284');
@@ -190,30 +188,12 @@ test('soft-delete/restore keeps attachments, and up to 5 independent attachments
 	await addTransaction(page, 'Checking', '40', 'Pharmacy');
 
 	const dialogHelper = attachmentsDialogFor(page, 'Pharmacy');
-	let dialog = await dialogHelper.open();
+	const dialog = await dialogHelper.open();
 	await dialog.locator('input[type="file"]').setInputFiles({
 		name: 'a.jpg',
 		mimeType: 'image/jpeg',
 		buffer: await generateJpeg(page)
 	});
-	await expect(dialog.getByAltText('Receipt attachment')).toHaveCount(1);
-	await page.keyboard.press('Escape');
-
-	// Scenario 4: soft-delete then restore keeps the attachment.
-	await page
-		.getByRole('row', { name: /Pharmacy/ })
-		.getByRole('button', { name: 'Delete' })
-		.click();
-	await expect(page.getByText('No transactions yet.')).toBeVisible();
-
-	await goTo(page, 'Trash', 'Trash');
-	await page
-		.locator('div.rounded-lg.border', { hasText: 'Pharmacy' })
-		.getByRole('button', { name: 'Restore' })
-		.click();
-
-	await goTo(page, 'Transactions', 'Transactions');
-	dialog = await dialogHelper.open();
 	await expect(dialog.getByAltText('Receipt attachment')).toHaveCount(1);
 
 	// Scenario 5: add four more (five total), each independently viewable/removable.
@@ -237,7 +217,7 @@ test('soft-delete/restore keeps attachments, and up to 5 independent attachments
 	await expect(dialog.getByRole('button', { name: 'Add attachment' })).toBeEnabled();
 });
 
-test('permanent purge from Trash removes the transaction and its attachments entirely (Scenario 6)', async ({
+test('deleting a transaction removes it and its attachments entirely (Scenario 6)', async ({
 	page
 }) => {
 	await onboard(page, '500384');
@@ -258,26 +238,16 @@ test('permanent purge from Trash removes the transaction and its attachments ent
 	await expect(dialog.getByAltText('Receipt attachment')).toHaveCount(1);
 	await page.keyboard.press('Escape');
 
-	// Moving a transaction to Trash asks for confirmation.
+	// Deleting a transaction asks for confirmation, and says its receipts go too.
 	await page
 		.getByRole('row', { name: /Coffee/ })
 		.getByRole('button', { name: 'Delete' })
 		.click();
-	await acceptConfirm(page);
+	await acceptConfirm(page, 'attached receipts');
+
+	// The underlying cascade delete of transactionSplits/transactionTags/attachments is covered by
+	// tests/integration/attachmentRepository.test.ts's remove test.
 	await expect(page.getByText('No transactions yet.')).toBeVisible();
-
-	await goTo(page, 'Trash', 'Trash');
-	await expect(page.getByText('Coffee')).toBeVisible();
-
-	await page
-		.locator('div.rounded-lg.border', { hasText: 'Coffee' })
-		.getByRole('button', { name: 'Delete forever' })
-		.click();
-	await acceptConfirm(page);
-
-	// Gone from Trash entirely (not just hidden) — the underlying cascade delete of
-	// transactionSplits/transactionTags/attachments is covered by
-	// tests/integration/attachmentRepository.test.ts's purge test.
 	await expect(page.getByText('Coffee')).not.toBeVisible();
-	await expect(page.getByText('Transaction permanently deleted')).toBeVisible();
+	await expect(page.getByText('Transaction deleted')).toBeVisible();
 });

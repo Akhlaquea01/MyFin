@@ -4,7 +4,7 @@ export interface ConfirmOptions {
 	/** What is being asked, in the user's terms. Line breaks are kept. */
 	message: string;
 	title?: string;
-	/** The action's own name ("Move to trash", "Discard") rather than a bare "OK". */
+	/** The action's own name ("Delete permanently", "Discard") rather than a bare "OK". */
 	confirmLabel?: string;
 	cancelLabel?: string;
 	/** Red button — for anything that cannot be undone. */

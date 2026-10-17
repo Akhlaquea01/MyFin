@@ -257,28 +257,15 @@ export function BudgetsPage() {
 	}
 
 	async function deleteBudget(budget: Budget) {
-		// FR-013: a confirmation step, separate from the undo window below.
 		const confirmed = await confirm({
-			message: `Remove the ${categoryName(budget.categoryId)} budget? You can undo this right after.`,
+			message: `Remove the ${categoryName(budget.categoryId)} budget? This cannot be undone.`,
 			confirmLabel: 'Remove budget',
 			destructive: true
 		});
 		if (!confirmed) return;
 		try {
-			await BudgetRepository.softDelete(key, budget.id);
-			toast.success(`${categoryName(budget.categoryId)} budget deleted`, {
-				action: {
-					label: 'Undo',
-					onClick: () => {
-						void BudgetRepository.restore(key, budget.id)
-							.then(refresh)
-							// e.g. a new budget for the same category was added after the delete.
-							.catch((err) =>
-								toast.error(err instanceof Error ? err.message : 'Could not restore the budget.')
-							);
-					}
-				}
-			});
+			await BudgetRepository.remove(budget.id);
+			toast.success(`${categoryName(budget.categoryId)} budget deleted`);
 			await refresh();
 		} catch (err) {
 			toast.error(err instanceof Error ? err.message : 'Could not delete budget.');

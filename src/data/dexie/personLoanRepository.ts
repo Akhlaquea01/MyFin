@@ -1,8 +1,6 @@
 import { db, type PersonRow, type PersonLoanRow, type PersonLoanRepaymentRow } from './db';
 import { putEncrypted, getDecrypted, decryptRows } from './encryptedTable';
-import { deletedAtIndex, NOT_DELETED } from './indexable';
 import { TransactionEngine } from '../../domain/transactions/transactionEngine';
-import { TransactionRepository } from './transactionRepository';
 import {
 	computePendingBalance,
 	validateRepaymentAmount,
@@ -18,10 +16,9 @@ export const PersonRepository = {
 			name: input.name.trim(),
 			notes: input.notes ?? null,
 			createdAt: now,
-			updatedAt: now,
-			deletedAt: null
+			updatedAt: now
 		};
-		await putEncrypted(db.people, key, person, { deletedAt: NOT_DELETED });
+		await putEncrypted(db.people, key, person, {});
 		return person;
 	},
 
@@ -29,7 +26,7 @@ export const PersonRepository = {
 		const existing = await getDecrypted<PersonRow, Person>(db.people, key, id);
 		if (!existing) throw new Error(`Person ${id} not found`);
 		const updated: Person = { ...existing, ...changes, id, updatedAt: Date.now() };
-		await putEncrypted(db.people, key, updated, { deletedAt: deletedAtIndex(updated.deletedAt) });
+		await putEncrypted(db.people, key, updated, {});
 		return updated;
 	},
 
@@ -38,13 +35,14 @@ export const PersonRepository = {
 	},
 
 	async list(key: CryptoKey): Promise<Person[]> {
-		const rows = await db.people.filter((row) => row.deletedAt === NOT_DELETED).toArray();
+		const rows = await db.people.toArray();
 		return decryptRows<PersonRow, Person>(key, rows);
 	},
 
 	/** Blocks deletion while any of the person's loans still has a positive pending balance
-	 *  (FR-015) — enforced here, not only in the UI, per research.md §6. */
-	async softDelete(key: CryptoKey, id: string): Promise<void> {
+	 *  (FR-015) — enforced here, not only in the UI, per research.md §6. The settled loans and
+	 *  repayments go with the person; the money movements they posted stay in the ledger. */
+	async remove(key: CryptoKey, id: string): Promise<void> {
 		const loans = await PersonLoanRepository.listForPerson(key, id);
 		for (const loan of loans) {
 			const repayments = await LoanRepaymentRepository.listForLoan(key, loan.id);
@@ -59,11 +57,14 @@ export const PersonRepository = {
 				);
 			}
 		}
-		await this.update(key, id, { deletedAt: Date.now() });
-	},
-
-	async restore(key: CryptoKey, id: string): Promise<void> {
-		await this.update(key, id, { deletedAt: null });
+		await db.transaction('rw', db.people, db.personLoans, db.personLoanRepayments, async () => {
+			await db.personLoanRepayments
+				.where('loanId')
+				.anyOf(loans.map((loan) => loan.id))
+				.delete();
+			await db.personLoans.where('personId').equals(id).delete();
+			await db.people.delete(id);
+		});
 	}
 };
 
@@ -126,14 +127,12 @@ export const PersonLoanRepository = {
 			writeOffAmount: 0,
 			writeOffAt: null,
 			createdAt: now,
-			updatedAt: now,
-			deletedAt: null
+			updatedAt: now
 		};
 		await putEncrypted(db.personLoans, key, loan, {
 			personId: loan.personId,
 			accountId: loan.accountId,
-			direction: loan.direction,
-			deletedAt: NOT_DELETED
+			direction: loan.direction
 		});
 		return loan;
 	},
@@ -152,8 +151,7 @@ export const PersonLoanRepository = {
 		await putEncrypted(db.personLoans, key, updated, {
 			personId: updated.personId,
 			accountId: updated.accountId,
-			direction: updated.direction,
-			deletedAt: deletedAtIndex(updated.deletedAt)
+			direction: updated.direction
 		});
 		return updated;
 	},
@@ -191,14 +189,12 @@ export const PersonLoanRepository = {
 			writeOffAmount: input.writeOffAmount,
 			writeOffAt: input.writeOffAt,
 			createdAt: now,
-			updatedAt: now,
-			deletedAt: null
+			updatedAt: now
 		};
 		await putEncrypted(db.personLoans, key, loan, {
 			personId: loan.personId,
 			accountId: loan.accountId,
-			direction: loan.direction,
-			deletedAt: NOT_DELETED
+			direction: loan.direction
 		});
 		return loan;
 	},
@@ -224,62 +220,26 @@ export const PersonLoanRepository = {
 		await putEncrypted(db.personLoans, key, updated, {
 			personId: updated.personId,
 			accountId: updated.accountId,
-			direction: updated.direction,
-			deletedAt: deletedAtIndex(updated.deletedAt)
+			direction: updated.direction
 		});
 		return updated;
 	},
 
-	async softDelete(key: CryptoKey, id: string): Promise<void> {
-		const existing = await getDecrypted<PersonLoanRow, PersonLoan>(db.personLoans, key, id);
-		if (!existing) return;
-		const updated: PersonLoan = { ...existing, deletedAt: Date.now(), updatedAt: Date.now() };
-		await putEncrypted(db.personLoans, key, updated, {
-			personId: updated.personId,
-			accountId: updated.accountId,
-			direction: updated.direction,
-			deletedAt: deletedAtIndex(updated.deletedAt)
-		});
-	},
-
 	/**
 	 * Removes a mis-recorded loan completely: its repayments, the ledger movement behind its
-	 * principal, and the loan itself all go to Trash together, so the account balance returns to
-	 * exactly what it was before the loan was recorded. There was no way to do this from the UI —
-	 * a loan entered with the wrong amount, date or account could only be "written off", which
-	 * leaves the bogus money movement in the ledger forever.
+	 * principal, and the loan itself are all deleted, so the account balance returns to exactly
+	 * what it was before the loan was recorded. There was no way to do this from the UI — a loan
+	 * entered with the wrong amount, date or account could only be "written off", which leaves the
+	 * bogus money movement in the ledger forever.
 	 */
-	async remove(key: CryptoKey, id: string): Promise<{ removedRepaymentIds: string[] }> {
+	async remove(key: CryptoKey, id: string): Promise<void> {
 		const loan = await getDecrypted<PersonLoanRow, PersonLoan>(db.personLoans, key, id);
-		if (!loan) return { removedRepaymentIds: [] };
-		const removedRepaymentIds: string[] = [];
+		if (!loan) return;
 		for (const repayment of await LoanRepaymentRepository.listForLoan(key, id)) {
-			await LoanRepaymentRepository.softDelete(key, repayment.id);
-			removedRepaymentIds.push(repayment.id);
+			await LoanRepaymentRepository.remove(key, repayment.id);
 		}
 		await TransactionEngine.deleteTransaction(key, loan.transactionId);
-		await this.softDelete(key, id);
-		// Returned so an immediate "Undo" can bring back exactly the repayments this call removed —
-		// not repayments the user had undone earlier, which must stay undone.
-		return { removedRepaymentIds };
-	},
-
-	/** Restores the loan AND the ledger movement behind its principal (repayments are restored
-	 *  individually, since each can be undone on its own). */
-	async restore(key: CryptoKey, id: string): Promise<void> {
-		const existing = await getDecrypted<PersonLoanRow, PersonLoan>(db.personLoans, key, id);
-		if (!existing) return;
-		const updated: PersonLoan = { ...existing, deletedAt: null, updatedAt: Date.now() };
-		await putEncrypted(db.personLoans, key, updated, {
-			personId: updated.personId,
-			accountId: updated.accountId,
-			direction: updated.direction,
-			deletedAt: deletedAtIndex(updated.deletedAt)
-		});
-		const movement = await TransactionRepository.getById(key, existing.transactionId);
-		if (movement && movement.deletedAt !== null) {
-			await TransactionEngine.restoreTransaction(key, existing.transactionId);
-		}
+		await db.personLoans.delete(id);
 	},
 
 	async getById(key: CryptoKey, id: string): Promise<PersonLoan | undefined> {
@@ -287,18 +247,14 @@ export const PersonLoanRepository = {
 	},
 
 	async listForPerson(key: CryptoKey, personId: string): Promise<PersonLoan[]> {
-		const rows = await db.personLoans
-			.where('personId')
-			.equals(personId)
-			.filter((row) => row.deletedAt === NOT_DELETED)
-			.toArray();
+		const rows = await db.personLoans.where('personId').equals(personId).toArray();
 		return decryptRows<PersonLoanRow, PersonLoan>(key, rows);
 	},
 
-	/** Every non-deleted loan across all people — for the Dashboard tile, the People list,
+	/** Every loan across all people — for the Dashboard tile, the People list,
 	 *  net worth (FR-014), and overdue notifications (FR-013). */
 	async listAllOpen(key: CryptoKey): Promise<PersonLoan[]> {
-		const rows = await db.personLoans.filter((row) => row.deletedAt === NOT_DELETED).toArray();
+		const rows = await db.personLoans.toArray();
 		return decryptRows<PersonLoanRow, PersonLoan>(key, rows);
 	}
 };
@@ -347,13 +303,11 @@ export const LoanRepaymentRepository = {
 			accountId: input.accountId,
 			transactionId: tx.id,
 			createdAt: now,
-			updatedAt: now,
-			deletedAt: null
+			updatedAt: now
 		};
 		await putEncrypted(db.personLoanRepayments, key, repayment, {
 			loanId: repayment.loanId,
-			accountId: repayment.accountId,
-			deletedAt: NOT_DELETED
+			accountId: repayment.accountId
 		});
 		return repayment;
 	},
@@ -402,20 +356,18 @@ export const LoanRepaymentRepository = {
 			accountId: input.accountId,
 			transactionId: input.transactionId,
 			createdAt: now,
-			updatedAt: now,
-			deletedAt: null
+			updatedAt: now
 		};
 		await putEncrypted(db.personLoanRepayments, key, repayment, {
 			loanId: repayment.loanId,
-			accountId: repayment.accountId,
-			deletedAt: NOT_DELETED
+			accountId: repayment.accountId
 		});
 		return repayment;
 	},
 
-	/** Reverses the linked Transaction (restoring the account balance and the loan's pending
-	 *  balance) so a mis-logged repayment can be undone (data-model.md). */
-	async softDelete(key: CryptoKey, id: string): Promise<void> {
+	/** Deletes the repayment and its linked Transaction, restoring the account balance and the
+	 *  loan's pending balance, so a mis-logged repayment can be undone (data-model.md). */
+	async remove(key: CryptoKey, id: string): Promise<void> {
 		const existing = await getDecrypted<PersonLoanRepaymentRow, LoanRepayment>(
 			db.personLoanRepayments,
 			key,
@@ -423,43 +375,16 @@ export const LoanRepaymentRepository = {
 		);
 		if (!existing) return;
 		await TransactionEngine.deleteTransaction(key, existing.transactionId);
-		const updated: LoanRepayment = { ...existing, deletedAt: Date.now(), updatedAt: Date.now() };
-		await putEncrypted(db.personLoanRepayments, key, updated, {
-			loanId: updated.loanId,
-			accountId: updated.accountId,
-			deletedAt: deletedAtIndex(updated.deletedAt)
-		});
-	},
-
-	async restore(key: CryptoKey, id: string): Promise<void> {
-		const existing = await getDecrypted<PersonLoanRepaymentRow, LoanRepayment>(
-			db.personLoanRepayments,
-			key,
-			id
-		);
-		if (!existing) return;
-		await TransactionEngine.restoreTransaction(key, existing.transactionId);
-		const updated: LoanRepayment = { ...existing, deletedAt: null, updatedAt: Date.now() };
-		await putEncrypted(db.personLoanRepayments, key, updated, {
-			loanId: updated.loanId,
-			accountId: updated.accountId,
-			deletedAt: deletedAtIndex(updated.deletedAt)
-		});
+		await db.personLoanRepayments.delete(id);
 	},
 
 	async listForLoan(key: CryptoKey, loanId: string): Promise<LoanRepayment[]> {
-		const rows = await db.personLoanRepayments
-			.where('loanId')
-			.equals(loanId)
-			.filter((row) => row.deletedAt === NOT_DELETED)
-			.toArray();
+		const rows = await db.personLoanRepayments.where('loanId').equals(loanId).toArray();
 		return decryptRows<PersonLoanRepaymentRow, LoanRepayment>(key, rows);
 	},
 
 	async listAll(key: CryptoKey): Promise<LoanRepayment[]> {
-		const rows = await db.personLoanRepayments
-			.filter((row) => row.deletedAt === NOT_DELETED)
-			.toArray();
+		const rows = await db.personLoanRepayments.toArray();
 		return decryptRows<PersonLoanRepaymentRow, LoanRepayment>(key, rows);
 	}
 };

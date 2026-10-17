@@ -305,7 +305,7 @@ export function InvestmentsPage() {
 	async function remove(holding: InvestmentHolding) {
 		if (
 			!(await confirm({
-				message: `Delete ${holding.name}? It stops counting toward your portfolio and net worth. You can undo it right after.`,
+				message: `Delete ${holding.name} and its recorded values? It stops counting toward your portfolio and net worth. This cannot be undone.`,
 				confirmLabel: 'Delete holding',
 				destructive: true
 			}))
@@ -313,16 +313,8 @@ export function InvestmentsPage() {
 			return;
 		}
 		try {
-			await InvestmentHoldingRepository.softDelete(key, holding.id);
-			// The toast is the quick way back; once it is gone, the holding waits in Trash.
-			toast.success(`${holding.name} deleted`, {
-				action: {
-					label: 'Undo',
-					onClick: () => {
-						void InvestmentHoldingRepository.restore(key, holding.id).then(refresh);
-					}
-				}
-			});
+			await InvestmentHoldingRepository.remove(holding.id);
+			toast.success(`${holding.name} deleted`);
 			await refresh();
 		} catch (err) {
 			toast.error(err instanceof Error ? err.message : 'Could not delete holding.');

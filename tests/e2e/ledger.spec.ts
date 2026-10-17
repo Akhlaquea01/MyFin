@@ -2,7 +2,7 @@ import { test, expect, type Page } from '@playwright/test';
 import { autoAcceptConfirms } from './helpers';
 
 // User Story 2 (P2): the core ledger end-to-end — accounts, transactions, transfer,
-// and soft-delete/restore via trash.
+// and permanent deletion.
 //
 // Every nav-link click below is followed by a wait for that page's own heading. Client-
 // side route transitions don't trigger a full-document navigation event, so a later
@@ -76,7 +76,7 @@ test.describe('Core Ledger', () => {
 		await expect(savingsCard).toContainText('200.00');
 	});
 
-	test('deleting a transaction moves it to trash, and restoring brings the balance back', async ({
+	test('deleting a transaction removes it for good and brings the balance back', async ({
 		page
 	}) => {
 		// Deleting asks for confirmation; Playwright dismisses an unhandled dialog, which cancelled it.
@@ -102,13 +102,10 @@ test.describe('Core Ledger', () => {
 			.click();
 		await expect(page.getByText('No transactions yet.')).toBeVisible();
 
-		await goTo(page, 'Trash', 'Trash');
-		await expect(page.getByText('Snacks')).toBeVisible();
-		await page.getByRole('button', { name: 'Restore' }).click();
-		await expect(page.getByText('Nothing here.').first()).toBeVisible();
-
+		await goTo(page, 'Accounts', 'Accounts');
+		await expect(page.getByText('500.00').first()).toBeVisible();
 		await goTo(page, 'Transactions', 'Transactions');
-		await expect(page.getByText('Snacks')).toBeVisible();
+		await expect(page.getByText('Snacks')).toHaveCount(0);
 	});
 
 	// spec 018, User Story 3 (FR-012/FR-013/FR-014): one consistent label rule (notes > merchant

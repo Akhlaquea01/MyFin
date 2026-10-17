@@ -17,7 +17,7 @@ describe('WealthRepository (holdings, valuations, liabilities, snapshots) agains
 		key = await deriveEncryptionKey('2323', randomSaltBase64());
 	});
 
-	it('creates and soft-deletes investment holdings', async () => {
+	it('creates and deletes investment holdings', async () => {
 		const holding = await InvestmentHoldingRepository.create(key, {
 			name: 'Stocks',
 			type: 'stock',
@@ -25,7 +25,7 @@ describe('WealthRepository (holdings, valuations, liabilities, snapshots) agains
 		});
 		expect((await InvestmentHoldingRepository.list(key)).map((h) => h.id)).toContain(holding.id);
 
-		await InvestmentHoldingRepository.softDelete(key, holding.id);
+		await InvestmentHoldingRepository.remove(holding.id);
 		expect((await InvestmentHoldingRepository.list(key)).map((h) => h.id)).not.toContain(
 			holding.id
 		);
@@ -53,7 +53,7 @@ describe('WealthRepository (holdings, valuations, liabilities, snapshots) agains
 		expect(valuations[0].date).toBe('2026-02-01');
 	});
 
-	it('creates, updates, and soft-deletes liabilities', async () => {
+	it('creates, updates, and deletes liabilities', async () => {
 		const liability = await LiabilityRepository.create(key, {
 			name: 'Credit Card',
 			type: 'credit_card',
@@ -68,7 +68,7 @@ describe('WealthRepository (holdings, valuations, liabilities, snapshots) agains
 		});
 		expect(updated.outstandingBalance).toBe(3000);
 
-		await LiabilityRepository.softDelete(key, liability.id);
+		await LiabilityRepository.remove(liability.id);
 		expect((await LiabilityRepository.list(key)).map((l) => l.id)).not.toContain(liability.id);
 	});
 

@@ -78,7 +78,7 @@ describe('Transaction dates are validated where they are stored', () => {
 		expect((await TransactionRepository.getById(key, inn.id))?.date).toBe('2026-03-05');
 	});
 
-	it('still lets an entry that already holds an odd date be deleted and restored', async () => {
+	it('still lets an entry that already holds an odd date be deleted', async () => {
 		// Written straight through the repository's batch path the way an old import could have.
 		const tx = await TransactionEngine.recordTransaction(key, {
 			accountId: checking,
@@ -89,7 +89,6 @@ describe('Transaction dates are validated where they are stored', () => {
 		await TransactionRepository.writeAtomic(key, [{ transaction: { ...tx, date: '2026-02-31' } }]);
 
 		await TransactionEngine.deleteTransaction(key, tx.id);
-		await TransactionEngine.restoreTransaction(key, tx.id);
-		expect((await TransactionRepository.getById(key, tx.id))?.deletedAt).toBeNull();
+		expect(await TransactionRepository.getById(key, tx.id)).toBeNull();
 	});
 });

@@ -13,8 +13,7 @@ const cat = (id: string, createdAt: number, parentId: string | null = null): Cat
 	parentId,
 	icon: null,
 	createdAt,
-	updatedAt: 0,
-	deletedAt: null
+	updatedAt: 0
 });
 
 describe('buildCategoryColors', () => {

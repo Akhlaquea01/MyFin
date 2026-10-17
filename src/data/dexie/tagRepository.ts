@@ -2,12 +2,7 @@ import { db, type TagRow } from './db';
 import { encryptRow, decryptRows } from './encryptedTable';
 import { blindIndex } from '../crypto/cryptoService';
 import { getBlindIndexSalt } from './blindIndexSalt';
-import { NOT_DELETED } from './indexable';
-import {
-	distinctTagIdsInUse,
-	normalizeTagText,
-	type TagOption
-} from '../../domain/transactions/tagFilterEngine';
+import { normalizeTagText, type TagOption } from '../../domain/transactions/tagFilterEngine';
 import type { Tag, TransactionTag } from '../../domain/entities';
 
 export const TagRepository = {
@@ -41,16 +36,11 @@ export const TagRepository = {
 	},
 
 	/**
-	 * Tags currently attached to at least one non-deleted transaction, sorted case-insensitively
-	 * by name — the pick-list source for the tag filter (spec 012, FR-004/FR-009). A tag whose
-	 * only transactions are soft-deleted is excluded.
+	 * Tags currently attached to at least one transaction, sorted case-insensitively by name — the
+	 * pick-list source for the tag filter (spec 012, FR-004/FR-009).
 	 */
 	async listInUse(key: CryptoKey): Promise<TagOption[]> {
-		const transactionTagRows = await db.transactionTags.toArray();
-		const liveTransactionIds = new Set(
-			(await db.transactions.where('deletedAt').equals(NOT_DELETED).primaryKeys()) as string[]
-		);
-		const inUseIds = distinctTagIdsInUse(transactionTagRows, liveTransactionIds);
+		const inUseIds = new Set((await db.transactionTags.toArray()).map((row) => row.tagId));
 		const tags = (await TagRepository.list(key)).filter((t) => inUseIds.has(t.id));
 		return tags
 			.map((t) => ({ id: t.id, name: t.name }))

@@ -38,22 +38,6 @@ export function filterTagOptions(options: TagOption[], query: string): TagOption
 }
 
 /**
- * The set of tag ids referenced by at least one live (non-deleted) transaction (FR-009). A tag
- * referenced only by a soft-deleted transaction is excluded; one referenced by both a live and
- * a deleted transaction is included, since any live reference is enough.
- */
-export function distinctTagIdsInUse(
-	transactionTagRows: { transactionId: string; tagId: string }[],
-	liveTransactionIds: Set<string>
-): Set<string> {
-	const result = new Set<string>();
-	for (const row of transactionTagRows) {
-		if (liveTransactionIds.has(row.transactionId)) result.add(row.tagId);
-	}
-	return result;
-}
-
-/**
  * Extends the existing notes-only free-text match to also check a transaction's tag names
  * (FR-006). `needle` is assumed already-normalized (the caller normalizes once, not per
  * transaction) — same discipline `search()` already applies to `freeText` before comparing it

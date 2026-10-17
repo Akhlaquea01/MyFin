@@ -250,6 +250,121 @@ describe('Backup service', () => {
 		expect(notificationPref.enabled).toBe(true);
 	});
 
+	it('drops what a pre-1.5.0 backup held in Trash, along with what hung off it', async () => {
+		const TRASHED = 1_700_000_000_000;
+		const row = (id: string, extra: Record<string, unknown> = {}) => ({
+			id,
+			createdAt: 1,
+			updatedAt: 1,
+			...extra
+		});
+		const emptyEntities = {
+			accounts: [],
+			categories: [],
+			merchants: [],
+			merchantAliases: [],
+			tags: [],
+			transactions: [],
+			transactionSplits: [],
+			transactionTags: [],
+			budgets: [],
+			budgetItems: [],
+			recurringRules: [],
+			expectedEvents: [],
+			investmentHoldings: [],
+			investmentValuations: [],
+			liabilities: [],
+			netWorthSnapshots: [],
+			debtPlannerPreference: null,
+			savingsGoals: [],
+			goalContributions: [],
+			notificationPreference: null,
+			notifiedItems: [],
+			attachments: [],
+			categorizationRules: [],
+			merchantCategorySignals: [],
+			people: [],
+			personLoans: [],
+			personLoanRepayments: [],
+			savedFilterViews: [],
+			userProfile: null
+		};
+		const tx = (id: string, deletedAt: number | null) =>
+			row(id, {
+				accountId: 'acc-live',
+				date: '2026-01-01',
+				reviewStatus: 'confirmed',
+				duplicateOfId: null,
+				transferPairId: null,
+				deletedAt
+			});
+		const legacyPayload = {
+			schemaVersion: '1.4.0',
+			exportedEntities: {
+				...emptyEntities,
+				accounts: [row('acc-live'), row('acc-trash', { deletedAt: TRASHED })],
+				transactions: [tx('tx-live', null), tx('tx-trash', TRASHED)],
+				transactionSplits: [
+					row('sp-live', { transactionId: 'tx-live', categoryId: 'c' }),
+					row('sp-trash', { transactionId: 'tx-trash', categoryId: 'c' })
+				],
+				transactionTags: [
+					{ id: 'tt-live', transactionId: 'tx-live', tagId: 't' },
+					{ id: 'tt-trash', transactionId: 'tx-trash', tagId: 't' }
+				],
+				attachments: [
+					row('at-live', { transactionId: 'tx-live' }),
+					row('at-trash', { transactionId: 'tx-trash' })
+				],
+				people: [row('person-live'), row('person-trash', { deletedAt: TRASHED })],
+				personLoans: [
+					row('loan-live', { personId: 'person-live', accountId: 'acc-live', direction: 'lent' }),
+					row('loan-of-trashed-person', {
+						personId: 'person-trash',
+						accountId: 'acc-live',
+						direction: 'lent'
+					})
+				],
+				personLoanRepayments: [
+					row('rep-live', { loanId: 'loan-live', accountId: 'acc-live' }),
+					row('rep-of-trashed-person', {
+						loanId: 'loan-of-trashed-person',
+						accountId: 'acc-live'
+					})
+				]
+			}
+		};
+		const checksum = await sha256Hex(JSON.stringify(legacyPayload));
+		const { iv, ciphertext } = await encrypt(key, legacyPayload);
+		const legacyBackup: BackupFile = {
+			container: 'personal-finance-manager-backup',
+			containerVersion: 1,
+			schemaVersion: '1.4.0',
+			createdAt: new Date().toISOString(),
+			checksum,
+			kdf: { algorithm: 'PBKDF2-SHA256', iterations: 210_000, salt: encryptionSalt },
+			cipher: { algorithm: 'AES-GCM', iv },
+			ciphertext
+		};
+
+		const { payload } = await validateAndDecryptBackup(legacyBackup, pin);
+		const restoreKey = await deriveDataKeyForPayload(payload, pin, encryptionSalt);
+		await db.delete();
+		await db.open();
+		await restoreBackup(restoreKey, payload);
+
+		const ids = async (table: string) =>
+			((await db.table(table).toCollection().primaryKeys()) as string[]).sort();
+		expect(await ids('accounts')).toEqual(['acc-live']);
+		expect(await ids('transactions')).toEqual(['tx-live']);
+		expect(await ids('transactionSplits')).toEqual(['sp-live']);
+		expect(await ids('transactionTags')).toEqual(['tt-live']);
+		expect(await ids('attachments')).toEqual(['at-live']);
+		expect(await ids('people')).toEqual(['person-live']);
+		expect(await ids('personLoans')).toEqual(['loan-live']);
+		expect(await ids('personLoanRepayments')).toEqual(['rep-live']);
+	});
+
 	it('round-trips a full backup and restore, ending with an exact match', async () => {
 		const backup = await createBackup(key, encryptionSalt, pin);
 		const { payload } = await validateAndDecryptBackup(backup, pin);

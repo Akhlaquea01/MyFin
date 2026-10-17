@@ -18,7 +18,7 @@ import type { Transaction } from '../../domain/entities';
 
 /**
  * Recomputes an account's `currentBalance` from scratch: opening balance plus the sum of
- * every non-deleted transaction on it. Simple and always correct — the safest choice for
+ * every transaction on it. Simple and always correct — the safest choice for
  * a personal ledger where trust in the numbers matters more than micro-optimizing away an
  * O(n) recalculation on every edit. Revisit only if profiling ever shows this is a real
  * bottleneck (no Success Criteria requires fast writes, only fast search — SC-008).
@@ -185,60 +185,23 @@ export const TransactionEngine = {
 	},
 
 	/**
-	 * Moves a transaction to Trash. A transfer is ONE movement of money recorded as two legs, so
-	 * deleting either leg deletes both, atomically: previously only the clicked leg went, leaving
-	 * the other account permanently debited (or credited) for a transfer that no longer existed —
-	 * the two balances then disagreed with each other with nothing on screen explaining why.
+	 * Permanently deletes a transaction. A transfer is ONE movement of money recorded as two legs,
+	 * so deleting either leg deletes both, atomically: deleting only the clicked leg would leave the
+	 * other account permanently debited (or credited) for a transfer that no longer existed — the
+	 * two balances would then disagree with each other with nothing on screen explaining why.
 	 */
 	async deleteTransaction(key: CryptoKey, id: string): Promise<void> {
 		const tx = await TransactionRepository.getById(key, id);
-		if (!tx) {
-			// Surfaces the repository's "not found" error exactly as before.
-			await TransactionRepository.softDelete(key, id);
-			return;
-		}
+		if (!tx) throw new Error(`Transaction ${id} not found`);
 		const pair = tx.transferPairId
 			? await TransactionRepository.getById(key, tx.transferPairId)
 			: null;
-		if (pair && pair.deletedAt === null) {
-			const now = Date.now();
-			await TransactionRepository.writeAtomic(key, [
-				{ transaction: { ...tx, deletedAt: now, updatedAt: now } },
-				{ transaction: { ...pair, deletedAt: now, updatedAt: now } }
-			]);
-			await recalculateAccountBalance(key, pair.accountId);
-		} else {
-			await TransactionRepository.softDelete(key, id);
-		}
+		await TransactionRepository.remove(pair ? [tx.id, pair.id] : [tx.id]);
+		if (pair) await recalculateAccountBalance(key, pair.accountId);
 		await recalculateAccountBalance(key, tx.accountId);
 		// A deleted payment must not keep an expected recurring payment marked as paid. (Transfers
 		// never match a schedule, so they skip the lookup.)
 		if (tx.type !== 'transfer') await releaseMatches(key, id).catch(() => 0);
-	},
-
-	/** Mirror of `deleteTransaction`: restoring one leg of a transfer restores both. */
-	async restoreTransaction(key: CryptoKey, id: string): Promise<void> {
-		const tx = await TransactionRepository.getById(key, id);
-		if (!tx) {
-			await TransactionRepository.restore(key, id);
-			return;
-		}
-		const pair = tx.transferPairId
-			? await TransactionRepository.getById(key, tx.transferPairId)
-			: null;
-		if (pair && pair.deletedAt !== null) {
-			const now = Date.now();
-			await TransactionRepository.writeAtomic(key, [
-				{ transaction: { ...tx, deletedAt: null, updatedAt: now } },
-				{ transaction: { ...pair, deletedAt: null, updatedAt: now } }
-			]);
-			await recalculateAccountBalance(key, pair.accountId);
-		} else {
-			await TransactionRepository.restore(key, id);
-		}
-		await recalculateAccountBalance(key, tx.accountId);
-		// The restored payment can claim its expected recurring payment again.
-		if (tx.type !== 'transfer') await rematchTransaction(key, { ...tx, deletedAt: null });
 	},
 
 	/**
@@ -254,7 +217,7 @@ export const TransactionEngine = {
 		windowDays = 3
 	): Promise<Transaction[]> {
 		const tx = await TransactionRepository.getById(key, txId);
-		if (!tx || tx.deletedAt !== null) return [];
+		if (!tx) return [];
 		const nearby = await TransactionRepository.search(key, {
 			dateFrom: addDaysISO(tx.date, -windowDays),
 			dateTo: addDaysISO(tx.date, windowDays)
@@ -286,7 +249,7 @@ export const TransactionEngine = {
 		target: { accountId: string } | { transactionId: string }
 	): Promise<[Transaction, Transaction]> {
 		const tx = await TransactionRepository.getById(key, txId);
-		if (!tx || tx.deletedAt !== null) throw new Error('Transaction not found.');
+		if (!tx) throw new Error('Transaction not found.');
 		if (tx.transferPairId) throw new Error('This transaction is already part of a transfer.');
 		const link = await TransactionRepository.getLoanLink(key, txId);
 		if (tx.type === 'transfer' || link) {
@@ -301,7 +264,7 @@ export const TransactionEngine = {
 		let counterpart: Transaction;
 		if ('transactionId' in target) {
 			const other = await TransactionRepository.getById(key, target.transactionId);
-			if (!other || other.deletedAt !== null) {
+			if (!other) {
 				throw new Error('The matching transaction was not found.');
 			}
 			if (other.transferPairId || other.type === 'transfer') {
@@ -331,7 +294,7 @@ export const TransactionEngine = {
 				throw new Error('A transfer must be between two different accounts.');
 			}
 			const account = await AccountRepository.getById(key, target.accountId);
-			if (!account || account.deletedAt !== null) throw new Error('Account not found.');
+			if (!account) throw new Error('Account not found.');
 			counterpart = {
 				id: crypto.randomUUID(),
 				accountId: target.accountId,
@@ -345,8 +308,7 @@ export const TransactionEngine = {
 				reviewStatus: 'confirmed',
 				duplicateOfId: null,
 				createdAt: now,
-				updatedAt: now,
-				deletedAt: null
+				updatedAt: now
 			};
 		}
 

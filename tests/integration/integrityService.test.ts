@@ -3,7 +3,10 @@ import { db, type TransactionSplitRow } from '../../src/data/dexie/db';
 import { encryptRow } from '../../src/data/dexie/encryptedTable';
 import { AccountRepository } from '../../src/data/dexie/accountRepository';
 import { CategoryRepository } from '../../src/data/dexie/categoryRepository';
-import { TransactionRepository } from '../../src/data/dexie/transactionRepository';
+import {
+	TransactionRepository,
+	UNCATEGORIZED_CATEGORY_ID
+} from '../../src/data/dexie/transactionRepository';
 import { TransactionEngine } from '../../src/domain/transactions/transactionEngine';
 import {
 	checkIntegrity,
@@ -54,7 +57,8 @@ describe('data integrity check', () => {
 
 		const report = await checkIntegrity(key);
 		expect(report.issues).toEqual([]);
-		expect(report.checkedTransactions).toBe(3);
+		// The transfer (both legs) was deleted; only the expense is left to check.
+		expect(report.checkedTransactions).toBe(1);
 	});
 
 	it('reports a balance that has drifted, and repairBalances rebuilds it from the ledger', async () => {
@@ -111,35 +115,30 @@ describe('data integrity check', () => {
 		expect(found).toContain('unknown-category');
 	});
 
-	it('does not call a trashed category or account an orphan', async () => {
+	it('does not call a deleted category an orphan: its entries fall back to Uncategorized', async () => {
 		const category = await CategoryRepository.create(key, { name: 'Old' });
-		await TransactionEngine.recordTransaction(
+		const tx = await TransactionEngine.recordTransaction(
 			key,
 			{ accountId: savings, date: '2026-03-05', amount: -100, type: 'expense' },
 			[{ categoryId: category.id, amount: -100 }]
 		);
-		await CategoryRepository.softDelete(key, category.id);
+		await CategoryRepository.remove(key, category.id);
 		expect(await kinds()).toEqual([]);
+		expect((await TransactionRepository.getSplits(key, tx.id)).map((s) => s.categoryId)).toEqual([
+			UNCATEGORIZED_CATEGORY_ID
+		]);
 	});
 
-	it('reports a transfer whose other half is missing, mismatched, or alone in Trash', async () => {
-		const [outLeg, inLeg] = await TransactionEngine.recordTransfer(key, {
+	it('reports a transfer whose other half is missing', async () => {
+		const [, inLeg] = await TransactionEngine.recordTransfer(key, {
 			fromAccountId: checking,
 			toAccountId: savings,
 			amount: 1000,
 			date: '2026-03-06'
 		});
 
-		await TransactionRepository.softDelete(key, outLeg.id); // one leg only, bypassing the engine
-		let report = await checkIntegrity(key);
-		expect(report.issues.filter((i) => i.kind === 'broken-transfer')).toHaveLength(2);
-		expect(report.issues).toContainEqual(
-			expect.objectContaining({ reason: 'one-leg-in-trash', transactionId: inLeg.id })
-		);
-
-		await TransactionRepository.restore(key, outLeg.id);
-		await db.transactions.delete(inLeg.id);
-		report = await checkIntegrity(key);
+		await db.transactions.delete(inLeg.id); // one leg only, bypassing the engine
+		const report = await checkIntegrity(key);
 		expect(report.issues).toContainEqual(
 			expect.objectContaining({ kind: 'broken-transfer', reason: 'missing-other-leg' })
 		);

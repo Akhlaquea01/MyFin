@@ -137,21 +137,20 @@ describe('keyword (description contains) categorization rules', () => {
 			).rejects.toThrow(/at least 3/);
 		});
 
-		it('restoring a deleted keyword rule is refused while another live rule has the same keyword', async () => {
+		it('a deleted keyword rule frees its keyword for a new rule', async () => {
 			const old = await CategorizationRuleRepository.create(key, {
 				keyword: 'uber',
 				categoryId: transport
 			});
-			await CategorizationRuleRepository.softDelete(key, old.id);
-			await CategorizationRuleRepository.create(key, { keyword: 'UBER', categoryId: food });
-			await expect(CategorizationRuleRepository.restore(key, old.id)).rejects.toBeInstanceOf(
-				DuplicateRuleError
-			);
+			await CategorizationRuleRepository.remove(old.id);
+			await expect(
+				CategorizationRuleRepository.create(key, { keyword: 'UBER', categoryId: food })
+			).resolves.toBeDefined();
 		});
 
 		it('flags a keyword rule invalid once its category is deleted', async () => {
 			await CategorizationRuleRepository.create(key, { keyword: 'uber', categoryId: transport });
-			await CategoryRepository.softDelete(key, transport);
+			await CategoryRepository.remove(key, transport);
 			expect((await CategorizationRuleRepository.list(key))[0].isInvalid).toBe(true);
 		});
 
@@ -226,7 +225,7 @@ describe('keyword (description contains) categorization rules', () => {
 
 		it('skips a keyword rule whose category was deleted', async () => {
 			await CategorizationRuleRepository.create(key, { keyword: 'uber', categoryId: transport });
-			await CategoryRepository.softDelete(key, transport);
+			await CategoryRepository.remove(key, transport);
 			const tx = await recordExpense('uber ride');
 			expect((await categoryOf(tx.id)).categoryId).toBe(UNCATEGORIZED_CATEGORY_ID);
 		});

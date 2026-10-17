@@ -6,7 +6,6 @@ import {
 	type NetWorthSnapshotRow
 } from './db';
 import { putEncrypted, getDecrypted, decryptRows } from './encryptedTable';
-import { deletedAtIndex, NOT_DELETED } from './indexable';
 import type {
 	InvestmentHolding,
 	InvestmentType,
@@ -36,10 +35,9 @@ export const InvestmentHoldingRepository = {
 			units: input.units,
 			avgPrice: input.avgPrice,
 			createdAt: now,
-			updatedAt: now,
-			deletedAt: null
+			updatedAt: now
 		};
-		await putEncrypted(db.investmentHoldings, key, holding, { deletedAt: NOT_DELETED });
+		await putEncrypted(db.investmentHoldings, key, holding, {});
 		return holding;
 	},
 
@@ -59,42 +57,20 @@ export const InvestmentHoldingRepository = {
 		);
 		if (!existing) throw new Error(`InvestmentHolding ${id} not found`);
 		const updated: InvestmentHolding = { ...existing, ...changes, id, updatedAt: Date.now() };
-		await putEncrypted(db.investmentHoldings, key, updated, {
-			deletedAt: deletedAtIndex(updated.deletedAt)
-		});
+		await putEncrypted(db.investmentHoldings, key, updated, {});
 		return updated;
 	},
 
-	async softDelete(key: CryptoKey, id: string): Promise<void> {
-		const existing = await getDecrypted<InvestmentHoldingRow, InvestmentHolding>(
-			db.investmentHoldings,
-			key,
-			id
-		);
-		if (!existing) throw new Error(`InvestmentHolding ${id} not found`);
-		const updated = { ...existing, deletedAt: Date.now(), updatedAt: Date.now() };
-		await putEncrypted(db.investmentHoldings, key, updated, {
-			deletedAt: deletedAtIndex(updated.deletedAt)
+	/** Deletes the holding along with its recorded valuations. The ledger entries of its trades stay. */
+	async remove(id: string): Promise<void> {
+		await db.transaction('rw', db.investmentHoldings, db.investmentValuations, async () => {
+			await db.investmentValuations.where('holdingId').equals(id).delete();
+			await db.investmentHoldings.delete(id);
 		});
 	},
 
-	async restore(key: CryptoKey, id: string): Promise<void> {
-		await this.update(key, id, { deletedAt: null });
-	},
-
-	/** Deleted holdings, most recently deleted first - what Trash offers back. */
-	async listDeleted(key: CryptoKey): Promise<InvestmentHolding[]> {
-		const rows = await db.investmentHoldings
-			.filter((row) => row.deletedAt !== NOT_DELETED)
-			.toArray();
-		const holdings = await decryptRows<InvestmentHoldingRow, InvestmentHolding>(key, rows);
-		return holdings.sort((a, b) => (b.deletedAt ?? 0) - (a.deletedAt ?? 0));
-	},
-
 	async list(key: CryptoKey): Promise<InvestmentHolding[]> {
-		const rows = await db.investmentHoldings
-			.filter((row) => row.deletedAt === NOT_DELETED)
-			.toArray();
+		const rows = await db.investmentHoldings.toArray();
 		return decryptRows<InvestmentHoldingRow, InvestmentHolding>(key, rows);
 	}
 };
@@ -212,45 +188,31 @@ export const LiabilityRepository = {
 			linkedAccountId: input.linkedAccountId ?? null,
 			duplicateWarningDismissed: input.duplicateWarningDismissed ?? false,
 			createdAt: now,
-			updatedAt: now,
-			deletedAt: null
+			updatedAt: now
 		};
-		await putEncrypted(db.liabilities, key, liability, { deletedAt: NOT_DELETED });
+		await putEncrypted(db.liabilities, key, liability, {});
 		return liability;
 	},
 
 	async getById(key: CryptoKey, id: string): Promise<Liability | undefined> {
-		const liability = await getDecrypted<LiabilityRow, Liability>(db.liabilities, key, id);
-		return liability && liability.deletedAt === null ? liability : undefined;
+		return getDecrypted<LiabilityRow, Liability>(db.liabilities, key, id);
 	},
 
 	async update(key: CryptoKey, id: string, changes: Partial<Liability>): Promise<Liability> {
 		const existing = await getDecrypted<LiabilityRow, Liability>(db.liabilities, key, id);
 		if (!existing) throw new Error(`Liability ${id} not found`);
 		const updated: Liability = { ...existing, ...changes, id, updatedAt: Date.now() };
-		await putEncrypted(db.liabilities, key, updated, {
-			deletedAt: deletedAtIndex(updated.deletedAt)
-		});
+		await putEncrypted(db.liabilities, key, updated, {});
 		return updated;
 	},
 
-	async softDelete(key: CryptoKey, id: string): Promise<void> {
-		await this.update(key, id, { deletedAt: Date.now() });
-	},
-
-	async restore(key: CryptoKey, id: string): Promise<void> {
-		await this.update(key, id, { deletedAt: null });
-	},
-
-	/** Deleted liabilities, most recently deleted first - what Trash offers back. */
-	async listDeleted(key: CryptoKey): Promise<Liability[]> {
-		const rows = await db.liabilities.filter((row) => row.deletedAt !== NOT_DELETED).toArray();
-		const liabilities = await decryptRows<LiabilityRow, Liability>(key, rows);
-		return liabilities.sort((a, b) => (b.deletedAt ?? 0) - (a.deletedAt ?? 0));
+	/** Deletes the liability. The ledger entries of its payments stay, as ordinary expenses. */
+	async remove(id: string): Promise<void> {
+		await db.liabilities.delete(id);
 	},
 
 	async list(key: CryptoKey): Promise<Liability[]> {
-		const rows = await db.liabilities.filter((row) => row.deletedAt === NOT_DELETED).toArray();
+		const rows = await db.liabilities.toArray();
 		return decryptRows<LiabilityRow, Liability>(key, rows);
 	}
 };

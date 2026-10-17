@@ -17,7 +17,6 @@ function liability(overrides: Partial<Liability> & { id: string }): Liability {
 		minimumPayment: null,
 		createdAt: 0,
 		updatedAt: 0,
-		deletedAt: null,
 		...overrides
 	};
 }

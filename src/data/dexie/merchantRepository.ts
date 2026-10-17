@@ -1,6 +1,5 @@
 import { db, type MerchantRow, type MerchantAliasRow } from './db';
 import { putEncrypted, getDecrypted, decryptRows } from './encryptedTable';
-import { deletedAtIndex, NOT_DELETED } from './indexable';
 import { blindIndex } from '../crypto/cryptoService';
 import { getBlindIndexSalt } from './blindIndexSalt';
 import type { Merchant, MerchantAlias } from '../../domain/entities';
@@ -12,10 +11,9 @@ export const MerchantRepository = {
 			id: crypto.randomUUID(),
 			name,
 			createdAt: now,
-			updatedAt: now,
-			deletedAt: null
+			updatedAt: now
 		};
-		await putEncrypted(db.merchants, key, merchant, { deletedAt: NOT_DELETED });
+		await putEncrypted(db.merchants, key, merchant, {});
 		return merchant;
 	},
 
@@ -24,7 +22,7 @@ export const MerchantRepository = {
 	},
 
 	async list(key: CryptoKey): Promise<Merchant[]> {
-		const rows = await db.merchants.filter((row) => row.deletedAt === NOT_DELETED).toArray();
+		const rows = await db.merchants.toArray();
 		return decryptRows<MerchantRow, Merchant>(key, rows);
 	},
 
@@ -32,9 +30,7 @@ export const MerchantRepository = {
 		const existing = await this.getById(key, id);
 		if (!existing) throw new Error(`Merchant ${id} not found`);
 		const updated: Merchant = { ...existing, name, updatedAt: Date.now() };
-		await putEncrypted(db.merchants, key, updated, {
-			deletedAt: deletedAtIndex(updated.deletedAt)
-		});
+		await putEncrypted(db.merchants, key, updated, {});
 		return updated;
 	},
 
@@ -52,9 +48,7 @@ export const MerchantRepository = {
 			subscriptionDismissed: dismissed,
 			updatedAt: Date.now()
 		};
-		await putEncrypted(db.merchants, key, updated, {
-			deletedAt: deletedAtIndex(updated.deletedAt)
-		});
+		await putEncrypted(db.merchants, key, updated, {});
 		return updated;
 	}
 };

@@ -1,7 +1,7 @@
 import { db } from '../dexie/db';
 import { clearAllTables } from '../dexie/clearAllTables';
 import { encryptRow, decryptRows, getDecrypted } from '../dexie/encryptedTable';
-import { deletedAtIndex, nullableIdIndex } from '../dexie/indexable';
+import { nullableIdIndex } from '../dexie/indexable';
 import {
 	encrypt,
 	decrypt,
@@ -15,6 +15,7 @@ import { migrateFromV1_1 } from './migrations/v1_1';
 import { migrateFromV1_2 } from './migrations/v1_2';
 import { migrateFromV1_3 } from './migrations/v1_3';
 import { migrateFromV1_4 } from './migrations/v1_4';
+import { migrateFromV1_5 } from './migrations/v1_5';
 import type {
 	AccountRow,
 	CategoryRow,
@@ -82,7 +83,7 @@ import type {
 
 const CONTAINER = 'personal-finance-manager-backup';
 const CONTAINER_VERSION = 1;
-export const CURRENT_SCHEMA_VERSION = '1.4.0';
+export const CURRENT_SCHEMA_VERSION = '1.5.0';
 const PREFERENCE_ID = 'local-user';
 
 /** A join-table row kept verbatim (unencrypted by design; see db.ts). */
@@ -146,7 +147,8 @@ const MIGRATIONS: Record<string, (payload: BackupPayload) => BackupPayload> = {
 	'1.1.0': migrateFromV1_1,
 	'1.2.0': migrateFromV1_2,
 	'1.3.0': migrateFromV1_3,
-	'1.4.0': migrateFromV1_4
+	'1.4.0': migrateFromV1_4,
+	'1.5.0': migrateFromV1_5
 };
 
 /** Gathers every entity behind the encryption boundary into one plaintext payload. Exported for
@@ -425,24 +427,15 @@ export async function restoreBackup(key: CryptoKey, payload: BackupPayload): Pro
 		personLoanRepaymentRows,
 		savedFilterViewRows
 	] = await Promise.all([
-		Promise.all(
-			e.accounts.map((a) =>
-				encryptRow<AccountRow, Account>(key, a, { deletedAt: deletedAtIndex(a.deletedAt) })
-			)
-		),
+		Promise.all(e.accounts.map((a) => encryptRow<AccountRow, Account>(key, a, {}))),
 		Promise.all(
 			e.categories.map((c) =>
 				encryptRow<CategoryRow, Category>(key, c, {
-					parentId: nullableIdIndex(c.parentId),
-					deletedAt: deletedAtIndex(c.deletedAt)
+					parentId: nullableIdIndex(c.parentId)
 				})
 			)
 		),
-		Promise.all(
-			e.merchants.map((m) =>
-				encryptRow<MerchantRow, Merchant>(key, m, { deletedAt: deletedAtIndex(m.deletedAt) })
-			)
-		),
+		Promise.all(e.merchants.map((m) => encryptRow<MerchantRow, Merchant>(key, m, {}))),
 		Promise.all(
 			e.merchantAliases.map(async (a) =>
 				encryptRow<MerchantAliasRow, MerchantAlias>(key, a, {
@@ -461,7 +454,6 @@ export async function restoreBackup(key: CryptoKey, payload: BackupPayload): Pro
 				encryptRow<TransactionRow, Transaction>(key, t, {
 					accountId: t.accountId,
 					date: t.date,
-					deletedAt: deletedAtIndex(t.deletedAt),
 					reviewStatus: t.reviewStatus,
 					duplicateOfId: nullableIdIndex(t.duplicateOfId),
 					transferPairId: nullableIdIndex(t.transferPairId)
@@ -479,8 +471,7 @@ export async function restoreBackup(key: CryptoKey, payload: BackupPayload): Pro
 		Promise.all(
 			e.budgets.map((b) =>
 				encryptRow<BudgetRow, Budget>(key, b, {
-					categoryId: b.categoryId,
-					deletedAt: deletedAtIndex(b.deletedAt)
+					categoryId: b.categoryId
 				})
 			)
 		),
@@ -513,9 +504,7 @@ export async function restoreBackup(key: CryptoKey, payload: BackupPayload): Pro
 		),
 		Promise.all(
 			e.investmentHoldings.map((h) =>
-				encryptRow<InvestmentHoldingRow, InvestmentHolding>(key, h, {
-					deletedAt: deletedAtIndex(h.deletedAt)
-				})
+				encryptRow<InvestmentHoldingRow, InvestmentHolding>(key, h, {})
 			)
 		),
 		Promise.all(
@@ -526,11 +515,7 @@ export async function restoreBackup(key: CryptoKey, payload: BackupPayload): Pro
 				})
 			)
 		),
-		Promise.all(
-			e.liabilities.map((l) =>
-				encryptRow<LiabilityRow, Liability>(key, l, { deletedAt: deletedAtIndex(l.deletedAt) })
-			)
-		),
+		Promise.all(e.liabilities.map((l) => encryptRow<LiabilityRow, Liability>(key, l, {}))),
 		Promise.all(
 			e.netWorthSnapshots.map((s) =>
 				encryptRow<NetWorthSnapshotRow, NetWorthSnapshot>(key, s, { date: s.date })
@@ -543,11 +528,7 @@ export async function restoreBackup(key: CryptoKey, payload: BackupPayload): Pro
 					{}
 				)
 			: Promise.resolve(null),
-		Promise.all(
-			e.savingsGoals.map((g) =>
-				encryptRow<SavingsGoalRow, SavingsGoal>(key, g, { deletedAt: deletedAtIndex(g.deletedAt) })
-			)
-		),
+		Promise.all(e.savingsGoals.map((g) => encryptRow<SavingsGoalRow, SavingsGoal>(key, g, {}))),
 		Promise.all(
 			e.goalContributions.map((c) =>
 				encryptRow<GoalContributionRow, GoalContribution>(key, c, {
@@ -574,8 +555,7 @@ export async function restoreBackup(key: CryptoKey, payload: BackupPayload): Pro
 		Promise.all(
 			e.categorizationRules.map((r) =>
 				encryptRow<CategorizationRuleRow, CategorizationRule>(key, r, {
-					merchantId: r.merchantId,
-					deletedAt: deletedAtIndex(r.deletedAt)
+					merchantId: r.merchantId
 				})
 			)
 		),
@@ -584,18 +564,13 @@ export async function restoreBackup(key: CryptoKey, payload: BackupPayload): Pro
 				encryptRow<MerchantCategorySignalRow, MerchantCategorySignal>(key, s, {})
 			)
 		),
-		Promise.all(
-			e.people.map((p) =>
-				encryptRow<PersonRow, Person>(key, p, { deletedAt: deletedAtIndex(p.deletedAt) })
-			)
-		),
+		Promise.all(e.people.map((p) => encryptRow<PersonRow, Person>(key, p, {}))),
 		Promise.all(
 			e.personLoans.map((l) =>
 				encryptRow<PersonLoanRow, PersonLoan>(key, l, {
 					personId: l.personId,
 					accountId: l.accountId,
-					direction: l.direction,
-					deletedAt: deletedAtIndex(l.deletedAt)
+					direction: l.direction
 				})
 			)
 		),
@@ -603,8 +578,7 @@ export async function restoreBackup(key: CryptoKey, payload: BackupPayload): Pro
 			e.personLoanRepayments.map((r) =>
 				encryptRow<PersonLoanRepaymentRow, LoanRepayment>(key, r, {
 					loanId: r.loanId,
-					accountId: r.accountId,
-					deletedAt: deletedAtIndex(r.deletedAt)
+					accountId: r.accountId
 				})
 			)
 		),

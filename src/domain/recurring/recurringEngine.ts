@@ -138,7 +138,7 @@ export async function matchTransaction(
 	categoryId: string | null
 ): Promise<ExpectedEvent | null> {
 	if (!categoryId) return null;
-	if (transaction.type === 'transfer' || transaction.deletedAt !== null) return null;
+	if (transaction.type === 'transfer') return null;
 	const rules = await RecurringRepository.list(key);
 	const candidateRules = rules.filter(
 		(r) =>
@@ -211,7 +211,7 @@ export async function releaseMatches(
 
 /**
  * Re-evaluates a transaction against the recurring schedule after something about it changed
- * (confirmed from Review with a category, edited, restored from Trash): frees whatever it was
+ * (confirmed from Review with a category, edited): frees whatever it was
  * matched to, then matches it afresh. Best effort — never throws, so it can never fail the edit or
  * confirmation that triggered it.
  */
@@ -221,7 +221,7 @@ export async function rematchTransaction(
 ): Promise<ExpectedEvent | null> {
 	try {
 		await releaseMatches(key, transaction.id);
-		if (transaction.deletedAt !== null || transaction.type === 'transfer') return null;
+		if (transaction.type === 'transfer') return null;
 		const splits = await TransactionRepository.getSplits(key, transaction.id);
 		for (const split of splits) {
 			const matched = await matchTransaction(key, transaction, split.categoryId);

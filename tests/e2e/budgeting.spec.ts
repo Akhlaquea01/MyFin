@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { acceptConfirm } from './helpers';
+import { acceptConfirm, dismissConfirm } from './helpers';
 
 // User Story 5 (P5): set a budget, record matching spend, verify actual-vs-planned.
 
@@ -116,15 +116,18 @@ test('editing and deleting a budget behaves correctly, including the past-month 
 	await expect(page.getByText('of ₹100.00')).toBeVisible();
 	await expect(page.getByText('of ₹200.00')).toHaveCount(0);
 
-	// Back to today: delete with confirm, then undo.
+	// Back to today: delete with confirm. Declining keeps it; accepting removes it for good.
 	await page.getByRole('button', { name: 'Today' }).click();
 	await page.getByRole('button', { name: 'Dining budget actions' }).click();
 	await page.getByRole('menuitem', { name: 'Delete' }).click();
-	await acceptConfirm(page);
-	await expect(page.getByText('of ₹200.00')).toHaveCount(0);
-
-	await page.getByRole('button', { name: 'Undo' }).click();
+	await dismissConfirm(page);
 	await expect(page.getByText('of ₹200.00')).toBeVisible();
+
+	await page.getByRole('button', { name: 'Dining budget actions' }).click();
+	await page.getByRole('menuitem', { name: 'Delete' }).click();
+	await acceptConfirm(page, 'cannot be undone');
+	await expect(page.getByText('of ₹200.00')).toHaveCount(0);
+	await expect(page.getByRole('button', { name: 'Undo' })).toHaveCount(0);
 });
 
 // User Story 4 (spec 019, P2): envelope rollover 'full' mode carries an overspend deficit into

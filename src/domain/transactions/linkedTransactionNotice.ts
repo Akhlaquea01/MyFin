@@ -20,7 +20,7 @@ export function linkedTransactionNotice(link: TransactionLink): LinkedTransactio
 	if (link.kind === 'investment-trade') {
 		return {
 			message:
-				'This entry is a purchase or sale on the Investments page, so it is managed there. Open the holding\'s Edit dialog and use "Undo" on its latest trade to reverse it (restore the holding from Trash first if it was deleted).',
+				'This entry is a purchase or sale on the Investments page, so it is managed there. Open the holding\'s Edit dialog and use "Undo" on its latest trade to reverse it.',
 			to: '/investments',
 			linkLabel: 'Go to Investments',
 			subject: 'investment purchase or sale'

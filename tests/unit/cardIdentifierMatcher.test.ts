@@ -14,7 +14,6 @@ function account(overrides: Partial<Account> = {}): Account {
 		isArchived: false,
 		createdAt: 0,
 		updatedAt: 0,
-		deletedAt: null,
 		...overrides
 	};
 }

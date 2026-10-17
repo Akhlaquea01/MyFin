@@ -89,7 +89,7 @@ describe('TransactionEngine', () => {
 		expect(toAfter?.currentBalance).toBe(30000);
 	});
 
-	it('recalculates the balance again after a transaction is deleted', async () => {
+	it('recalculates the balance after a transaction is deleted', async () => {
 		const account = await AccountRepository.create(key, {
 			name: 'Checking',
 			type: 'bank',
@@ -104,10 +104,9 @@ describe('TransactionEngine', () => {
 			type: 'expense'
 		});
 
+		expect((await AccountRepository.getById(key, account.id))?.currentBalance).toBe(-5000);
+
 		await TransactionEngine.deleteTransaction(key, tx.id);
 		expect((await AccountRepository.getById(key, account.id))?.currentBalance).toBe(0);
-
-		await TransactionEngine.restoreTransaction(key, tx.id);
-		expect((await AccountRepository.getById(key, account.id))?.currentBalance).toBe(-5000);
 	});
 });

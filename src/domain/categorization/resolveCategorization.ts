@@ -16,8 +16,7 @@ async function nonStaleRules(
 	const results = await Promise.all(
 		rules.map(async (rule) => {
 			const category = await CategoryRepository.getById(key, rule.categoryId);
-			const stale = !category || category.deletedAt !== null;
-			return stale ? null : rule;
+			return category ? rule : null;
 		})
 	);
 	return results.filter((rule): rule is CategorizationRule => rule !== null);
@@ -49,7 +48,7 @@ export interface CategorizationResolver {
  * so a resolver must not outlive the rule edits it would otherwise have seen.
  *
  * Precedence, most to least specific — an explicit rule always beats a guess (FR-005), and a rule
- * whose target category was soft-deleted never applies (FR-009):
+ * whose target category was deleted never applies (FR-009):
  *   1. a rule for this exact alias of the merchant, then a merchant-wide rule;
  *   2. a keyword rule matching the description or merchant name (longest keyword wins);
  *   3. a learned suggestion from the merchant's confirmation streak.
@@ -81,7 +80,7 @@ export async function createCategorizationResolver(
 				const suggested = signal ? deriveSuggestion(signal.recentCategoryIds) : null;
 				if (!suggested) return null;
 				const category = await CategoryRepository.getById(key, suggested);
-				return category && category.deletedAt === null ? suggested : null;
+				return category ? suggested : null;
 			})();
 			suggestionByMerchant.set(merchantId, cached);
 		}
@@ -204,7 +203,7 @@ export async function listSuggestions(
 		const categoryId = deriveSuggestion(signal.recentCategoryIds);
 		if (!categoryId) continue;
 		const category = await CategoryRepository.getById(key, categoryId);
-		if (!category || category.deletedAt !== null) continue;
+		if (!category) continue;
 		results.push({ merchantId: signal.id, categoryId });
 	}
 	return results;

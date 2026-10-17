@@ -69,8 +69,7 @@ describe('templateService - Fresh install import (User Story 2)', () => {
 						billingCycleDay: null,
 						isArchived: false,
 						createdAt: 1000,
-						updatedAt: 1000,
-						deletedAt: null
+						updatedAt: 1000
 					}
 				],
 				categories: [
@@ -80,8 +79,7 @@ describe('templateService - Fresh install import (User Story 2)', () => {
 						parentId: null,
 						icon: 'utensils',
 						createdAt: 1000,
-						updatedAt: 1000,
-						deletedAt: null
+						updatedAt: 1000
 					},
 					{
 						id: 'old-cat-child',
@@ -89,8 +87,7 @@ describe('templateService - Fresh install import (User Story 2)', () => {
 						parentId: 'old-cat-parent',
 						icon: 'shopping-cart',
 						createdAt: 1000,
-						updatedAt: 1000,
-						deletedAt: null
+						updatedAt: 1000
 					}
 				],
 				merchants: [
@@ -98,8 +95,7 @@ describe('templateService - Fresh install import (User Story 2)', () => {
 						id: 'old-merch-1',
 						name: 'Supermarket',
 						createdAt: 1000,
-						updatedAt: 1000,
-						deletedAt: null
+						updatedAt: 1000
 					}
 				],
 				merchantAliases: [
@@ -126,8 +122,7 @@ describe('templateService - Fresh install import (User Story 2)', () => {
 						type: 'mutual_fund',
 						costBasis: 50000,
 						createdAt: 1000,
-						updatedAt: 1000,
-						deletedAt: null
+						updatedAt: 1000
 					}
 				],
 				investmentValuations: [],
@@ -168,8 +163,7 @@ describe('templateService - Fresh install import (User Story 2)', () => {
 						reviewStatus: 'confirmed',
 						duplicateOfId: null,
 						createdAt: 1000,
-						updatedAt: 1000,
-						deletedAt: null
+						updatedAt: 1000
 					}
 				],
 				transactionSplits: [
@@ -263,8 +257,7 @@ describe('templateService - Fresh install import (User Story 2)', () => {
 						billingCycleDay: null,
 						isArchived: false,
 						createdAt: 1000,
-						updatedAt: 1000,
-						deletedAt: null
+						updatedAt: 1000
 					}
 				],
 				categories: [],
@@ -338,8 +331,7 @@ describe('templateService - Fresh install import (User Story 2)', () => {
 						billingCycleDay: null,
 						isArchived: false,
 						createdAt: 1000,
-						updatedAt: 1000,
-						deletedAt: null
+						updatedAt: 1000
 					}
 				],
 				categories: [
@@ -349,8 +341,7 @@ describe('templateService - Fresh install import (User Story 2)', () => {
 						parentId: null,
 						icon: null,
 						createdAt: 1000,
-						updatedAt: 1000,
-						deletedAt: null
+						updatedAt: 1000
 					}
 				],
 				merchants: [],
@@ -363,8 +354,7 @@ describe('templateService - Fresh install import (User Story 2)', () => {
 						type: 'Stock',
 						costBasis: 100000,
 						createdAt: 1000,
-						updatedAt: 1000,
-						deletedAt: null
+						updatedAt: 1000
 					}
 				],
 				investmentValuations: [],
@@ -419,8 +409,7 @@ describe('templateService - Fresh install import (User Story 2)', () => {
 						reviewStatus: 'confirmed',
 						duplicateOfId: null,
 						createdAt: 1000,
-						updatedAt: 1000,
-						deletedAt: null
+						updatedAt: 1000
 					}
 				],
 				transactionSplits: [
@@ -460,8 +449,7 @@ describe('templateService - Fresh install import (User Story 2)', () => {
 						billingCycleDay: null,
 						isArchived: false,
 						createdAt: 1000,
-						updatedAt: 1000,
-						deletedAt: null
+						updatedAt: 1000
 					}
 				],
 				categories: [],
@@ -510,8 +498,7 @@ describe('templateService - Fresh install import (User Story 2)', () => {
 						reviewStatus: 'confirmed',
 						duplicateOfId: null,
 						createdAt: 1000,
-						updatedAt: 1000,
-						deletedAt: null
+						updatedAt: 1000
 					},
 					{
 						id: 'old-tx-repayment',
@@ -526,8 +513,7 @@ describe('templateService - Fresh install import (User Story 2)', () => {
 						reviewStatus: 'confirmed',
 						duplicateOfId: null,
 						createdAt: 1000,
-						updatedAt: 1000,
-						deletedAt: null
+						updatedAt: 1000
 					}
 				],
 				transactionSplits: [],
@@ -539,8 +525,7 @@ describe('templateService - Fresh install import (User Story 2)', () => {
 						name: 'Alex',
 						notes: null,
 						createdAt: 1000,
-						updatedAt: 1000,
-						deletedAt: null
+						updatedAt: 1000
 					}
 				],
 				personLoans: [
@@ -557,8 +542,7 @@ describe('templateService - Fresh install import (User Story 2)', () => {
 						writeOffAmount: 0,
 						writeOffAt: null,
 						createdAt: 1000,
-						updatedAt: 1000,
-						deletedAt: null
+						updatedAt: 1000
 					}
 				],
 				loanRepayments: [
@@ -570,8 +554,7 @@ describe('templateService - Fresh install import (User Story 2)', () => {
 						accountId: 'old-acc-1',
 						transactionId: 'old-tx-repayment',
 						createdAt: 1000,
-						updatedAt: 1000,
-						deletedAt: null
+						updatedAt: 1000
 					}
 				],
 				savedFilterViews: [
@@ -661,8 +644,7 @@ describe('templateService - Fresh install import (User Story 2)', () => {
 						cardNickname: 'Primary Card',
 						isArchived: false,
 						createdAt: 1000,
-						updatedAt: 1000,
-						deletedAt: null
+						updatedAt: 1000
 					}
 				],
 				categories: [],
@@ -684,8 +666,7 @@ describe('templateService - Fresh install import (User Story 2)', () => {
 						linkedAccountId: 'old-acc-1',
 						duplicateWarningDismissed: false,
 						createdAt: 1000,
-						updatedAt: 1000,
-						deletedAt: null
+						updatedAt: 1000
 					}
 				],
 				netWorthSnapshots: [],
@@ -733,8 +714,7 @@ describe('templateService - Fresh install import (User Story 2)', () => {
 						parentId: null,
 						icon: null,
 						createdAt: 1000,
-						updatedAt: 1000,
-						deletedAt: null
+						updatedAt: 1000
 					}
 				],
 				merchants: [
@@ -742,8 +722,7 @@ describe('templateService - Fresh install import (User Story 2)', () => {
 						id: 'old-merch-1',
 						name: 'Cafe Bloom',
 						createdAt: 1000,
-						updatedAt: 1000,
-						deletedAt: null
+						updatedAt: 1000
 					}
 				],
 				merchantAliases: [],

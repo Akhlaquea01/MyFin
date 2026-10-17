@@ -104,7 +104,7 @@ describe('correcting and removing investments', () => {
 
 		it('will not edit a holding that has been deleted', async () => {
 			const holding = await newHolding();
-			await InvestmentHoldingRepository.softDelete(key, holding.id);
+			await InvestmentHoldingRepository.remove(holding.id);
 			await expect(
 				editHolding(key, holding.id, { name: 'X', type: 'stock', units: 1, avgPrice: 1 })
 			).rejects.toThrow(/not found/);
@@ -213,19 +213,15 @@ describe('correcting and removing investments', () => {
 	});
 
 	describe('deleting a holding', () => {
-		it('removes it from the list and from net worth, and Undo brings it back', async () => {
+		it('removes it from the list and from net worth, along with its recorded values', async () => {
 			const holding = await newHolding();
 			await recordValuation(key, holding.id, { date: '2026-03-01', value: 150_000 });
 			expect((await computeNetWorth(key)).investments.subtotal).toBe(150_000);
 
-			await InvestmentHoldingRepository.softDelete(key, holding.id);
+			await InvestmentHoldingRepository.remove(holding.id);
 			expect(await InvestmentHoldingRepository.list(key)).toEqual([]);
 			expect((await computeNetWorth(key)).investments.subtotal).toBe(0);
-
-			await InvestmentHoldingRepository.restore(key, holding.id);
-			expect((await InvestmentHoldingRepository.list(key)).map((h) => h.id)).toEqual([holding.id]);
-			// Its recorded values were never touched.
-			expect((await computeNetWorth(key)).investments.subtotal).toBe(150_000);
+			expect(await InvestmentValuationRepository.list(key)).toEqual([]);
 		});
 	});
 });

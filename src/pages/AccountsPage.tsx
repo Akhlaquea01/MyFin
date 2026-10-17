@@ -33,6 +33,7 @@ import {
 	DropdownMenuTrigger
 } from '../components/ui/dropdown-menu';
 import { useSession } from '../context/SessionContext';
+import { useConfirm } from '../lib/confirm';
 import { AccountRepository } from '../data/dexie/accountRepository';
 import { TransactionEngine } from '../domain/transactions/transactionEngine';
 import type { Account, AccountType } from '../domain/entities';
@@ -125,6 +126,7 @@ export function AccountsPage() {
 	const { getEncryptionKey } = useSession();
 	const key = getEncryptionKey();
 	const navigate = useNavigate();
+	const confirm = useConfirm();
 
 	const [accounts, setAccounts] = useState<Account[]>([]);
 	const [loading, setLoading] = useState(true);
@@ -314,21 +316,19 @@ export function AccountsPage() {
 	}
 
 	async function deleteAccount(account: Account) {
+		const confirmed = await confirm({
+			message: `Delete the ${account.name} account? This cannot be undone.`,
+			confirmLabel: 'Delete account',
+			destructive: true
+		});
+		if (!confirmed) return;
 		try {
-			await AccountRepository.softDelete(key, account.id);
-			toast.success(`${account.name} moved to trash`, {
-				duration: 10_000,
-				action: {
-					label: 'Undo',
-					onClick: () => {
-						void AccountRepository.restore(key, account.id).then(refresh);
-					}
-				}
-			});
+			await AccountRepository.remove(account.id);
+			toast.success(`${account.name} deleted`);
 			await refresh();
 		} catch (err) {
 			const message = err instanceof Error ? err.message : 'Could not delete account.';
-			if (/active transactions/i.test(message)) {
+			if (/still has transactions/i.test(message)) {
 				// A bare refusal is a dead end; say what the way out is.
 				toast.error(
 					`${account.name} still has transactions, so it can't be deleted. Delete or move them first — or, if its balance is zero, archive it instead.`,

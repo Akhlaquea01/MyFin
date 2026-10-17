@@ -28,17 +28,14 @@ describe('SavingsGoalRepository + GoalContributionRepository against Dexie', () 
 		expect(updated.targetAmount).toBe(1200000);
 	});
 
-	it('soft-deletes and restores a goal, excluding/including it from list()', async () => {
+	it('removes a goal from list()', async () => {
 		const goal = await SavingsGoalRepository.create(key, {
 			name: 'Vacation',
 			targetAmount: 500000,
 			targetDate: null
 		});
-		await SavingsGoalRepository.softDelete(key, goal.id);
+		await SavingsGoalRepository.remove(goal.id);
 		expect((await SavingsGoalRepository.list(key)).map((g) => g.id)).not.toContain(goal.id);
-
-		await SavingsGoalRepository.restore(key, goal.id);
-		expect((await SavingsGoalRepository.list(key)).map((g) => g.id)).toContain(goal.id);
 	});
 
 	it('logs, lists, and removes contributions for a goal', async () => {
@@ -85,23 +82,24 @@ describe('SavingsGoalRepository + GoalContributionRepository against Dexie', () 
 		).rejects.toThrow();
 	});
 
-	it("keeps a restored goal's prior contributions immediately visible again (research.md §4)", async () => {
+	it("removes a goal's contributions with it, and leaves other goals' alone", async () => {
 		const goal = await SavingsGoalRepository.create(key, {
 			name: 'New Laptop',
 			targetAmount: 800000,
 			targetDate: null
 		});
-		await GoalContributionRepository.create(key, {
-			goalId: goal.id,
-			amount: 50000,
-			date: '2026-01-01'
+		const other = await SavingsGoalRepository.create(key, {
+			name: 'Bike',
+			targetAmount: 100000,
+			targetDate: null
 		});
+		for (const goalId of [goal.id, other.id]) {
+			await GoalContributionRepository.create(key, { goalId, amount: 50000, date: '2026-01-01' });
+		}
 
-		await SavingsGoalRepository.softDelete(key, goal.id);
-		await SavingsGoalRepository.restore(key, goal.id);
+		await SavingsGoalRepository.remove(goal.id);
 
-		const contributions = await GoalContributionRepository.listForGoal(key, goal.id);
-		expect(contributions).toHaveLength(1);
-		expect(contributions[0].amount).toBe(50000);
+		expect(await GoalContributionRepository.listForGoal(key, goal.id)).toEqual([]);
+		expect(await GoalContributionRepository.listForGoal(key, other.id)).toHaveLength(1);
 	});
 });

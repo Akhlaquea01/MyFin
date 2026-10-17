@@ -1,4 +1,5 @@
 import type { BackupPayload } from '../backupService';
+import { dropTrashed } from './dropTrashed';
 
 /**
  * Migrates a v1.2.0 payload forward to v1.3.0: spec 006 added auto-categorization rules and
@@ -7,7 +8,7 @@ import type { BackupPayload } from '../backupService';
  * "Compatibility policy": migrations are additive/forward only).
  */
 export function migrateFromV1_2(payload: BackupPayload): BackupPayload {
-	return {
+	return dropTrashed({
 		...payload,
 		exportedEntities: {
 			...payload.exportedEntities,
@@ -19,5 +20,5 @@ export function migrateFromV1_2(payload: BackupPayload): BackupPayload {
 			personLoanRepayments: payload.exportedEntities.personLoanRepayments ?? [],
 			savedFilterViews: payload.exportedEntities.savedFilterViews ?? []
 		}
-	};
+	});
 }

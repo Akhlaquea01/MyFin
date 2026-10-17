@@ -1,6 +1,5 @@
 import { db, type BudgetRow, type BudgetItemRow } from './db';
 import { putEncrypted, getDecrypted, decryptRows } from './encryptedTable';
-import { deletedAtIndex, NOT_DELETED } from './indexable';
 import type {
 	Budget,
 	BudgetItem,
@@ -29,13 +28,9 @@ export const BudgetRepository = {
 			isSinkingFund: input.isSinkingFund,
 			rolloverMode: input.rolloverMode,
 			createdAt: now,
-			updatedAt: now,
-			deletedAt: null
+			updatedAt: now
 		};
-		await putEncrypted(db.budgets, key, budget, {
-			categoryId: budget.categoryId,
-			deletedAt: NOT_DELETED
-		});
+		await putEncrypted(db.budgets, key, budget, { categoryId: budget.categoryId });
 		return budget;
 	},
 
@@ -43,54 +38,24 @@ export const BudgetRepository = {
 		const existing = await getDecrypted<BudgetRow, Budget>(db.budgets, key, id);
 		if (!existing) throw new Error(`Budget ${id} not found`);
 		const updated: Budget = { ...existing, ...changes, id, updatedAt: Date.now() };
-		await putEncrypted(db.budgets, key, updated, {
-			categoryId: updated.categoryId,
-			deletedAt: deletedAtIndex(updated.deletedAt)
-		});
+		await putEncrypted(db.budgets, key, updated, { categoryId: updated.categoryId });
 		return updated;
 	},
 
-	/** FR-013: a soft delete with a short undo window (via `restore`), matching
-	 *  `AccountRepository`/`LiabilityRepository`'s existing pattern. */
-	async softDelete(key: CryptoKey, id: string): Promise<void> {
-		await this.update(key, id, { deletedAt: Date.now() });
-	},
-
-	/**
-	 * Brings a deleted budget back - unless a newer live budget has taken its category in the
-	 * meantime. A category has one active budget (the create and edit forms enforce it); restoring
-	 * past that would leave two budgets counting the same spending twice.
-	 */
-	async restore(key: CryptoKey, id: string): Promise<void> {
-		const budget = await getDecrypted<BudgetRow, Budget>(db.budgets, key, id);
-		if (!budget) throw new Error(`Budget ${id} not found`);
-		const rivals = (await this.list(key)).filter(
-			(live) => live.id !== id && live.categoryId === budget.categoryId
-		);
-		if (rivals.length > 0) {
-			throw new Error(
-				'That category now has another active budget. Edit or delete that one first, then restore this.'
-			);
-		}
-		await this.update(key, id, { deletedAt: null });
-	},
-
-	/** Deleted budgets, most recently deleted first - what Trash offers back. */
-	async listDeleted(key: CryptoKey): Promise<Budget[]> {
-		const rows = await db.budgets.filter((row) => row.deletedAt !== NOT_DELETED).toArray();
-		const budgets = await decryptRows<BudgetRow, Budget>(key, rows);
-		return budgets.sort((a, b) => (b.deletedAt ?? 0) - (a.deletedAt ?? 0));
+	/** Deletes the budget along with its per-period items. */
+	async remove(id: string): Promise<void> {
+		await db.transaction('rw', db.budgets, db.budgetItems, async () => {
+			await db.budgetItems.where('budgetId').equals(id).delete();
+			await db.budgets.delete(id);
+		});
 	},
 
 	async getById(key: CryptoKey, id: string): Promise<Budget | null> {
 		return (await getDecrypted<BudgetRow, Budget>(db.budgets, key, id)) ?? null;
 	},
 
-	/** Excludes soft-deleted budgets by default (FR-013), matching every other soft-deletable
-	 *  repository's `list()` — `runNotificationCheck.ts`/`analyticsEngine.ts`/`templateService.ts`
-	 *  all transparently stop seeing a deleted budget through this same call. */
 	async list(key: CryptoKey): Promise<Budget[]> {
-		const rows = await db.budgets.where('deletedAt').equals(NOT_DELETED).toArray();
+		const rows = await db.budgets.toArray();
 		return decryptRows<BudgetRow, Budget>(key, rows);
 	}
 };

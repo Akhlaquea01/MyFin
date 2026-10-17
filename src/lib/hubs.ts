@@ -76,7 +76,6 @@ export const HUBS: Hub[] = [
 			{ to: '/notification-settings', label: 'Notifications' },
 			{ to: '/security', label: 'Security' },
 			{ to: '/auto-capture', label: 'Auto-capture', nativeOnly: true },
-			{ to: '/trash', label: 'Trash' },
 			{ to: '/about', label: 'About' }
 		]
 	}

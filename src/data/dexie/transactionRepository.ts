@@ -8,10 +8,8 @@ import {
 	type InvestmentHoldingRow
 } from './db';
 import { encryptRow, getDecrypted, decryptRows } from './encryptedTable';
-import { deletedAtIndex, nullableIdIndex, NOT_DELETED } from './indexable';
-import { AttachmentRepository } from './attachmentRepository';
+import { nullableIdIndex } from './indexable';
 import { TagRepository } from './tagRepository';
-import { linkedTransactionNotice } from '../../domain/transactions/linkedTransactionNotice';
 import { isValidIsoDate } from '../../domain/shared/dateMath';
 import {
 	normalizeTagText,
@@ -74,7 +72,6 @@ export interface TransactionFilter {
 	dateFrom?: string;
 	dateTo?: string;
 	freeText?: string;
-	includeDeleted?: boolean;
 }
 
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;
@@ -104,7 +101,6 @@ function toRow(tx: Transaction): Omit<TransactionRow, 'id' | 'encryptedData'> {
 	return {
 		accountId: tx.accountId,
 		date: tx.date,
-		deletedAt: deletedAtIndex(tx.deletedAt),
 		reviewStatus: tx.reviewStatus,
 		duplicateOfId: nullableIdIndex(tx.duplicateOfId),
 		transferPairId: nullableIdIndex(tx.transferPairId)
@@ -135,8 +131,7 @@ export const TransactionRepository = {
 			// keeps exactly the shape it always had.
 			...(input.capture ? { capture: input.capture } : {}),
 			createdAt: now,
-			updatedAt: now,
-			deletedAt: null
+			updatedAt: now
 		};
 
 		const resolvedSplits: SplitInput[] =
@@ -191,7 +186,7 @@ export const TransactionRepository = {
 		splits?: SplitInput[]
 	): Promise<Transaction> {
 		// Only a date being *changed* is checked, so an entry that already holds an odd date from an
-		// older import can still be confirmed, deleted or restored.
+		// older import can still be confirmed or deleted.
 		if (changes.date !== undefined) assertValidDate(changes.date);
 		const existing = await getDecrypted<TransactionRow, Transaction>(db.transactions, key, id);
 		if (!existing) throw new Error(`Transaction ${id} not found`);
@@ -255,62 +250,22 @@ export const TransactionRepository = {
 		return updated;
 	},
 
-	async softDelete(key: CryptoKey, id: string): Promise<void> {
-		await this.update(key, id, { deletedAt: Date.now() });
-	},
-
-	async restore(key: CryptoKey, id: string): Promise<void> {
-		await this.update(key, id, { deletedAt: null });
-	},
-
 	/**
-	 * Permanently deletes a transaction and everything scoped to it (splits, tags,
-	 * attachments) in one Dexie transaction — the first permanent-purge flow in this
-	 * codebase (research.md §5, spec 005), deliberately restricted to Transactions. Only
-	 * callable from Trash: throws if the transaction is not already soft-deleted, matching
-	 * Constitution Principle VI's "permanent purge requires explicit, separate user
-	 * confirmation" (the UI only ever offers this action from within Trash).
+	 * Permanently deletes transactions and everything scoped to them (splits, tags, attachments)
+	 * in one Dexie transaction. Takes several ids so a transfer's two legs go together or not at all.
+	 * Callers own the checks around it: a ledger entry that is half of a loan, liability payment or
+	 * investment trade must be reversed through the page that owns it (see `getLoanLink`), and
+	 * account balances and recurring matches are recomputed by `TransactionEngine.deleteTransaction`.
 	 */
-	async purge(key: CryptoKey, id: string): Promise<void> {
-		const existing = await getDecrypted<TransactionRow, Transaction>(db.transactions, key, id);
-		if (!existing) throw new Error(`Transaction ${id} not found`);
-		if (existing.deletedAt === null) {
-			throw new Error('Only a soft-deleted transaction can be permanently purged.');
-		}
-
-		// A transaction can be the sole anchor for a PersonLoan's principal movement or a
-		// LoanRepayment's movement (spec 010) — `transactionId` is never null on either, and
-		// neither has its own purge flow to cascade to.
-		const link = await this.getLoanLink(key, id);
-		if (link) {
-			throw new Error(
-				`This transaction is linked to a ${linkedTransactionNotice(link).subject} and cannot be permanently deleted.`
-			);
-		}
-
-		// A transfer is two legs deleted together, so it is purged together: purging only one would
-		// leave the other in Trash pointing at a row that no longer exists, and restoring it would
-		// put a one-sided movement back into the ledger.
-		const ids = [id];
-		if (existing.transferPairId) {
-			const pair = await getDecrypted<TransactionRow, Transaction>(
-				db.transactions,
-				key,
-				existing.transferPairId
-			);
-			if (pair && pair.deletedAt !== null) ids.push(pair.id);
-		}
-
+	async remove(ids: string[]): Promise<void> {
 		await db.transaction(
 			'rw',
 			[db.transactions, db.transactionSplits, db.transactionTags, db.attachments],
 			async () => {
-				for (const purgeId of ids) {
-					await db.transactions.delete(purgeId);
-					await db.transactionSplits.where('transactionId').equals(purgeId).delete();
-					await db.transactionTags.where('transactionId').equals(purgeId).delete();
-					await AttachmentRepository.purgeForTransaction(key, purgeId);
-				}
+				await db.transactionSplits.where('transactionId').anyOf(ids).delete();
+				await db.transactionTags.where('transactionId').anyOf(ids).delete();
+				await db.attachments.where('transactionId').anyOf(ids).delete();
+				await db.transactions.bulkDelete(ids);
 			}
 		);
 	},
@@ -338,7 +293,6 @@ export const TransactionRepository = {
 			decryptRows<PersonLoanRow, PersonLoan>(key, loanRows),
 			decryptRows<PersonLoanRepaymentRow, LoanRepayment>(key, repaymentRows),
 			decryptRows<LiabilityRow, Liability>(key, liabilityRows),
-			// Deleted holdings included: their trades' ledger entries are still theirs.
 			decryptRows<InvestmentHoldingRow, InvestmentHolding>(key, holdingRows)
 		]);
 		const loan = loans.find((l) => l.transactionId === id);
@@ -459,8 +413,7 @@ export const TransactionRepository = {
 			reviewStatus: 'confirmed',
 			duplicateOfId: null,
 			createdAt: now,
-			updatedAt: now,
-			deletedAt: null
+			updatedAt: now
 		});
 
 		const outTx = leg(outId, inId, params.fromAccountId, -Math.abs(params.amount));
@@ -516,18 +469,17 @@ export const TransactionRepository = {
 		const target = new Date(date).getTime();
 		const from = new Date(target - windowDays * ONE_DAY_MS).toISOString().slice(0, 10);
 		const to = new Date(target + windowDays * ONE_DAY_MS).toISOString().slice(0, 10);
-		const live = (row: TransactionRow) =>
-			row.deletedAt === NOT_DELETED && row.date >= from && row.date <= to;
+		const inWindow = (row: TransactionRow) => row.date >= from && row.date <= to;
 		const rows =
 			accountId === null
-				? await db.transactions.where('date').between(from, to, true, true).filter(live).toArray()
-				: await db.transactions.where('accountId').equals(accountId).filter(live).toArray();
+				? await db.transactions.where('date').between(from, to, true, true).toArray()
+				: await db.transactions.where('accountId').equals(accountId).filter(inWindow).toArray();
 		const candidates = await decryptRows<TransactionRow, Transaction>(key, rows);
 		return candidates.filter((tx) => tx.amount === amount);
 	},
 
 	/**
-	 * Live transactions whose first split is still the "Uncategorized" placeholder. Walks the
+	 * Transactions whose first split is still the "Uncategorized" placeholder. Walks the
 	 * indexed `categoryId` column on the splits table to find them, then loads only those parents —
 	 * so the cost follows the number of uncategorized entries, not the size of the ledger.
 	 *
@@ -547,9 +499,7 @@ export const TransactionRepository = {
 		if (ids.length === 0) return [];
 		const rows = (await db.transactions.bulkGet(ids)).filter(
 			(row): row is TransactionRow =>
-				!!row &&
-				row.deletedAt === NOT_DELETED &&
-				(!options.unreviewedOnly || row.reviewStatus === 'unreviewed')
+				!!row && (!options.unreviewedOnly || row.reviewStatus === 'unreviewed')
 		);
 		return decryptRows<TransactionRow, Transaction>(key, rows);
 	},
@@ -574,11 +524,7 @@ export const TransactionRepository = {
 	 * date fall back to id so the order (and so "Show more") is stable between loads.
 	 */
 	async listUnreviewed(key: CryptoKey, options: { limit?: number } = {}): Promise<Transaction[]> {
-		const rows = await db.transactions
-			.where('reviewStatus')
-			.equals('unreviewed')
-			.filter((row) => row.deletedAt === NOT_DELETED)
-			.toArray();
+		const rows = await db.transactions.where('reviewStatus').equals('unreviewed').toArray();
 		rows.sort((a, b) => b.date.localeCompare(a.date) || a.id.localeCompare(b.id));
 		const page = options.limit === undefined ? rows : rows.slice(0, Math.max(0, options.limit));
 		return decryptRows<TransactionRow, Transaction>(key, page);
@@ -594,7 +540,6 @@ export const TransactionRepository = {
 		const ids = (await db.transactions
 			.where('reviewStatus')
 			.equals('unreviewed')
-			.filter((row) => row.deletedAt === NOT_DELETED)
 			.primaryKeys()) as string[];
 		if (ids.length === 0) return [];
 		const splitRows = await db.transactionSplits.where('transactionId').anyOf(ids).toArray();
@@ -641,7 +586,6 @@ export const TransactionRepository = {
 		}
 		let rows = await collection.toArray();
 
-		if (!filter.includeDeleted) rows = rows.filter((r) => r.deletedAt === NOT_DELETED);
 		// Applied unconditionally: when `accountId` selected the index above, the date bounds
 		// have not been applied yet.
 		if (filter.dateFrom) rows = rows.filter((r) => r.date >= filter.dateFrom!);
@@ -685,18 +629,14 @@ export const TransactionRepository = {
 		return sortNewestFirst(transactions);
 	},
 
-	/** Counts live transactions off the index — no rows decrypted. */
-	async countActive(): Promise<number> {
-		return db.transactions.where('deletedAt').equals(NOT_DELETED).count();
+	/** Counts transactions straight off the table — no rows decrypted. */
+	async count(): Promise<number> {
+		return db.transactions.count();
 	},
 
 	/** Counts unreviewed transactions straight off the index — no rows decrypted. */
 	async countUnreviewed(): Promise<number> {
-		return db.transactions
-			.where('reviewStatus')
-			.equals('unreviewed')
-			.filter((row) => row.deletedAt === NOT_DELETED)
-			.count();
+		return db.transactions.where('reviewStatus').equals('unreviewed').count();
 	},
 
 	/**
@@ -706,15 +646,8 @@ export const TransactionRepository = {
 	 */
 	async listRecent(key: CryptoKey, limit: number): Promise<Transaction[]> {
 		if (limit <= 0) return [];
-		const rows: TransactionRow[] = [];
-		await db.transactions
-			.orderBy('date')
-			.reverse()
-			.until(() => rows.length >= limit)
-			.each((row) => {
-				if (row.deletedAt === NOT_DELETED) rows.push(row);
-			});
-		const transactions = await decryptRows<TransactionRow, Transaction>(key, rows.slice(0, limit));
+		const rows = await db.transactions.orderBy('date').reverse().limit(limit).toArray();
+		const transactions = await decryptRows<TransactionRow, Transaction>(key, rows);
 		return sortNewestFirst(transactions);
 	},
 

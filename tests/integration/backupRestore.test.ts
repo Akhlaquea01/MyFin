@@ -54,14 +54,6 @@ describe('Backup-then-restore round trip against Dexie', () => {
 			creditLimit: null,
 			billingCycleDay: null
 		});
-		const oldWallet = await AccountRepository.create(key, {
-			name: 'Old Wallet',
-			type: 'wallet',
-			openingBalance: 0,
-			creditLimit: null,
-			billingCycleDay: null
-		});
-		await AccountRepository.softDelete(key, oldWallet.id);
 
 		const groceries = await CategoryRepository.create(key, { name: 'Groceries' });
 		const tag = await TagRepository.getOrCreate(key, 'reimbursable');
@@ -107,12 +99,8 @@ describe('Backup-then-restore round trip against Dexie', () => {
 		await db.open();
 		await restoreBackup(restoreKey, payload);
 
-		// Active accounts list excludes the soft-deleted one by design, but it must still
-		// exist in the restored database (trash is data too, not a side effect to drop).
-		const activeAccounts = await AccountRepository.list(restoreKey);
-		expect(activeAccounts.map((a) => a.name)).toEqual(['Checking']);
-		const allAccountRows = await db.accounts.toArray();
-		expect(allAccountRows).toHaveLength(2);
+		const accounts = await AccountRepository.list(restoreKey);
+		expect(accounts.map((a) => a.name)).toEqual(['Checking']);
 
 		const transactions = await TransactionRepository.search(restoreKey, { accountId: checking.id });
 		expect(transactions).toHaveLength(1);

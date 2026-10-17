@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
 import { useQuickTour } from '../hooks/useQuickTour';
 
 const CAPABILITIES = [
-	'Encrypted double-sided ledger with split transactions & soft-delete recovery',
+	'Encrypted double-sided ledger with split transactions',
 	'Debt payoff planner (snowball / avalanche / custom)',
 	'Savings goals with pace projection',
 	'Recurring bills & budget threshold notifications',

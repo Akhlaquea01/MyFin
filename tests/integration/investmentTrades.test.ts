@@ -204,11 +204,6 @@ describe('investment trades that move money', () => {
 				kind: 'investment-trade',
 				holdingId: h.id
 			});
-			// And so it cannot be permanently deleted from Trash either.
-			await TransactionEngine.deleteTransaction(key, txId);
-			await expect(TransactionRepository.purge(key, txId)).rejects.toThrow(
-				/investment purchase or sale/
-			);
 		});
 
 		it('is an ordinary entry again once the trade list is cleared by editing the numbers', async () => {
@@ -331,7 +326,7 @@ describe('investment trades that move money', () => {
 			expect(undone).toMatchObject({ units: 10, avgPrice: 10_000, trades: [] });
 		});
 
-		it('puts the account entry back if the holding cannot be restored', async () => {
+		it('leaves the account entry alone if the holding cannot be put back', async () => {
 			const h = await holding();
 			const bought = await recordPurchase(key, h.id, {
 				units: 5,
@@ -344,6 +339,26 @@ describe('investment trades that move money', () => {
 
 			expect(await balance()).toBe(1_000_000 - 60_000); // the money is still out, as the holding says
 			expect((await fresh(h.id)).trades).toHaveLength(1);
+		});
+
+		it('puts the holding back if the account entry cannot be deleted', async () => {
+			const h = await holding();
+			const bought = await recordPurchase(key, h.id, {
+				units: 5,
+				price: 12_000,
+				accountId: checkingId
+			});
+			vi.spyOn(TransactionEngine, 'deleteTransaction').mockRejectedValueOnce(
+				new Error('disk full')
+			);
+
+			await expect(undoLatestTrade(key, h.id, bought.trades![0].id)).rejects.toThrow('disk full');
+
+			expect(await balance()).toBe(1_000_000 - 60_000);
+			expect(await fresh(h.id)).toMatchObject({
+				units: 15,
+				trades: [expect.objectContaining({ id: bought.trades![0].id })]
+			});
 		});
 	});
 });

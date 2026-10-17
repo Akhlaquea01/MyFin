@@ -103,7 +103,7 @@ test('re-entering today’s value corrects it, and a wrong recorded value can be
 	await expect(cardFor(page, 'Gold')).toContainText('500.00');
 });
 
-test('a holding can be deleted, and Undo brings it back', async ({ page }) => {
+test('a holding can be deleted for good', async ({ page }) => {
 	await onboard(page, '707073');
 	await addHolding(page, 'BEL', 'Stock', '10', '100');
 	await addHolding(page, 'Gold', 'Other', '1', '500');
@@ -116,14 +116,11 @@ test('a holding can be deleted, and Undo brings it back', async ({ page }) => {
 	await expect(cardFor(page, 'BEL')).toBeVisible();
 
 	await page.getByRole('button', { name: 'Delete BEL' }).click();
-	await acceptConfirm(page, 'Delete BEL?');
+	await acceptConfirm(page, 'Delete BEL and its recorded values?');
 	await expect(page.getByText('BEL deleted')).toBeVisible();
 	await expect(page.getByRole('button', { name: 'Edit BEL' })).toHaveCount(0);
 	// It stops counting toward the portfolio.
 	await expect(summary).toContainText('500.00');
 	await expect(summary).not.toContainText('1,500.00');
-
-	await page.getByRole('button', { name: 'Undo' }).click();
-	await expect(page.getByRole('button', { name: 'Edit BEL' })).toBeVisible();
-	await expect(summary).toContainText('1,500.00');
+	await expect(page.getByRole('button', { name: 'Undo' })).toHaveCount(0);
 });

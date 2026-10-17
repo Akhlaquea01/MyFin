@@ -11,7 +11,7 @@ import {
 import type { Category } from '../../src/domain/entities';
 
 function cat(id: string, name: string, parentId: string | null = null): Category {
-	return { id, name, parentId, icon: null, createdAt: 0, updatedAt: 0, deletedAt: null };
+	return { id, name, parentId, icon: null, createdAt: 0, updatedAt: 0 };
 }
 
 const food = cat('food', 'Food');

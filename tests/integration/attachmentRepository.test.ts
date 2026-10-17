@@ -3,7 +3,6 @@ import { db } from '../../src/data/dexie/db';
 import { AttachmentRepository } from '../../src/data/dexie/attachmentRepository';
 import { TransactionRepository } from '../../src/data/dexie/transactionRepository';
 import { AccountRepository } from '../../src/data/dexie/accountRepository';
-import { PersonRepository, PersonLoanRepository } from '../../src/data/dexie/personLoanRepository';
 import { deriveEncryptionKey, randomSaltBase64 } from '../../src/data/crypto/cryptoService';
 
 describe('AttachmentRepository + TransactionRepository.purge against Dexie', () => {
@@ -94,12 +93,7 @@ describe('AttachmentRepository + TransactionRepository.purge against Dexie', () 
 		expect(counts[withoutAttachment]).toBeUndefined();
 	});
 
-	it('TransactionRepository.purge rejects an active (non-soft-deleted) transaction', async () => {
-		const transactionId = await makeTransaction();
-		await expect(TransactionRepository.purge(key, transactionId)).rejects.toThrow();
-	});
-
-	it('TransactionRepository.purge hard-deletes the transaction, its splits, tags, and attachments', async () => {
+	it('TransactionRepository.remove deletes the transaction, its splits, tags, and attachments', async () => {
 		const transactionId = await makeTransaction();
 		await AttachmentRepository.create(key, {
 			transactionId,
@@ -108,33 +102,11 @@ describe('AttachmentRepository + TransactionRepository.purge against Dexie', () 
 			sizeBytes: 7
 		});
 
-		await TransactionRepository.softDelete(key, transactionId);
-		await TransactionRepository.purge(key, transactionId);
+		await TransactionRepository.remove([transactionId]);
 
 		expect(await TransactionRepository.getById(key, transactionId)).toBeNull();
 		expect(await AttachmentRepository.listForTransaction(key, transactionId)).toEqual([]);
 		expect(await db.transactionSplits.where('transactionId').equals(transactionId).count()).toBe(0);
 		expect(await db.transactionTags.where('transactionId').equals(transactionId).count()).toBe(0);
-	});
-
-	it('TransactionRepository.purge refuses to delete a transaction still anchoring a PersonLoan', async () => {
-		const person = await PersonRepository.create(key, { name: 'Alex' });
-		const loan = await PersonLoanRepository.create(key, {
-			personId: person.id,
-			direction: 'lent',
-			principalAmount: 5000,
-			date: '2026-01-01',
-			dueDate: null,
-			notes: null,
-			accountId
-		});
-
-		await TransactionRepository.softDelete(key, loan.transactionId);
-		await expect(TransactionRepository.purge(key, loan.transactionId)).rejects.toThrow(
-			/person loan or repayment/
-		);
-
-		// Refused, not partially applied — the transaction (still soft-deleted) survives intact.
-		expect(await TransactionRepository.getById(key, loan.transactionId)).not.toBeNull();
 	});
 });
