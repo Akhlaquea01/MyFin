@@ -151,10 +151,16 @@ export const TransactionEngine = {
 
 		// Best-effort recurring-event matching (FR-030): try each split's category until
 		// one matches a pending expected event. Never blocks/fails the transaction itself.
-		const txSplits = await TransactionRepository.getSplits(key, tx.id);
-		for (const split of txSplits) {
-			const matched = await matchTransaction(key, tx, split.categoryId);
-			if (matched) break;
+		try {
+			const txSplits = await TransactionRepository.getSplits(key, tx.id);
+			for (const split of txSplits) {
+				const matched = await matchTransaction(key, tx, split.categoryId);
+				if (matched) break;
+			}
+		} catch {
+			// The entry is already saved. A failure in this convenience must not surface as "could not
+			// save", which invites a retry and a duplicate (and, for a deferred-balance import, skips
+			// the balance recalculation the caller owes).
 		}
 
 		// After the automatic matching, so a bill the user named is the one that ends up marked paid.
@@ -245,7 +251,7 @@ export const TransactionEngine = {
 		}
 		// A changed amount, date, account or category can make it match a different expected
 		// payment — or stop matching the one it had.
-		await rematchTransaction(key, updated);
+		await rematchTransaction(key, updated, before?.date);
 		return updated;
 	},
 
@@ -268,7 +274,7 @@ export const TransactionEngine = {
 		await recalculateAccountBalance(key, tx.accountId);
 		// A deleted payment must not keep an expected recurring payment marked as paid. (Transfers
 		// never match a schedule, so they skip the lookup.)
-		if (tx.type !== 'transfer') await releaseMatches(key, id).catch(() => 0);
+		if (tx.type !== 'transfer') await releaseMatches(key, id, undefined, [tx.date]).catch(() => 0);
 	},
 
 	/**
@@ -348,8 +354,12 @@ export const TransactionEngine = {
 			if (await TransactionRepository.getLoanLink(key, other.id)) {
 				throw new Error('The matching transaction belongs to a loan or liability record.');
 			}
+			// The entry stops being spending, so what it did as a savings or bill entry is undone, as
+			// it is for the entry being converted below.
+			if (other.purpose) await clearPurpose(key, other, other.purpose);
 			counterpart = {
 				...other,
+				purpose: null,
 				type: 'transfer',
 				transferPairId: tx.id,
 				reviewStatus: 'confirmed',
@@ -403,8 +413,10 @@ export const TransactionEngine = {
 		]);
 		await recalculateAccountBalance(key, converted.accountId);
 		await recalculateAccountBalance(key, counterpart.accountId);
-		// No longer an expense/income, so it can no longer be the payment a schedule was waiting for.
-		await releaseMatches(key, converted.id).catch(() => 0);
+		// No longer an expense/income, so it can no longer be the payment a schedule was waiting for —
+		// on either leg.
+		await releaseMatches(key, converted.id, undefined, [converted.date]).catch(() => 0);
+		await releaseMatches(key, counterpart.id, undefined, [counterpart.date]).catch(() => 0);
 		return [converted, counterpart];
 	},
 

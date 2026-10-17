@@ -26,6 +26,7 @@ import {
 	SelectValue
 } from '../components/ui/select';
 import { useSession } from '../context/SessionContext';
+import { detachPurposeTarget } from '../domain/transactions/purposeEngine';
 import { LiabilityRepository } from '../data/dexie/wealthRepository';
 import { AccountRepository } from '../data/dexie/accountRepository';
 import { CategoryRepository } from '../data/dexie/categoryRepository';
@@ -191,6 +192,7 @@ export function LiabilitiesPage() {
 		if (!confirmed) return;
 		try {
 			await LiabilityRepository.remove(liability.id);
+			await detachPurposeTarget(key, 'debt', liability.id);
 			toast.success(`${liability.name} deleted`);
 			await refresh();
 		} catch (err) {

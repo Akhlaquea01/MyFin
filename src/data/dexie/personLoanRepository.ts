@@ -1,6 +1,7 @@
 import { db, type PersonRow, type PersonLoanRow, type PersonLoanRepaymentRow } from './db';
 import { putEncrypted, getDecrypted, decryptRows } from './encryptedTable';
 import { TransactionEngine } from '../../domain/transactions/transactionEngine';
+import { TransactionRepository } from './transactionRepository';
 import {
 	computePendingBalance,
 	validateRepaymentAmount,
@@ -76,6 +77,19 @@ function movementNote(direction: LoanDirection, personName: string, isRepayment:
 	return direction === 'lent' ? `Repayment from ${personName}` : `Repayment to ${personName}`;
 }
 
+/**
+ * Deletes the ledger movement behind a loan or repayment, if it is still there. Tolerates it being
+ * gone already: removal deletes the loan/repayment record FIRST and the movement second, so that a
+ * failure in between leaves a visible, deletable ledger entry rather than a loan whose principal
+ * movement has vanished (which would count the money twice). A retry must not then be refused
+ * because the movement it was about to delete no longer exists.
+ */
+async function deleteMovement(key: CryptoKey, transactionId: string): Promise<void> {
+	if (await TransactionRepository.getById(key, transactionId)) {
+		await TransactionEngine.deleteTransaction(key, transactionId);
+	}
+}
+
 export const PersonLoanRepository = {
 	async create(
 		key: CryptoKey,
@@ -129,11 +143,18 @@ export const PersonLoanRepository = {
 			createdAt: now,
 			updatedAt: now
 		};
-		await putEncrypted(db.personLoans, key, loan, {
-			personId: loan.personId,
-			accountId: loan.accountId,
-			direction: loan.direction
-		});
+		try {
+			await putEncrypted(db.personLoans, key, loan, {
+				personId: loan.personId,
+				accountId: loan.accountId,
+				direction: loan.direction
+			});
+		} catch (err) {
+			// The movement is already in the ledger; without its loan it would be money that moved for no
+			// recorded reason. Take it back out (best effort) and report the original failure.
+			await TransactionEngine.deleteTransaction(key, tx.id).catch(() => undefined);
+			throw err;
+		}
 		return loan;
 	},
 
@@ -238,8 +259,9 @@ export const PersonLoanRepository = {
 		for (const repayment of await LoanRepaymentRepository.listForLoan(key, id)) {
 			await LoanRepaymentRepository.remove(key, repayment.id);
 		}
-		await TransactionEngine.deleteTransaction(key, loan.transactionId);
+		// The record first, its ledger movement second — see `deleteMovement`.
 		await db.personLoans.delete(id);
+		await deleteMovement(key, loan.transactionId);
 	},
 
 	async getById(key: CryptoKey, id: string): Promise<PersonLoan | undefined> {
@@ -305,10 +327,16 @@ export const LoanRepaymentRepository = {
 			createdAt: now,
 			updatedAt: now
 		};
-		await putEncrypted(db.personLoanRepayments, key, repayment, {
-			loanId: repayment.loanId,
-			accountId: repayment.accountId
-		});
+		try {
+			await putEncrypted(db.personLoanRepayments, key, repayment, {
+				loanId: repayment.loanId,
+				accountId: repayment.accountId
+			});
+		} catch (err) {
+			// As for a new loan: do not leave a movement in the ledger that no repayment explains.
+			await TransactionEngine.deleteTransaction(key, tx.id).catch(() => undefined);
+			throw err;
+		}
 		return repayment;
 	},
 
@@ -374,8 +402,9 @@ export const LoanRepaymentRepository = {
 			id
 		);
 		if (!existing) return;
-		await TransactionEngine.deleteTransaction(key, existing.transactionId);
+		// The record first, its ledger movement second — see `deleteMovement`.
 		await db.personLoanRepayments.delete(id);
+		await deleteMovement(key, existing.transactionId);
 	},
 
 	async listForLoan(key: CryptoKey, loanId: string): Promise<LoanRepayment[]> {

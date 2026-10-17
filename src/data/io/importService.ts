@@ -396,126 +396,131 @@ export async function importRows(
 	// matching, not just from an explicit `accountColumn` mapping.
 	let usedCardMatching = false;
 
-	for (let i = 0; i < rows.length; i++) {
-		const row = rows[i];
-		const rowNumber = i + 2; // header is row 1
+	// Balances are deferred per row (the recalculation is O(account size)), so they are brought up to
+	// date here whatever happens: a row that fails part-way used to leave the rows already created with
+	// no balance recalculation at all, so the account disagreed with its own ledger until the next edit.
+	try {
+		for (let i = 0; i < rows.length; i++) {
+			const row = rows[i];
+			const rowNumber = i + 2; // header is row 1
 
-		// Yield to the event loop periodically so a large import doesn't freeze the tab, and
-		// report progress so the user sees something happening.
-		if (i > 0 && i % PROGRESS_INTERVAL === 0) {
-			onProgress?.(i, rows.length);
-			await new Promise((resolve) => setTimeout(resolve, 0));
-		}
+			// Yield to the event loop periodically so a large import doesn't freeze the tab, and
+			// report progress so the user sees something happening.
+			if (i > 0 && i % PROGRESS_INTERVAL === 0) {
+				onProgress?.(i, rows.length);
+				await new Promise((resolve) => setTimeout(resolve, 0));
+			}
 
-		// Resolve the row's destination account (FR-002/FR-003/FR-004). A blank or unresolved
-		// value is skipped and reported — it never falls back to `mapping.accountId`.
-		let txAccountId: string;
-		if (mapping.accountColumn) {
-			const rawValue = row[mapping.accountColumn] ?? '';
-			if (!rawValue.trim()) {
-				result.skippedMalformedRows.push({ rowNumber, reason: 'Account column is empty.' });
+			// Resolve the row's destination account (FR-002/FR-003/FR-004). A blank or unresolved
+			// value is skipped and reported — it never falls back to `mapping.accountId`.
+			let txAccountId: string;
+			if (mapping.accountColumn) {
+				const rawValue = row[mapping.accountColumn] ?? '';
+				if (!rawValue.trim()) {
+					result.skippedMalformedRows.push({ rowNumber, reason: 'Account column is empty.' });
+					continue;
+				}
+				const resolvedAccount = resolveAccountForRow(rawValue, accounts);
+				if (!resolvedAccount) {
+					result.skippedMalformedRows.push({
+						rowNumber,
+						reason: `Account "${rawValue.trim()}" not found.`
+					});
+					continue;
+				}
+				txAccountId = resolvedAccount.id;
+			} else {
+				// FR-020/FR-021/FR-024: when no explicit account column is mapped, a single tagged-
+				// card identifier detected in this row's description overrides the file-level
+				// fallback; an ambiguous or unmatched row falls back to it unchanged (never blocks).
+				let cardMatchedAccountId: string | null = null;
+				if (mapping.descriptionColumn) {
+					const cellText = row[mapping.descriptionColumn] ?? '';
+					// A line like "CREDIT CARD PAYMENT XX1234" on a BANK statement names the card but is not a
+					// card transaction: routing it to the card recorded the payment as an expense ON the card
+					// (the debt went up) and left the bank balance untouched. It stays on the account the file
+					// belongs to; Review then offers "Record as transfer" with the card suggested.
+					const rowMatches = detectCardPayment(cellText) ? [] : findCardMatches(cellText, accounts);
+					const distinctIds = [...new Set(rowMatches.map((m) => m.accountId))];
+					if (distinctIds.length === 1) cardMatchedAccountId = distinctIds[0];
+				}
+				if (cardMatchedAccountId) usedCardMatching = true;
+				txAccountId = cardMatchedAccountId ?? mapping.accountId;
+			}
+
+			const dateIso = parseDateWithFormat(row[mapping.dateColumn] ?? '', mapping.dateFormat);
+			if (!dateIso) {
+				result.skippedMalformedRows.push({ rowNumber, reason: 'Unparseable date.' });
 				continue;
 			}
-			const resolvedAccount = resolveAccountForRow(rawValue, accounts);
-			if (!resolvedAccount) {
+			const amount = parseAmount(row, mapping);
+			if (!amount) {
+				result.skippedMalformedRows.push({ rowNumber, reason: 'Unparseable amount.' });
+				continue;
+			}
+			if (amount.amountPaise === 0) {
+				// Distinct from the malformed case above: this amount parsed correctly as zero (e.g. a
+				// reversed/void entry), which is intentionally excluded rather than a sign the column
+				// mapping is wrong.
 				result.skippedMalformedRows.push({
 					rowNumber,
-					reason: `Account "${rawValue.trim()}" not found.`
+					reason: 'Zero-amount transactions are not imported.'
 				});
 				continue;
 			}
-			txAccountId = resolvedAccount.id;
-		} else {
-			// FR-020/FR-021/FR-024: when no explicit account column is mapped, a single tagged-
-			// card identifier detected in this row's description overrides the file-level
-			// fallback; an ambiguous or unmatched row falls back to it unchanged (never blocks).
-			let cardMatchedAccountId: string | null = null;
-			if (mapping.descriptionColumn) {
-				const cellText = row[mapping.descriptionColumn] ?? '';
-				// A line like "CREDIT CARD PAYMENT XX1234" on a BANK statement names the card but is not a
-				// card transaction: routing it to the card recorded the payment as an expense ON the card
-				// (the debt went up) and left the bank balance untouched. It stays on the account the file
-				// belongs to; Review then offers "Record as transfer" with the card suggested.
-				const rowMatches = detectCardPayment(cellText) ? [] : findCardMatches(cellText, accounts);
-				const distinctIds = [...new Set(rowMatches.map((m) => m.accountId))];
-				if (distinctIds.length === 1) cardMatchedAccountId = distinctIds[0];
+
+			const duplicateIndex = await duplicateIndexFor(txAccountId);
+			const notes = mapping.descriptionColumn ? (row[mapping.descriptionColumn] ?? null) : null;
+			const rowRef = notes ? extractRefNo(notes) : null;
+			const duplicateOfId =
+				findDuplicateId(duplicateIndex, dateIso, amount.amountPaise) ??
+				(rowRef ? (duplicateIndex.get(referenceKey(rowRef, amount.amountPaise)) ?? null) : null);
+			// Auto-categorization (spec 006, FR-002) needs a resolved Merchant to match rules/
+			// suggestions against. The raw description is normalized first: bank descriptions carry
+			// per-transaction reference numbers, so passing them verbatim created one Merchant and
+			// one MerchantAlias per row, which defeated both the alias model and the learning signal.
+			const merchantText = notes ? normalizeMerchantText(notes) : null;
+			const resolved = merchantText ? await resolveMerchant(key, merchantText) : null;
+
+			const created = await TransactionEngine.recordTransaction(
+				key,
+				{
+					accountId: txAccountId,
+					date: dateIso,
+					amount: amount.amountPaise,
+					type: amount.amountPaise >= 0 ? 'income' : 'expense',
+					notes,
+					merchantId: resolved?.merchantId ?? null,
+					merchantAliasId: resolved?.aliasId ?? null,
+					source: 'file_import',
+					reviewStatus: 'unreviewed',
+					duplicateOfId
+				},
+				[],
+				// Recalculated once below instead of once per row: the recalculation is O(account
+				// size), so doing it per row made an N-row import cost ~N^2/2 decryptions.
+				{ deferBalance: true, categorizer }
+			);
+			duplicateIndex.set(duplicateKey(dateIso, amount.amountPaise), created.id);
+			touchedAccountIds.add(txAccountId);
+
+			result.createdCount++;
+			if (duplicateOfId) {
+				result.flaggedDuplicates.push({ rowNumber, existingTransactionId: duplicateOfId });
 			}
-			if (cardMatchedAccountId) usedCardMatching = true;
-			txAccountId = cardMatchedAccountId ?? mapping.accountId;
+			if (mapping.accountColumn || usedCardMatching) {
+				result.perAccountSummary ??= {};
+				const accountName = accounts.find((a) => a.id === txAccountId)?.name ?? txAccountId;
+				const entry = (result.perAccountSummary[txAccountId] ??= { count: 0, accountName });
+				entry.count++;
+			}
 		}
-
-		const dateIso = parseDateWithFormat(row[mapping.dateColumn] ?? '', mapping.dateFormat);
-		if (!dateIso) {
-			result.skippedMalformedRows.push({ rowNumber, reason: 'Unparseable date.' });
-			continue;
+	} finally {
+		// Recalculate balance once per touched account (research.md §5) — not once per row, and
+		// not just for `mapping.accountId`, since a multi-account import can touch several.
+		for (const accountId of touchedAccountIds) {
+			await TransactionEngine.recalculateAccountBalance(key, accountId);
 		}
-		const amount = parseAmount(row, mapping);
-		if (!amount) {
-			result.skippedMalformedRows.push({ rowNumber, reason: 'Unparseable amount.' });
-			continue;
-		}
-		if (amount.amountPaise === 0) {
-			// Distinct from the malformed case above: this amount parsed correctly as zero (e.g. a
-			// reversed/void entry), which is intentionally excluded rather than a sign the column
-			// mapping is wrong.
-			result.skippedMalformedRows.push({
-				rowNumber,
-				reason: 'Zero-amount transactions are not imported.'
-			});
-			continue;
-		}
-
-		const duplicateIndex = await duplicateIndexFor(txAccountId);
-		const notes = mapping.descriptionColumn ? (row[mapping.descriptionColumn] ?? null) : null;
-		const rowRef = notes ? extractRefNo(notes) : null;
-		const duplicateOfId =
-			findDuplicateId(duplicateIndex, dateIso, amount.amountPaise) ??
-			(rowRef ? (duplicateIndex.get(referenceKey(rowRef, amount.amountPaise)) ?? null) : null);
-		// Auto-categorization (spec 006, FR-002) needs a resolved Merchant to match rules/
-		// suggestions against. The raw description is normalized first: bank descriptions carry
-		// per-transaction reference numbers, so passing them verbatim created one Merchant and
-		// one MerchantAlias per row, which defeated both the alias model and the learning signal.
-		const merchantText = notes ? normalizeMerchantText(notes) : null;
-		const resolved = merchantText ? await resolveMerchant(key, merchantText) : null;
-
-		const created = await TransactionEngine.recordTransaction(
-			key,
-			{
-				accountId: txAccountId,
-				date: dateIso,
-				amount: amount.amountPaise,
-				type: amount.amountPaise >= 0 ? 'income' : 'expense',
-				notes,
-				merchantId: resolved?.merchantId ?? null,
-				merchantAliasId: resolved?.aliasId ?? null,
-				source: 'file_import',
-				reviewStatus: 'unreviewed',
-				duplicateOfId
-			},
-			[],
-			// Recalculated once below instead of once per row: the recalculation is O(account
-			// size), so doing it per row made an N-row import cost ~N^2/2 decryptions.
-			{ deferBalance: true, categorizer }
-		);
-		duplicateIndex.set(duplicateKey(dateIso, amount.amountPaise), created.id);
-		touchedAccountIds.add(txAccountId);
-
-		result.createdCount++;
-		if (duplicateOfId) {
-			result.flaggedDuplicates.push({ rowNumber, existingTransactionId: duplicateOfId });
-		}
-		if (mapping.accountColumn || usedCardMatching) {
-			result.perAccountSummary ??= {};
-			const accountName = accounts.find((a) => a.id === txAccountId)?.name ?? txAccountId;
-			const entry = (result.perAccountSummary[txAccountId] ??= { count: 0, accountName });
-			entry.count++;
-		}
-	}
-
-	// Recalculate balance once per touched account (research.md §5) — not once per row, and
-	// not just for `mapping.accountId`, since a multi-account import can touch several.
-	for (const accountId of touchedAccountIds) {
-		await TransactionEngine.recalculateAccountBalance(key, accountId);
 	}
 	onProgress?.(rows.length, rows.length);
 	return result;

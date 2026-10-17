@@ -106,7 +106,11 @@ export function AutoCapturePage() {
 				const suggested = nonCard.length === 1 ? nonCard[0] : accts.length === 1 ? accts[0] : null;
 				setSmsOn(saved?.sms ?? true);
 				setNotificationsOn(saved?.notifications ?? true);
-				setDefaultAccountId(saved?.defaultAccountId ?? suggested?.id ?? '');
+				// A saved default that has since been deleted or archived is not offered back as if it still
+				// worked: messages cannot be filed there, so the page asks for a new one.
+				const savedId = saved?.defaultAccountId ?? null;
+				const savedStillUsable = savedId !== null && accts.some((a) => a.id === savedId);
+				setDefaultAccountId(savedStillUsable ? savedId : savedId ? '' : (suggested?.id ?? ''));
 				setLoaded(true);
 			}
 		} catch {
@@ -139,6 +143,9 @@ export function AutoCapturePage() {
 	// Any account can be the default: messages that name an account or card by its digits are filed
 	// there regardless, and a card-only user has nothing else to pick.
 	const eligibleAccounts = accounts;
+	// Kept for two different reasons: read fine but nowhere to file them, or not understood.
+	const unfiled = unreadable.filter((item) => item.reason === 'no-account');
+	const unread = unreadable.filter((item) => item.reason !== 'no-account');
 	const enabled = !!settings?.enabled;
 	const ignoredTotal = Object.values(settings?.ignoredCounts ?? {}).reduce((a, b) => a + b, 0);
 	const sdk = status?.sdkInt ?? 0;
@@ -207,8 +214,12 @@ export function AutoCapturePage() {
 
 	async function dismissAllUnreadable() {
 		try {
-			await UnreadableCaptureRepository.clear();
-			setUnreadable([]);
+			// Only the ones that could not be read: those waiting for an account are not "dismissed" by
+			// this, they are filed as soon as there is somewhere to put them.
+			for (const item of unreadable.filter((u) => u.reason !== 'no-account')) {
+				await UnreadableCaptureRepository.remove(item.id);
+			}
+			setUnreadable((prev) => prev.filter((u) => u.reason === 'no-account'));
 		} catch {
 			toast.error('Could not clear the list.');
 		}
@@ -459,7 +470,7 @@ export function AutoCapturePage() {
 							<p className="text-muted-foreground">
 								{settings?.unreadableCount} message(s) looked like transactions but could not be
 								read.
-								{unreadable.length > 0
+								{unread.length > 0
 									? ' The ones MyFin could open are listed below so you can add them by hand.'
 									: ' Add any you recognise by hand or with Quick Add.'}
 							</p>
@@ -493,7 +504,45 @@ export function AutoCapturePage() {
 				</Card>
 			)}
 
-			{unreadable.length > 0 && (
+			{unfiled.length > 0 && (
+				<Card className="border-amber-500/60">
+					<CardHeader>
+						<CardTitle>Messages waiting for an account</CardTitle>
+						<CardDescription>
+							These were understood, but no account matched them and there is no default account to
+							put them in. Choose a default account above and they are filed automatically the next
+							time MyFin checks.
+						</CardDescription>
+					</CardHeader>
+					<CardContent className="flex flex-col gap-3">
+						{unfiled.map((item) => (
+							<div key={item.id} className="flex flex-col gap-2 rounded-md border p-3 text-sm">
+								<p className="text-xs text-muted-foreground">
+									{item.sender} · {new Date(item.receivedAt).toLocaleString()}
+								</p>
+								<p className="break-words whitespace-pre-wrap">{item.text}</p>
+								<div className="flex flex-wrap gap-2">
+									<Button size="sm" variant="ghost" onClick={() => void dismissUnreadable(item.id)}>
+										Discard
+									</Button>
+								</div>
+							</div>
+						))}
+						<div>
+							<Button
+								size="sm"
+								variant="outline"
+								disabled={filingNow}
+								onClick={() => void fileNow()}
+							>
+								{filingNow ? 'Filing…' : 'Try filing them now'}
+							</Button>
+						</div>
+					</CardContent>
+				</Card>
+			)}
+
+			{unread.length > 0 && (
 				<Card>
 					<CardHeader>
 						<CardTitle>Messages MyFin could not read</CardTitle>
@@ -504,7 +553,7 @@ export function AutoCapturePage() {
 						</CardDescription>
 					</CardHeader>
 					<CardContent className="flex flex-col gap-3">
-						{unreadable.map((item) => (
+						{unread.map((item) => (
 							<div key={item.id} className="flex flex-col gap-2 rounded-md border p-3 text-sm">
 								<p className="text-xs text-muted-foreground">
 									{item.sender} · {new Date(item.receivedAt).toLocaleString()}

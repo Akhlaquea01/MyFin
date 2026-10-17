@@ -35,6 +35,7 @@ import {
 import { useSession } from '../context/SessionContext';
 import { useConfirm } from '../lib/confirm';
 import { AccountRepository } from '../data/dexie/accountRepository';
+import { deleteAccount as removeAccount } from '../domain/accounts/accountDeletion';
 import { TransactionEngine } from '../domain/transactions/transactionEngine';
 import type { Account, AccountType } from '../domain/entities';
 import { isValidMoney, parseMoneyOrZero, formatMoney } from '../domain/shared/money';
@@ -323,12 +324,17 @@ export function AccountsPage() {
 		});
 		if (!confirmed) return;
 		try {
-			await AccountRepository.remove(account.id);
+			await removeAccount(key, account.id);
 			toast.success(`${account.name} deleted`);
 			await refresh();
 		} catch (err) {
 			const message = err instanceof Error ? err.message : 'Could not delete account.';
-			if (/still has transactions/i.test(message)) {
+			if (/still has recurring payments/i.test(message)) {
+				toast.error(
+					`${account.name} still has recurring payments, so it can't be deleted. Delete them, or move them to another account, first.`,
+					{ action: { label: 'Open Recurring', onClick: () => navigate('/recurring') } }
+				);
+			} else if (/still has transactions/i.test(message)) {
 				// A bare refusal is a dead end; say what the way out is.
 				toast.error(
 					`${account.name} still has transactions, so it can't be deleted. Delete or move them first — or, if its balance is zero, archive it instead.`,
@@ -663,7 +669,28 @@ export function AccountsPage() {
 								control={editForm.control}
 								name="type"
 								render={({ field }) => (
-									<Select value={field.value} onValueChange={field.onChange}>
+									<Select
+										value={field.value}
+										onValueChange={(next) => {
+											// The opening-balance box means "amount owed" for a card and "balance" for
+											// anything else, and the stored sign differs. Switching across that line
+											// with the number left alone silently flipped the account's balance (a
+											// 5,000 debt became 5,000 in hand), so the number follows the switch.
+											if ((field.value === 'credit_card') !== (next === 'credit_card')) {
+												const entered = parseMoneyOrZero(
+													editForm.getValues('openingBalance') || '0'
+												);
+												editForm.setValue(
+													'openingBalance',
+													entered === 0 ? '0' : String(-entered / 100),
+													{
+														shouldDirty: true
+													}
+												);
+											}
+											field.onChange(next);
+										}}
+									>
 										<SelectTrigger id="edit-account-type" className="w-full">
 											<SelectValue />
 										</SelectTrigger>

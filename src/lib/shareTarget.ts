@@ -87,3 +87,40 @@ export async function readAndClearSharedPayload(id: string): Promise<SharedPaylo
 
 	return { sharedText, file };
 }
+
+/** Mirrors `SHARE_TTL_MS` in `public/sw-share-target.js`. */
+const SHARE_TTL_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Deletes shares that were never picked up. What the share-target worker buffers is plaintext, and
+ * the worker only tidies up when the NEXT share arrives — so a single share the app never opened
+ * (shared while locked, then forgotten) would sit in the Cache API indefinitely. Called after every
+ * unlock. Never throws: a missing Cache API (tests, a restricted WebView) is not an error.
+ */
+export async function purgeStaleSharedPayloads(now: number = Date.now()): Promise<void> {
+	try {
+		if (typeof caches === 'undefined') return;
+		const cache = await caches.open(SHARE_TARGET_CACHE);
+		for (const request of await cache.keys()) {
+			const path = new URL(request.url).pathname;
+			if (!path.startsWith('/share-target-meta/')) continue;
+			const response = await cache.match(request);
+			const meta = response ? await response.json().catch(() => null) : null;
+			const savedAt = meta && typeof meta.savedAt === 'number' ? meta.savedAt : 0;
+			if (now - savedAt <= SHARE_TTL_MS) continue;
+			await cache.delete(request);
+			await cache.delete(`/share-target-file/${path.slice('/share-target-meta/'.length)}`);
+		}
+	} catch {
+		// Housekeeping only.
+	}
+}
+
+/** Forgets every buffered share, whatever its age: part of "Clear all data". */
+export async function clearSharedPayloads(): Promise<void> {
+	try {
+		if (typeof caches !== 'undefined') await caches.delete(SHARE_TARGET_CACHE);
+	} catch {
+		// Housekeeping only.
+	}
+}

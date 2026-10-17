@@ -6,6 +6,7 @@ import {
 	isTransactionCaptureAvailable
 } from '../../lib/native/transactionCapture';
 import { UserProfileRepository } from '../dexie/userProfileRepository';
+import { UnreadableCaptureRepository } from '../dexie/unreadableCaptureRepository';
 import { loadSealingPrivateKey, openSealedItem } from '../crypto/sealedBox';
 import {
 	emptyIngestReport,
@@ -54,6 +55,34 @@ export async function syncCaptureToNative(settings: CaptureSettings): Promise<vo
 	});
 }
 
+/**
+ * Files the messages that were kept earlier because there was no account to put them in, now that
+ * there may be one. Anything still unfileable stays where it is (and is counted again in
+ * `noAccount`, so the user keeps being told); one that turns out to be unreadable or not a
+ * transaction moves to its proper place or is dropped, like any other message.
+ */
+async function refileKept(key: CryptoKey, settings: CaptureSettings): Promise<IngestReport> {
+	const waiting = (await UnreadableCaptureRepository.list(key)).filter(
+		(item) => item.reason === 'no-account'
+	);
+	if (waiting.length === 0) return emptyIngestReport();
+	const report = await ingestCapturedMessages(
+		key,
+		waiting.map((item) => ({
+			id: item.id,
+			payload: {
+				channel: item.channel,
+				sender: item.sender,
+				body: item.text,
+				receivedAt: item.receivedAt
+			}
+		})),
+		{ defaultAccountId: settings.defaultAccountId }
+	);
+	for (const id of report.ackIds) await UnreadableCaptureRepository.remove(id);
+	return report;
+}
+
 let inFlight: Promise<DrainResult | null> | null = null;
 
 /**
@@ -80,6 +109,7 @@ async function run(key: CryptoKey): Promise<DrainResult | null> {
 	const privateKey = await loadSealingPrivateKey(key, settings.sealing.wrappedPrivateKey);
 
 	const total = emptyIngestReport();
+	merge(total, await refileKept(key, settings));
 	let undecryptable = 0;
 	let remaining = 0;
 	let dropped = 0;
@@ -106,7 +136,8 @@ async function run(key: CryptoKey): Promise<DrainResult | null> {
 		}
 
 		const report = await ingestCapturedMessages(key, opened, {
-			defaultAccountId: settings.defaultAccountId
+			defaultAccountId: settings.defaultAccountId,
+			stashUnfiled: true
 		});
 		merge(total, report);
 		finished.push(...report.ackIds);

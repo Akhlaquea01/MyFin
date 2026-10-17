@@ -12,7 +12,9 @@ export default defineConfig({
 	// spec on each run.
 	expect: { timeout: 15_000 },
 	timeout: 60_000,
-	webServer: { command: 'npm run build && npm run preview', port: 4173 },
+	// The build alone takes about a minute, which is Playwright's whole default window for the server
+	// to come up, so a slightly busy machine failed the run before a single test started.
+	webServer: { command: 'npm run build && npm run preview', port: 4173, timeout: 240_000 },
 	testDir: 'tests/e2e',
 	testMatch: '**/*.spec.ts',
 	// Everything runs at the desktop default size, except `*.mobile.spec.ts`, which checks the phone

@@ -37,6 +37,7 @@ import {
 	LoanRepaymentRepository
 } from '../dexie/personLoanRepository';
 import { SavedFilterViewRepository } from '../dexie/savedFilterViewRepository';
+import { restoreSnapshot, snapshotDatabase } from '../dexie/snapshot';
 import { TransactionEngine } from '../../domain/transactions/transactionEngine';
 import { isValidIsoDate } from '../../domain/shared/dateMath';
 import { duplicateKey, findDuplicateId } from './importService';
@@ -246,7 +247,7 @@ export function exportDataTemplateToJsonBlob(template: DataTemplate): Blob {
  * - Unresolved references are skipped gracefully with reasons reported (FR-010).
  * - Balances are recalculated in a single batch pass per touched account (FR-014).
  */
-export async function importDataTemplate(
+async function runTemplateImport(
 	key: CryptoKey,
 	template: DataTemplate
 ): Promise<TemplateImportResult> {
@@ -329,7 +330,8 @@ export async function importDataTemplate(
 				billingCycleDay: acc.billingCycleDay,
 				cardLast4: acc.cardLast4,
 				cardNickname: acc.cardNickname,
-				accountLast4: acc.accountLast4
+				accountLast4: acc.accountLast4,
+				lowBalanceThresholdMinor: acc.lowBalanceThresholdMinor
 			});
 			accountRemap.set(acc.id, created.id);
 			existingAccounts.push(created);
@@ -423,7 +425,11 @@ export async function importDataTemplate(
 			merchantRemap.set(m.id, match.id);
 			recordSkipped('merchants', 'already-exists', m.name);
 		} else {
-			const created = await MerchantRepository.create(key, m.name);
+			let created = await MerchantRepository.create(key, m.name);
+			// A merchant the user dismissed from Subscriptions stays dismissed.
+			if (m.subscriptionDismissed) {
+				created = await MerchantRepository.setSubscriptionDismissed(key, created.id, true);
+			}
 			merchantRemap.set(m.id, created.id);
 			existingMerchants.push(created);
 			recordCreated('merchants');
@@ -484,7 +490,11 @@ export async function importDataTemplate(
 			const created = await InvestmentHoldingRepository.create(key, {
 				name: h.name,
 				type: mapLegacyInvestmentType(h.type),
-				costBasis: h.costBasis
+				costBasis: h.costBasis,
+				// Without these a holding bought through "Buy more units" came back as a legacy one that
+				// only knows its cost, losing the units it holds and their average price.
+				units: h.units,
+				avgPrice: h.avgPrice
 			});
 			holdingRemap.set(h.id, created.id);
 			existingHoldings.push(created);
@@ -625,7 +635,8 @@ export async function importDataTemplate(
 				periodType: b.periodType,
 				amount: b.amount,
 				rolloverEnabled: b.rolloverEnabled,
-				isSinkingFund: b.isSinkingFund
+				isSinkingFund: b.isSinkingFund,
+				rolloverMode: b.rolloverMode
 			});
 			budgetRemap.set(b.id, created.id);
 			existingBudgets.push(created);
@@ -684,7 +695,7 @@ export async function importDataTemplate(
 			recurringRuleRemap.set(rr.id, match.id);
 			recordSkipped('recurringRules', 'already-exists');
 		} else {
-			const created = await RecurringRepository.create(key, {
+			let created = await RecurringRepository.create(key, {
 				accountId: resolvedAccountId,
 				categoryId: resolvedCatId,
 				amount: rr.amount,
@@ -693,6 +704,10 @@ export async function importDataTemplate(
 				label: rr.label,
 				isSubscription: rr.isSubscription
 			});
+			// `create` always starts a rule active; a paused one must not come back switched on.
+			if (rr.isActive === false) {
+				created = await RecurringRepository.update(key, created.id, { isActive: false });
+			}
 			recurringRuleRemap.set(rr.id, created.id);
 			existingRules.push(created);
 			recordCreated('recurringRules');
@@ -1187,4 +1202,33 @@ export async function importDataTemplate(
 		perEntity,
 		skippedReasons
 	};
+}
+
+/**
+ * Imports a data template as ONE unit: either all of it lands, or — if anything fails part-way — the
+ * data goes back to exactly what it was and the error says so. The import is a long sequence of
+ * writes (each encrypts first, so it cannot be a single database transaction), and a failure at step
+ * 14 of 25 used to leave a half-imported file: new accounts and categories, no transactions,
+ * balances not recalculated, and no way to re-run it without duplicating what had already landed.
+ * See `importDataTemplate`'s sibling doc above for what the import itself does.
+ */
+export async function importDataTemplate(
+	key: CryptoKey,
+	template: DataTemplate
+): Promise<TemplateImportResult> {
+	const snapshot = await snapshotDatabase();
+	try {
+		return await runTemplateImport(key, template);
+	} catch (err) {
+		const reason = err instanceof Error ? err.message : 'unknown error';
+		try {
+			await restoreSnapshot(snapshot);
+		} catch {
+			throw new Error(
+				`The import failed (${reason}) and could not be fully undone. Open Backup → Check my data to see what is out of step.`,
+				{ cause: err }
+			);
+		}
+		throw new Error(`The import failed, so nothing was changed. (${reason})`, { cause: err });
+	}
 }

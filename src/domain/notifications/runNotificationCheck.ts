@@ -78,7 +78,12 @@ export async function runNotificationCheck(
 	await markMissedPastDue(key, asOfDate);
 
 	const ruleCategoryById = new Map(activeRules.map((r) => [r.id, r.categoryId]));
-	const pendingEvents = await ExpectedEventRepository.listPending(key);
+	// Only events of rules that are still switched on: reminders generated before a rule was paused
+	// (or kept from an older version that did not drop them) would otherwise keep raising alerts for a
+	// bill the user turned off.
+	const pendingEvents = (await ExpectedEventRepository.listPending(key)).filter((e) =>
+		ruleCategoryById.has(e.recurringRuleId)
+	);
 	const dueEventInputs = pendingEvents.map((e) => ({
 		id: e.id,
 		expectedDate: e.expectedDate,

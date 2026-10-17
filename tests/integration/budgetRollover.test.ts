@@ -3,6 +3,8 @@ import { db } from '../../src/data/dexie/db';
 import { ensureCurrentBudgetItem } from '../../src/domain/budgets/budgetEngine';
 import { BudgetRepository, BudgetItemRepository } from '../../src/data/dexie/budgetRepository';
 import { CategoryRepository } from '../../src/data/dexie/categoryRepository';
+import { AccountRepository } from '../../src/data/dexie/accountRepository';
+import { TransactionEngine } from '../../src/domain/transactions/transactionEngine';
 import { deriveEncryptionKey, randomSaltBase64 } from '../../src/data/crypto/cryptoService';
 import type { Budget } from '../../src/domain/entities';
 
@@ -17,6 +19,28 @@ describe('budget rollover across skipped periods', () => {
 		const category = await CategoryRepository.create(key, { name: 'Car Repairs', parentId: null });
 		categoryId = category.id;
 	});
+
+	/** Real spending in the budget's category: what rolls over is read from the ledger, not from
+	 *  whatever the stored item last said. */
+	async function spend(date: string, amount: number): Promise<void> {
+		const accounts = await AccountRepository.list(key);
+		const accountId =
+			accounts[0]?.id ??
+			(
+				await AccountRepository.create(key, {
+					name: 'Checking',
+					type: 'bank',
+					openingBalance: 0,
+					creditLimit: null,
+					billingCycleDay: null
+				})
+			).id;
+		await TransactionEngine.recordTransaction(
+			key,
+			{ accountId, date, amount: -amount, type: 'expense' },
+			[{ categoryId, amount: -amount }]
+		);
+	}
 
 	async function makeBudget(overrides: Partial<Budget> = {}): Promise<Budget> {
 		return BudgetRepository.create(key, {
@@ -84,6 +108,7 @@ describe('budget rollover across skipped periods', () => {
 			actualAmount: 2_000_00,
 			rolloverInAmount: 0
 		});
+		await spend('2026-03-10', 2_000_00);
 
 		// Skipped months do not mint an allowance here — only the 3000 actually left over.
 		const july = await ensureCurrentBudgetItem(key, budget, new Date(2026, 6, 15));
@@ -100,6 +125,7 @@ describe('budget rollover across skipped periods', () => {
 			actualAmount: 8_000_00, // overspent
 			rolloverInAmount: 0
 		});
+		await spend('2026-06-10', 8_000_00);
 
 		const july = await ensureCurrentBudgetItem(key, budget, new Date(2026, 6, 15));
 		expect(july.rolloverInAmount).toBe(0);

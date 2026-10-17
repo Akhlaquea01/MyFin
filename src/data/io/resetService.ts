@@ -5,6 +5,7 @@ import {
 	isTransactionCaptureAvailable
 } from '../../lib/native/transactionCapture';
 import { clearSetupStorage } from '../../lib/safeStorage';
+import { clearSharedPayloads } from '../../lib/shareTarget';
 
 /**
  * Resets the entire app to first-run state by clearing all Dexie tables (spec 016, FR-013).
@@ -33,5 +34,7 @@ export async function resetEverything(): Promise<void> {
 	// Likewise messages already captured and queued natively: they would otherwise flow into
 	// the next profile's ledger.
 	if (isTransactionCaptureAvailable()) await TransactionCapture.clear().catch(() => {});
+	// Text or a photo shared into the app and never picked up is plaintext in the Cache API.
+	await clearSharedPayloads();
 	clearSetupStorage();
 }

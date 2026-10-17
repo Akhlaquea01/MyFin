@@ -12,7 +12,27 @@ import {
 import { subscribeAppActive } from '../lib/native/appState';
 
 function announce(result: DrainResult): void {
-	const { created, paired } = result.report;
+	const { created, paired, noAccount } = result.report;
+	// Messages that were read but have no account to go to are kept in the Auto-capture page and tried
+	// again each run, and nothing else says so: the default account was deleted or archived, or never
+	// chosen. A stable id keeps repeated runs from stacking the same toast.
+	if (noAccount > 0) {
+		toast.warning(
+			noAccount === 1
+				? '1 bank message is waiting for an account: none matches it and there is no default account.'
+				: `${noAccount} bank messages are waiting for an account: none matches them and there is no default account.`,
+			{
+				id: 'capture-no-account',
+				action: {
+					label: 'Fix',
+					onClick: () => {
+						window.history.pushState(null, '', '/auto-capture');
+						window.dispatchEvent(new PopStateEvent('popstate'));
+					}
+				}
+			}
+		);
+	}
 	if (created === 0 && paired === 0) return;
 	if (created > 0) {
 		toast.success(

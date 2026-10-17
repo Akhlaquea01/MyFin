@@ -549,10 +549,35 @@ export function ReviewPage() {
 		}
 		setWorking(true);
 		try {
-			for (const tx of shownReady) await confirmOne(tx);
+			// One entry that cannot be confirmed (an unfinished debt tag, a debt already paid off) must not
+			// strand the rest: each is tried on its own and the ones that fail are named at the end.
+			let confirmed = 0;
+			const failures: string[] = [];
+			const reasonOf = (err: unknown) => (err instanceof Error ? err.message : 'unknown error');
+			for (const tx of shownReady) {
+				try {
+					await confirmOne(tx);
+					confirmed += 1;
+				} catch (err) {
+					failures.push(`${tx.date}, ${formatMoney(Math.abs(tx.amount))}: ${reasonOf(err)}`);
+				}
+			}
 			// No splits or tags passed: the entry keeps whatever category and tags it already has.
-			for (const id of unseenReady) await TransactionEngine.confirmTransaction(key, id);
-			toast.success(`Confirmed ${count} ${noun}`);
+			for (const id of unseenReady) {
+				try {
+					await TransactionEngine.confirmTransaction(key, id);
+					confirmed += 1;
+				} catch (err) {
+					failures.push(`an entry not shown on this page: ${reasonOf(err)}`);
+				}
+			}
+			if (failures.length === 0) {
+				toast.success(`Confirmed ${count} ${noun}`);
+			} else {
+				toast.warning(
+					`Confirmed ${confirmed} of ${count}. ${failures.length} could not be confirmed and stay in the queue — ${failures[0]}${failures.length > 1 ? ` (and ${failures.length - 1} more)` : ''}`
+				);
+			}
 		} catch (err) {
 			toast.error(err instanceof Error ? err.message : 'Could not confirm every entry.');
 		} finally {

@@ -21,6 +21,10 @@ export const AccountRepository = {
 			cardLast4: input.cardLast4 ?? null,
 			cardNickname: input.cardNickname ?? null,
 			accountLast4: input.accountLast4 ?? null,
+			// Written only when set, so an account without a custom threshold keeps the shape it always had.
+			...(input.lowBalanceThresholdMinor !== undefined
+				? { lowBalanceThresholdMinor: input.lowBalanceThresholdMinor }
+				: {}),
 			isArchived: false,
 			createdAt: now,
 			updatedAt: now
@@ -44,6 +48,11 @@ export const AccountRepository = {
 	async remove(id: string): Promise<void> {
 		if (await this.hasTransactions(id)) {
 			throw new Error('Cannot delete an account that still has transactions.');
+		}
+		// A recurring payment names the account it is paid from; deleting the account would leave the
+		// rule pointing at nothing (shown as a raw id, and still raising reminders).
+		if ((await db.recurringRules.where('accountId').equals(id).count()) > 0) {
+			throw new Error('Cannot delete an account that still has recurring payments.');
 		}
 		await db.accounts.delete(id);
 	},

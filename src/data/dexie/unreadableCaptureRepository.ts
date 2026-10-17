@@ -10,6 +10,7 @@ export interface NewUnreadableCapture {
 	sender: string;
 	receivedAt: number;
 	text: string;
+	reason?: 'unreadable' | 'no-account';
 }
 
 export const UnreadableCaptureRepository = {
@@ -33,6 +34,31 @@ export const UnreadableCaptureRepository = {
 			await db.unreadableCaptures.bulkDelete(overflow);
 		}
 		return item;
+	},
+
+	/**
+	 * Keeps the message unless this very one (same channel, sender, time, text and reason) is already
+	 * kept: a message that is retried and still cannot be filed must not pile up copies of itself.
+	 */
+	async addIfNew(key: CryptoKey, input: NewUnreadableCapture): Promise<boolean> {
+		const sameMoment = await db.unreadableCaptures
+			.where('receivedAt')
+			.equals(input.receivedAt)
+			.toArray();
+		const existing = await decryptRows<UnreadableCaptureRow, UnreadableCapture>(key, sameMoment);
+		if (
+			existing.some(
+				(item) =>
+					item.channel === input.channel &&
+					item.sender === input.sender &&
+					item.text === input.text &&
+					(item.reason ?? 'unreadable') === (input.reason ?? 'unreadable')
+			)
+		) {
+			return false;
+		}
+		await this.add(key, input);
+		return true;
 	},
 
 	/** Newest first. */

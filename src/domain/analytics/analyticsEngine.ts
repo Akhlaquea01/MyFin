@@ -1,6 +1,9 @@
 import { CategoryRepository } from '../../data/dexie/categoryRepository';
 import { buildCategoryLabels, topLevelAncestorId } from '../categories/categoryHierarchy';
-import { TransactionRepository } from '../../data/dexie/transactionRepository';
+import {
+	TransactionRepository,
+	UNCATEGORIZED_CATEGORY_ID
+} from '../../data/dexie/transactionRepository';
 import { BudgetRepository, BudgetItemRepository } from '../../data/dexie/budgetRepository';
 import { NetWorthSnapshotRepository } from '../../data/dexie/wealthRepository';
 import type { PurposeKind } from '../entities';
@@ -48,8 +51,12 @@ export interface CategoryBreakdownOptions {
 }
 
 /**
- * Spending by category over [dateFrom, dateTo] (FR-035): sums the magnitude of negative
- * (expense) split amounts, joined against each split's transaction date.
+ * Spending by category over [dateFrom, dateTo] (FR-035): what was spent in each category, joined
+ * against each split's transaction date. Money coming back into a category (a refund, a
+ * reimbursement) is netted against what was spent there, never below zero — the same rule the
+ * Budgets use, so a ₹2,000 refund on ₹5,000 of Shopping reads ₹3,000 in both places. "Uncategorized"
+ * is the exception: its money in is unlabelled (a salary as likely as a refund), so only what went
+ * out counts there. A category that only received money is not spending and is left out.
  *
  * A subcategory is labelled with its full path ("Food › Groceries"), so two parents that each have
  * an "Other" child no longer produce two indistinguishable "Other" bars. With `rollUp`, spending
@@ -74,7 +81,8 @@ export async function categoryBreakdown(
 	);
 	const labels = buildCategoryLabels(categories);
 
-	const totals = new Map<string, number>();
+	// Net movement per category: negative is spending.
+	const net = new Map<string, number>();
 	for (const tx of transactions) {
 		// A transfer (card bill payment, savings move) and a loan movement are not spending. They were
 		// counted here as "Uncategorized" spend — so every card payment inflated the Uncategorized slice
@@ -82,19 +90,20 @@ export async function categoryBreakdown(
 		// income/expense trend right below already excluded them, leaving the two figures disagreeing.
 		if (tx.type === 'transfer') continue;
 		for (const split of splitsByTx.get(tx.id) ?? []) {
-			if (split.amount >= 0) continue; // only expense splits count as "spending"
+			if (split.categoryId === UNCATEGORIZED_CATEGORY_ID && split.amount >= 0) continue;
 			const target = options.rollUp
 				? topLevelAncestorId(categories, split.categoryId)
 				: split.categoryId;
-			totals.set(target, (totals.get(target) ?? 0) - split.amount);
+			net.set(target, (net.get(target) ?? 0) + split.amount);
 		}
 	}
 
-	return [...totals.entries()]
-		.map(([categoryId, total]) => ({
+	return [...net.entries()]
+		.filter(([, movement]) => movement < 0)
+		.map(([categoryId, movement]) => ({
 			categoryId,
 			categoryName: labels.get(categoryId) ?? 'Uncategorized',
-			total
+			total: -movement
 		}))
 		.sort((a, b) => b.total - a.total);
 }

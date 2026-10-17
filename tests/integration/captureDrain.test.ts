@@ -232,19 +232,66 @@ describe('capture setup and drain', () => {
 			]);
 		});
 
-		it('leaves a message queued, and the alert up, when it could not be filed', async () => {
+		it('keeps a message that has no account in the app, so the phone queue is not held up, and files it once there is one', async () => {
+			await enableCapture(key, choices());
+			const withoutDefault = async () =>
+				UserProfileRepository.update({
+					capture: { ...(await UserProfileRepository.get())!.capture!, defaultAccountId: null }
+				});
+			await withoutDefault();
+			native.queue = [await seal('stuck', payload('Rs.99.00 debited from A/c XX5555 at NETFLIX'))];
+
+			const first = await drainCapturedTransactions(key);
+
+			expect(first?.report.noAccount).toBe(1);
+			// Handed over to the app, so nothing is left waiting on the phone…
+			expect(native.queue).toEqual([]);
+			expect(native.cancelAlerts).toBe(1);
+			// …and kept, marked as waiting for an account rather than as unreadable.
+			expect(await UnreadableCaptureRepository.list(key)).toMatchObject([{ reason: 'no-account' }]);
+			expect((await UserProfileRepository.get())?.capture?.unreadableCount ?? 0).toBe(0);
+
+			// Trying again with still nowhere to put it does not stack a second copy, and still says so.
+			const second = await drainCapturedTransactions(key);
+			expect(second?.report.noAccount).toBe(1);
+			expect(await UnreadableCaptureRepository.list(key)).toHaveLength(1);
+
+			// Choosing an account files it, and it leaves the list.
+			await UserProfileRepository.update({
+				capture: { ...(await UserProfileRepository.get())!.capture!, defaultAccountId: account }
+			});
+			const third = await drainCapturedTransactions(key);
+			expect(third?.report.created).toBe(1);
+			expect(await UnreadableCaptureRepository.list(key)).toEqual([]);
+			expect(await TransactionRepository.countUnreviewed()).toBe(1);
+		});
+
+		it('is not stuck behind a pile of messages that cannot be filed', async () => {
 			await enableCapture(key, choices());
 			await UserProfileRepository.update({
 				capture: { ...(await UserProfileRepository.get())!.capture!, defaultAccountId: null }
 			});
-			native.queue = [await seal('stuck', payload('Rs.99.00 debited from A/c XX5555 at NETFLIX'))];
+			// More unfileable messages than one batch holds, then one that names the account.
+			const junk = await Promise.all(
+				Array.from({ length: 205 }, (_, i) =>
+					seal(
+						`j${i}`,
+						payload(`Rs.${i + 1}.00 debited from A/c XX5555 at SHOP${i}`, {
+							receivedAt: RECEIVED + i
+						})
+					)
+				)
+			);
+			native.queue = [
+				...junk,
+				await seal('good', payload(BANK_SMS, { receivedAt: RECEIVED + 1_000 }))
+			];
 
 			const result = await drainCapturedTransactions(key);
 
-			expect(result?.report.noAccount).toBe(1);
-			expect(native.queue.map((i) => i.id)).toEqual(['stuck']);
-			expect(native.cancelAlerts).toBe(0);
-		});
+			expect(result?.report.created).toBe(1);
+			expect(native.queue).toEqual([]);
+		}, 60_000);
 
 		it('re-syncs native with the profile on every run', async () => {
 			await enableCapture(key, choices());

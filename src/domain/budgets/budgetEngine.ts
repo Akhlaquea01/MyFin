@@ -182,6 +182,21 @@ export async function ensureBudgetItemForPeriod(
 			prevItem = await BudgetItemRepository.findForPeriod(key, budget.id, cursor.periodStart);
 		}
 		if (prevItem) {
+			// What rolls over is what was REALLY left, not what the item said the last time somebody
+			// looked at it: spending recorded since (Quick Add, an import, a captured message) never
+			// touches the stored item, so a month that was last opened early on would hand its whole
+			// budget to the next month as "unspent". The closed month is brought up to date first.
+			const prevActual = await recalcActualAmount(
+				key,
+				budget.categoryId,
+				prevItem.periodStart,
+				prevItem.periodEnd
+			);
+			if (prevActual !== prevItem.actualAmount) {
+				prevItem = await BudgetItemRepository.update(key, prevItem.id, {
+					actualAmount: prevActual
+				});
+			}
 			const rawDelta = prevItem.plannedAmount - prevItem.actualAmount;
 			// A sinking fund's allowance is never negative, regardless of rolloverMode — only a
 			// plain envelope budget in 'full' mode carries a deficit (overspend) forward.

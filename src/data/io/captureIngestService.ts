@@ -53,6 +53,14 @@ export interface IngestOptions {
 	/** Messages handled per run; the rest stay queued for the next one. */
 	maxPerRun?: number;
 	pairWindowMs?: number;
+	/**
+	 * What to do with a message that has no account to go to. `false` (the default) leaves it queued
+	 * (`noAccount`), which is what a retry of already-kept messages wants. `true` keeps it in the
+	 * app's own list and acknowledges it, so the phone's queue is not held up behind messages that
+	 * cannot move until the user picks a default account: the queue is read oldest-first in batches,
+	 * so enough of them at its head hid every fileable message behind them.
+	 */
+	stashUnfiled?: boolean;
 }
 
 export interface IngestReport {
@@ -222,7 +230,15 @@ async function ingestOne(message: IngestMessage, ctx: RunContext): Promise<'done
 	const match = matchCaptureAccount(parsed, ctx.accounts, ctx.options.defaultAccountId);
 	if (!match) {
 		report.noAccount += 1;
-		return 'keep';
+		if (!ctx.options.stashUnfiled) return 'keep';
+		await UnreadableCaptureRepository.addIfNew(key, {
+			channel: payload.channel,
+			sender: payload.sender,
+			receivedAt: payload.receivedAt,
+			text,
+			reason: 'no-account'
+		});
+		return 'done';
 	}
 
 	const normalized = parsed.merchantText ? normalizeMerchantText(parsed.merchantText) : null;

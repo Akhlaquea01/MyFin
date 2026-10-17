@@ -425,6 +425,9 @@ export interface UnreadableCapture extends Timestamped {
 	sender: string;
 	receivedAt: EpochMillis;
 	text: string;
+	/** Why it is kept. Absent (every older row) means it could not be read. `no-account` means it was
+	 *  read fine but there was no account to file it under; it is filed on its own once there is one. */
+	reason?: 'unreadable' | 'no-account';
 }
 
 /** A receipt/photo attached to a Transaction (spec 005). Removed together with its transaction. */

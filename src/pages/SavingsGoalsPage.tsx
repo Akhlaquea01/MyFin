@@ -21,6 +21,7 @@ import {
 	DialogTrigger
 } from '../components/ui/dialog';
 import { useSession } from '../context/SessionContext';
+import { detachPurposeTarget } from '../domain/transactions/purposeEngine';
 import {
 	SavingsGoalRepository,
 	GoalContributionRepository
@@ -136,6 +137,7 @@ export function SavingsGoalsPage() {
 		if (!confirmed) return;
 		try {
 			await SavingsGoalRepository.remove(goal.id);
+			await detachPurposeTarget(key, 'savings', goal.id);
 			toast.success(`${goal.name} deleted`);
 			await refresh();
 		} catch (err) {

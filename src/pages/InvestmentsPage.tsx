@@ -25,6 +25,7 @@ import {
 	SelectValue
 } from '../components/ui/select';
 import { useSession } from '../context/SessionContext';
+import { detachPurposeTarget } from '../domain/transactions/purposeEngine';
 import { AccountRepository } from '../data/dexie/accountRepository';
 import {
 	InvestmentHoldingRepository,
@@ -314,6 +315,7 @@ export function InvestmentsPage() {
 		}
 		try {
 			await InvestmentHoldingRepository.remove(holding.id);
+			await detachPurposeTarget(key, 'investment', holding.id);
 			toast.success(`${holding.name} deleted`);
 			await refresh();
 		} catch (err) {

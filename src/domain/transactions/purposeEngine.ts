@@ -23,6 +23,7 @@ import {
 	LiabilityRepository
 } from '../../data/dexie/wealthRepository';
 import { RecurringRepository } from '../../data/dexie/recurringRepository';
+import { TransactionRepository } from '../../data/dexie/transactionRepository';
 import { linkTransactionToRule, releaseMatches } from '../recurring/recurringEngine';
 import { todayLocalISO } from '../shared/dateMath';
 import { formatMoney } from '../shared/money';
@@ -133,7 +134,7 @@ export async function validatePurpose(
 /** Undoes whatever `purpose` did for this transaction. Safe to call when it did nothing. */
 export async function clearPurpose(
 	key: CryptoKey,
-	tx: Pick<Transaction, 'id'>,
+	tx: Pick<Transaction, 'id'> & Partial<Pick<Transaction, 'date'>>,
 	purpose: TransactionPurpose | null | undefined
 ): Promise<void> {
 	if (!purpose) return;
@@ -154,7 +155,7 @@ export async function clearPurpose(
 			}
 		}
 	} else if (purpose.kind === 'bills') {
-		await releaseMatches(key, tx.id);
+		await releaseMatches(key, tx.id, undefined, tx.date ? [tx.date] : undefined);
 	}
 }
 
@@ -211,6 +212,27 @@ export async function applyPurpose(key: CryptoKey, tx: Transaction): Promise<str
 	}
 
 	return null;
+}
+
+/**
+ * Entries tagged for a debt, goal, holding or bill that has just been deleted keep their tag (the
+ * money still went to that kind of thing) but no longer name the one that is gone. Left naming it,
+ * every later edit of the entry's amount, date or account — and confirming it in Review — was refused
+ * with "That savings goal no longer exists.", with nothing on screen to fix. Call this after the
+ * target is removed; `deleteRecurringRule` does the same for bills. Returns how many entries changed.
+ */
+export async function detachPurposeTarget(
+	key: CryptoKey,
+	kind: PurposeKind,
+	targetId: string
+): Promise<number> {
+	let changed = 0;
+	for (const tx of await TransactionRepository.search(key)) {
+		if (tx.purpose?.kind !== kind || tx.purpose.targetId !== targetId) continue;
+		await TransactionRepository.update(key, tx.id, { purpose: { kind, targetId: null } });
+		changed += 1;
+	}
+	return changed;
 }
 
 /**

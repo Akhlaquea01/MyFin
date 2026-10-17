@@ -1,5 +1,6 @@
 import { db, type RecurringRuleRow, type ExpectedEventRow } from './db';
 import { putEncrypted, getDecrypted, decryptRows } from './encryptedTable';
+import { addDaysISO } from '../../domain/shared/dateMath';
 import type { RecurringRule, ExpectedEvent, RecurringFrequency } from '../../domain/entities';
 
 export interface NewRecurringRule {
@@ -131,6 +132,40 @@ export const ExpectedEventRepository = {
 		const rows = await db.expectedEvents.toArray();
 		const events = await decryptRows<ExpectedEventRow, ExpectedEvent>(key, rows);
 		return events.sort((a, b) => (a.expectedDate < b.expectedDate ? -1 : 1));
+	},
+
+	/**
+	 * The events that are marked as paid, optionally only those due within `windowDays` of one of
+	 * `near.dates`. The id of the transaction an event was matched to is inside the encrypted row, so
+	 * finding "the event this entry paid" means decrypting candidates; the unencrypted `status` and
+	 * `expectedDate` columns narrow those first. Decrypting every event of every rule on each edit made
+	 * confirming a queue of N entries cost N x (all events ever generated).
+	 */
+	async listMatched(
+		key: CryptoKey,
+		near?: { dates: string[]; windowDays: number }
+	): Promise<ExpectedEvent[]> {
+		let rows: ExpectedEventRow[];
+		if (near && near.dates.length > 0) {
+			const byId = new Map<string, ExpectedEventRow>();
+			for (const date of new Set(near.dates)) {
+				const found = await db.expectedEvents
+					.where('expectedDate')
+					.between(
+						addDaysISO(date, -near.windowDays),
+						addDaysISO(date, near.windowDays),
+						true,
+						true
+					)
+					.filter((row) => row.status === 'matched')
+					.toArray();
+				for (const row of found) byId.set(row.id, row);
+			}
+			rows = [...byId.values()];
+		} else {
+			rows = await db.expectedEvents.where('status').equals('matched').toArray();
+		}
+		return decryptRows<ExpectedEventRow, ExpectedEvent>(key, rows);
 	},
 
 	async listPending(key: CryptoKey): Promise<ExpectedEvent[]> {

@@ -46,6 +46,9 @@ test('a recurring rule produces an upcoming expected event', async ({ page }) =>
 	// A monthly rule can produce more than one occurrence within the 60-day lookahead.
 	await expect(page.getByText('Rent', { exact: true }).first()).toBeVisible();
 	await expect(page.getByText('pending').first()).toBeVisible();
+	// Each row says which account it is paid from and for how much, not just its category.
+	await expect(page.getByText('Checking').first()).toBeVisible();
+	await expect(page.getByText('₹200.00').first()).toBeVisible();
 });
 
 test('a rule can be edited, and deleted after a confirmation', async ({ page }) => {

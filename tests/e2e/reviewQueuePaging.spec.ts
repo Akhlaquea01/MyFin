@@ -134,6 +134,10 @@ test('"Confirm all categorized" confirms the entries that are not on the page to
 test('discarding down to an empty page brings the next entries in rather than saying the queue is empty', async ({
 	page
 }) => {
+	// Fifty discards one after another, each redrawing the page and waiting for its dialog to close,
+	// take well over the 60-second default on a slow machine (about 85 seconds here, with or without
+	// any other change), so the default made this spec fail on load rather than on behaviour.
+	test.setTimeout(240_000);
 	await seedLongQueue(page, '505053');
 	const discard = page.getByRole('button', { name: 'Discard transaction' });
 	await expect(discard).toHaveCount(PAGE);

@@ -128,12 +128,25 @@ describe('editing and deleting recurring rules', () => {
 		);
 	});
 
-	it('pausing is still just a flag: no reminder is touched', async () => {
+	it('pausing drops the reminders still waiting, keeps what already happened, and resuming refills them', async () => {
 		const { rule } = await monthlyRule();
 		const before = await statuses(rule.id);
 		const paused = await updateRecurringRule(key, rule.id, { isActive: false });
 		expect(paused.isActive).toBe(false);
-		expect(await statuses(rule.id)).toEqual(before);
+
+		// A paused bill expects nothing: the pending reminders go (they used to stay and keep raising
+		// alerts), while the matched and missed ones describe the past and stay.
+		const during = await statuses(rule.id);
+		expect(Object.values(during).filter((s) => s === 'pending')).toHaveLength(0);
+		for (const [date, status] of Object.entries(during)) expect(before[date]).toBe(status);
+		expect(Object.values(during).filter((s) => s === 'matched').length).toBeGreaterThan(0);
+
+		const resumed = await updateRecurringRule(key, rule.id, { isActive: true });
+		expect(resumed.isActive).toBe(true);
+		await generateExpectedEvents(key, resumed, new Date('2026-06-30'), new Date('2026-04-01'));
+		expect(
+			Object.values(await statuses(rule.id)).filter((s) => s === 'pending').length
+		).toBeGreaterThan(0);
 	});
 
 	it('deleting a rule removes it and its reminders but leaves the ledger and other rules alone', async () => {

@@ -278,7 +278,8 @@ export function RecurringPage() {
 
 	async function toggleActive(rule: RecurringRule) {
 		try {
-			await RecurringRepository.update(key, rule.id, { isActive: !rule.isActive });
+			// Through the engine, so pausing also drops the reminders still waiting for this rule.
+			await updateRecurringRule(key, rule.id, { isActive: !rule.isActive });
 			await refresh();
 		} catch (err) {
 			toast.error(err instanceof Error ? err.message : 'Could not update recurring rule.');

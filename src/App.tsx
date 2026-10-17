@@ -8,6 +8,7 @@ import { subscribeAppActive } from './lib/native/appState';
 import { isNativeApp } from './lib/native/platform';
 import { isBiometricEnrolled } from './lib/biometric';
 import { shouldReloadForStaleChunk } from './lib/staleChunk';
+import { purgeStaleSharedPayloads } from './lib/shareTarget';
 import { isBiometricPromptSnoozed } from './lib/biometricPromptSnooze';
 import { useQuickTour } from './hooks/useQuickTour';
 import { syncCapturedTransactions, useCaptureSync } from './hooks/useCaptureSync';
@@ -153,6 +154,8 @@ async function afterUnlock(key: CryptoKey): Promise<void> {
 	}
 	// Keeps the weekly backup reminder scheduled against the last backup. Never throws.
 	await syncBackupReminder();
+	// Plaintext shares nobody picked up are not kept past their day. Never throws.
+	await purgeStaleSharedPayloads();
 }
 
 /**

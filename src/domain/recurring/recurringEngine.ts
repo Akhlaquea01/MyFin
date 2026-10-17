@@ -140,8 +140,10 @@ export async function matchTransaction(
 	if (!categoryId) return null;
 	if (transaction.type === 'transfer') return null;
 	const rules = await RecurringRepository.list(key);
+	// A paused rule is not expecting anything, so it must not claim an entry either.
 	const candidateRules = rules.filter(
 		(r) =>
+			r.isActive !== false &&
 			r.accountId === transaction.accountId &&
 			(categoryId === UNCATEGORIZED_CATEGORY_ID || r.categoryId === categoryId)
 	);
@@ -222,20 +224,35 @@ export async function linkTransactionToRule(
 	});
 }
 
+/** A payment is only ever matched to an event due within the wider of the two matching windows of its
+ *  date, so that is as far from the entry's date as a release needs to look. */
+const RELEASE_WINDOW_DAYS = LINK_WINDOW_DAYS + 5;
+
 /**
  * Detaches every expected event matched to `transactionId` — the transaction was deleted, edited,
  * or turned into a transfer. A past-due event goes back to `missed`, a future one to `pending`, so
  * the schedule never keeps claiming a payment that no longer exists. Returns how many were freed.
+ *
+ * `nearDates` are the dates the entry has had (its current one and, after an edit, the one it had
+ * when it was matched): only paid events due around them are looked at, instead of every event ever
+ * generated. Without them every paid event is checked.
  */
 export async function releaseMatches(
 	key: CryptoKey,
 	transactionId: string,
-	asOf: Date = new Date()
+	asOf: Date = new Date(),
+	nearDates?: string[]
 ): Promise<number> {
-	if ((await RecurringRepository.list(key)).length === 0) return 0;
+	const candidates = await ExpectedEventRepository.listMatched(
+		key,
+		nearDates && nearDates.length > 0
+			? { dates: nearDates, windowDays: RELEASE_WINDOW_DAYS }
+			: undefined
+	);
+	if (candidates.length === 0) return 0;
 	const today = todayLocalISO(asOf);
 	let freed = 0;
-	for (const event of await ExpectedEventRepository.listAll(key)) {
+	for (const event of candidates) {
 		if (event.matchedTransactionId !== transactionId) continue;
 		await ExpectedEventRepository.update(key, event.id, {
 			status: event.expectedDate < today ? 'missed' : 'pending',
@@ -254,10 +271,17 @@ export async function releaseMatches(
  */
 export async function rematchTransaction(
 	key: CryptoKey,
-	transaction: Transaction
+	transaction: Transaction,
+	/** The date the entry had before this change, when it changed: that is the date it was matched at. */
+	previousDate?: string
 ): Promise<ExpectedEvent | null> {
 	try {
-		await releaseMatches(key, transaction.id);
+		await releaseMatches(
+			key,
+			transaction.id,
+			undefined,
+			previousDate ? [transaction.date, previousDate] : [transaction.date]
+		);
 		if (transaction.type === 'transfer') return null;
 		// A bill the user tied to a specific recurring rule stays tied to it. Only once the entry is
 		// confirmed: one still in Review has not claimed anything yet.
@@ -287,6 +311,9 @@ const SCHEDULE_FIELDS = ['frequency', 'dayOfPeriod'] as const;
  * Saves changes to a rule (any of its fields). Changing when it recurs makes the reminders still
  * waiting for the old dates wrong, so those are dropped and come back on the new dates the next time
  * the schedule is read (the Upcoming page, the forecast and the reminder check all generate them).
+ * Pausing a rule drops them for the same reason: a paused bill expects nothing, and left in place
+ * they kept raising "Upcoming" alerts for a payment the user had switched off. Resuming brings the
+ * schedule back the same way.
  * What already happened is kept: a payment that was matched stays matched, and a due date that was
  * missed stays missed, because those describe the past, not the plan.
  */
@@ -309,9 +336,9 @@ export async function updateRecurringRule(
 ): Promise<RecurringRule> {
 	const before = (await RecurringRepository.list(key)).find((r) => r.id === ruleId);
 	if (!before) throw new Error('That recurring rule no longer exists.');
-	const scheduleChanged = SCHEDULE_FIELDS.some(
-		(field) => field in changes && changes[field] !== before[field]
-	);
+	const scheduleChanged =
+		SCHEDULE_FIELDS.some((field) => field in changes && changes[field] !== before[field]) ||
+		(changes.isActive === false && before.isActive !== false);
 	const updated = await RecurringRepository.update(key, ruleId, changes);
 	if (scheduleChanged) {
 		const stale = (await ExpectedEventRepository.listForRule(key, ruleId))

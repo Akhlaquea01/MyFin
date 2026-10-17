@@ -92,73 +92,76 @@ export async function importBulkText(
 	// One resolver for the whole paste — see importService.ts.
 	const categorizer = await createCategorizationResolver(key);
 
-	for (let i = 0; i < lines.length; i++) {
-		const line = lines[i].trim();
-		const rowNumber = i + 1;
-		if (!line) continue;
+	// Deferred per line, so brought up to date here whatever happens (see importService.ts).
+	try {
+		for (let i = 0; i < lines.length; i++) {
+			const line = lines[i].trim();
+			const rowNumber = i + 1;
+			if (!line) continue;
 
-		const candidate = parseQuickAddText(line);
-		if (!isConfident(candidate) || candidate.amount === null) {
-			result.skippedMalformedRows.push({
-				rowNumber,
-				reason: 'Could not confidently parse this line.'
-			});
-			continue;
+			const candidate = parseQuickAddText(line);
+			if (!isConfident(candidate) || candidate.amount === null) {
+				result.skippedMalformedRows.push({
+					rowNumber,
+					reason: 'Could not confidently parse this line.'
+				});
+				continue;
+			}
+
+			// FR-020/FR-021/FR-024: a single distinct match on this specific line routes it to that
+			// tagged card instead of the pre-matched/manually-chosen default; an ambiguous or
+			// unmatched line falls back to the default without blocking the rest of the import.
+			// A card *payment* line names the card but belongs to the paying account — see importService.ts.
+			const lineMatches = detectCardPayment(line) ? [] : findAccountMatches(line, accounts);
+			const distinctLineAccountIds = [...new Set(lineMatches.map((m) => m.accountId))];
+			const lineAccountId =
+				distinctLineAccountIds.length === 1 ? distinctLineAccountIds[0] : accountId;
+
+			const signedAmount = candidate.type === 'expense' ? -candidate.amount : candidate.amount;
+			const lineDate = candidate.date ?? today;
+			const seenAmounts = await seenAmountsFor(lineAccountId);
+			const duplicateOfId = findSeen(seenAmounts, signedAmount, lineDate);
+
+			// Normalized before resolving, for the same reason file import normalizes: raw parsed
+			// text carries reference numbers that would mint one Merchant per line.
+			const merchantText = candidate.merchantText
+				? normalizeMerchantText(candidate.merchantText)
+				: null;
+			const resolved = merchantText ? await resolveMerchant(key, merchantText) : null;
+
+			const created = await TransactionEngine.recordTransaction(
+				key,
+				{
+					accountId: lineAccountId,
+					date: lineDate,
+					amount: signedAmount,
+					type: candidate.type === 'income' ? 'income' : 'expense',
+					merchantId: resolved?.merchantId ?? null,
+					merchantAliasId: resolved?.aliasId ?? null,
+					source: 'bulk_import',
+					reviewStatus: 'unreviewed',
+					duplicateOfId
+				},
+				[],
+				// One recalculation at the end instead of one per line — see importService.ts.
+				{ deferBalance: true, categorizer }
+			);
+			const entries = seenAmounts.get(signedAmount) ?? [];
+			entries.push({ id: created.id, date: lineDate });
+			seenAmounts.set(signedAmount, entries);
+			touchedAccountIds.add(lineAccountId);
+
+			result.createdCount++;
+			if (duplicateOfId) {
+				result.flaggedDuplicates.push({ rowNumber, existingTransactionId: duplicateOfId });
+			}
 		}
-
-		// FR-020/FR-021/FR-024: a single distinct match on this specific line routes it to that
-		// tagged card instead of the pre-matched/manually-chosen default; an ambiguous or
-		// unmatched line falls back to the default without blocking the rest of the import.
-		// A card *payment* line names the card but belongs to the paying account — see importService.ts.
-		const lineMatches = detectCardPayment(line) ? [] : findAccountMatches(line, accounts);
-		const distinctLineAccountIds = [...new Set(lineMatches.map((m) => m.accountId))];
-		const lineAccountId =
-			distinctLineAccountIds.length === 1 ? distinctLineAccountIds[0] : accountId;
-
-		const signedAmount = candidate.type === 'expense' ? -candidate.amount : candidate.amount;
-		const lineDate = candidate.date ?? today;
-		const seenAmounts = await seenAmountsFor(lineAccountId);
-		const duplicateOfId = findSeen(seenAmounts, signedAmount, lineDate);
-
-		// Normalized before resolving, for the same reason file import normalizes: raw parsed
-		// text carries reference numbers that would mint one Merchant per line.
-		const merchantText = candidate.merchantText
-			? normalizeMerchantText(candidate.merchantText)
-			: null;
-		const resolved = merchantText ? await resolveMerchant(key, merchantText) : null;
-
-		const created = await TransactionEngine.recordTransaction(
-			key,
-			{
-				accountId: lineAccountId,
-				date: lineDate,
-				amount: signedAmount,
-				type: candidate.type === 'income' ? 'income' : 'expense',
-				merchantId: resolved?.merchantId ?? null,
-				merchantAliasId: resolved?.aliasId ?? null,
-				source: 'bulk_import',
-				reviewStatus: 'unreviewed',
-				duplicateOfId
-			},
-			[],
-			// One recalculation at the end instead of one per line — see importService.ts.
-			{ deferBalance: true, categorizer }
-		);
-		const entries = seenAmounts.get(signedAmount) ?? [];
-		entries.push({ id: created.id, date: lineDate });
-		seenAmounts.set(signedAmount, entries);
-		touchedAccountIds.add(lineAccountId);
-
-		result.createdCount++;
-		if (duplicateOfId) {
-			result.flaggedDuplicates.push({ rowNumber, existingTransactionId: duplicateOfId });
+	} finally {
+		// Recalculate every account actually touched — not just the default `accountId` — since a
+		// mixed-statement paste (FR-024) can route different lines to different tagged cards.
+		for (const touchedAccountId of touchedAccountIds) {
+			await TransactionEngine.recalculateAccountBalance(key, touchedAccountId);
 		}
-	}
-
-	// Recalculate every account actually touched — not just the default `accountId` — since a
-	// mixed-statement paste (FR-024) can route different lines to different tagged cards.
-	for (const touchedAccountId of touchedAccountIds) {
-		await TransactionEngine.recalculateAccountBalance(key, touchedAccountId);
 	}
 	return result;
 }
