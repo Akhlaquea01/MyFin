@@ -9,6 +9,13 @@ const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 
 	version: string;
 };
 
+// The APK build (.github/workflows/build-apk.yml) sets APP_VERSION to `MAJOR.MINOR.<commit count>`
+// so the About page shows the same version the release and the APK carry; package.json only holds
+// the MAJOR.MINOR base. Anything that is not a plain x.y.z falls back to package.json.
+const appVersion = /^\d+\.\d+\.\d+$/.test(process.env.APP_VERSION ?? '')
+	? (process.env.APP_VERSION as string)
+	: pkg.version;
+
 /**
  * Injects the Content-Security-Policy into the built `index.html`.
  *
@@ -74,7 +81,7 @@ function cspPlugin(): Plugin {
 // resolves when the plugin is disabled (to a no-op), so no app code needs to know.
 export default defineConfig(({ mode }) => ({
 	define: {
-		__APP_VERSION__: JSON.stringify(pkg.version)
+		__APP_VERSION__: JSON.stringify(appVersion)
 	},
 	plugins: [
 		cspPlugin(),

@@ -1,7 +1,8 @@
 name: Build Android APK
 
 # Builds an installable debug APK on a GitHub-hosted runner - nothing Android is needed on your PC.
-# See ANDROID_APK_BUILD.md.
+# Every build from master is also published as a GitHub Release (MyFin-vX.Y.Z.apk), which is what
+# the app's About page checks and installs updates from. See ANDROID_APK_BUILD.md.
 on:
   workflow_dispatch:
   push:
@@ -18,6 +19,8 @@ jobs:
   build-apk:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     steps:
       # Actions are pinned to full commit SHAs (the tag is in the comment) so a moved tag can't
       # change what runs here.
@@ -25,6 +28,8 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          # The version below counts commits, which needs the whole history.
+          fetch-depth: 0
 
       # Node 24 matches local development; the repo's .npmrc has engine-strict=true, so the
       # major version matters.
@@ -33,6 +38,22 @@ jobs:
         with:
           node-version: 24
           cache: npm
+
+      # Version = MAJOR.MINOR from package.json + the number of commits so far as the patch, so
+      # every commit gets a new, higher version without anything being committed back. The commit
+      # count is also the Android versionCode: a plain integer that may only ever go up, which is
+      # what lets each APK install over the last. (Rewriting master's history so the count drops
+      # would make Android refuse the update.) The release job and the app's update check rely on
+      # this ordering.
+      - name: Work out the version
+        id: version
+        run: |
+          BASE="$(node -p "require('./package.json').version.split('.').slice(0, 2).join('.')")"
+          COUNT="$(git rev-list --count HEAD)"
+          echo "APP_VERSION=${BASE}.${COUNT}" >> "$GITHUB_ENV"
+          echo "APP_VERSION_CODE=${COUNT}" >> "$GITHUB_ENV"
+          echo "version=${BASE}.${COUNT}" >> "$GITHUB_OUTPUT"
+          echo "Version ${BASE}.${COUNT} (versionCode ${COUNT})"
 
       # Capacitor 8 / Android Gradle Plugin 8.13 compile with Java 21. The runner's default JDK
       # is 17, so it is selected explicitly. The Android SDK (platform 36, build-tools 36) is
@@ -56,7 +77,8 @@ jobs:
         run: npm ci
 
       # `--mode capacitor` is the Android build: same script, same output folder, with the PWA
-      # service worker switched off (see vite.config.ts).
+      # service worker switched off (see vite.config.ts). APP_VERSION (set above) is what the
+      # About page shows.
       - name: Build the web app
         run: npm run build -- --mode capacitor
 
@@ -85,22 +107,20 @@ jobs:
       - name: Make the Gradle wrapper executable
         run: chmod +x android/gradlew
 
-      # APK versionCode = run number, so each build is newer than the last and installs over it.
       # testDebugUnitTest runs the JVM tests of the pure-Java native code (message sealing and
-      # filtering) in the same Gradle run, so a broken sealer fails the build instead of shipping
-      # an APK whose captured messages can never be opened.
+      # filtering, update-version comparison) in the same Gradle run, so a broken sealer fails the
+      # build instead of shipping an APK whose captured messages can never be opened.
       - name: Test and build the debug APK
         working-directory: android
-        env:
-          RUN_NUMBER: ${{ github.run_number }}
         run: |
-          VERSION_NAME="$(node -p "require('../package.json').version")"
           ./gradlew testDebugUnitTest assembleDebug --no-daemon --stacktrace \
-            -PappVersionCode="${RUN_NUMBER}" \
-            -PappVersionName="${VERSION_NAME}"
+            -PappVersionCode="${APP_VERSION_CODE}" \
+            -PappVersionName="${APP_VERSION}"
 
       # Every build is signed with the committed debug keystore, so this fingerprint should be
       # identical on every run. If it ever changes, Android will refuse to update an installed app.
+      # The version baked into the APK must also be the one just computed: the in-app update check
+      # compares the release tag with it.
       - name: Verify the APK
         run: |
           APK=android/app/build/outputs/apk/debug/app-debug.apk
@@ -111,17 +131,105 @@ jobs:
           ls -l "$APK"
           APKSIGNER="$(ls -d "${ANDROID_HOME}"/build-tools/*/apksigner | sort -V | tail -1)"
           "$APKSIGNER" verify --print-certs "$APK" | tee apk-certs.txt
+          AAPT2="$(ls -d "${ANDROID_HOME}"/build-tools/*/aapt2 | sort -V | tail -1)"
+          BADGING="$("$AAPT2" dump badging "$APK" | head -n 1)"
+          echo "$BADGING"
+          case "$BADGING" in
+            *"versionCode='${APP_VERSION_CODE}'"*"versionName='${APP_VERSION}'"*) ;;
+            *)
+              echo "::error::The APK does not carry version ${APP_VERSION} (code ${APP_VERSION_CODE})."
+              exit 1
+              ;;
+          esac
           {
             echo "### Debug APK built"
+            echo "- Version: ${APP_VERSION}"
             echo "- Build number: ${{ github.run_number }}"
             echo "- Signing certificate: \`$(sed -n 's/.*certificate SHA-256 digest: //p' apk-certs.txt | head -1)\`"
           } >> "$GITHUB_STEP_SUMMARY"
           rm apk-certs.txt
+          mkdir release
+          cp "$APK" "release/MyFin-v${APP_VERSION}.apk"
 
       - name: Upload the APK
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: myfin-debug-apk
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          path: release/MyFin-v${{ steps.version.outputs.version }}.apk
           if-no-files-found: error
           retention-days: 30
+
+  # Publishes the APK as a GitHub Release named v<version>. The repository is public, so the asset
+  # downloads without a login, and the app's About page finds the newest one through the
+  # releases API. This is a separate job so the build above, which runs npm and Gradle, never holds
+  # a token that can write to the repository.
+  release:
+    name: Publish GitHub Release
+    needs: build-apk
+    if: github.ref == 'refs/heads/master'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      VERSION: ${{ needs.build-apk.outputs.version }}
+    steps:
+      # Full history and tags, for the release notes (the commits since the previous release).
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Download the APK
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: myfin-debug-apk
+          path: release
+
+      - name: Publish the release
+        run: |
+          set -euo pipefail
+          TAG="v${VERSION}"
+          APK="release/MyFin-v${VERSION}.apk"
+          if [ ! -f "$APK" ]; then
+            echo "::error::$APK was not downloaded."
+            exit 1
+          fi
+
+          # Only the newest commit on master is published. Without this, re-running an old
+          # workflow could create a release that GitHub then calls "latest", and the app would
+          # offer a downgrade.
+          TIP="$(gh api "repos/${GH_REPO}/commits/master" --jq .sha)"
+          if [ "$TIP" != "$GITHUB_SHA" ]; then
+            echo "::notice::master has moved on to ${TIP}; the run for that commit publishes the release instead."
+            exit 0
+          fi
+
+          # Release notes: the commit subjects since the previous release (the app shows them).
+          PREVIOUS="$(gh release view --json tagName --jq .tagName 2>/dev/null || true)"
+          if [ -n "$PREVIOUS" ] && [ "$PREVIOUS" != "$TAG" ] && git rev-parse -q --verify "refs/tags/${PREVIOUS}" > /dev/null; then
+            git log --no-merges --pretty='- %s' "${PREVIOUS}..${GITHUB_SHA}" | head -n 30 > notes.md
+          else
+            git log --no-merges --pretty='- %s' -n 10 "${GITHUB_SHA}" > notes.md
+          fi
+          if [ ! -s notes.md ]; then
+            echo "- No code changes since the previous release." > notes.md
+          fi
+
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            # A re-run of the same commit: replace the file, keep the release.
+            gh release upload "$TAG" "$APK" --clobber
+          else
+            gh release create "$TAG" "$APK" \
+              --target "$GITHUB_SHA" \
+              --title "MyFin v${VERSION}" \
+              --notes-file notes.md \
+              --latest
+          fi
+          {
+            echo "### Release published"
+            echo "- [MyFin v${VERSION}](https://github.com/${GH_REPO}/releases/tag/${TAG})"
+          } >> "$GITHUB_STEP_SUMMARY"

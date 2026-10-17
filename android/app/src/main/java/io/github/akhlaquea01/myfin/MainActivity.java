@@ -8,6 +8,7 @@ import io.github.akhlaquea01.myfin.backup.NativeBackupFolderPlugin;
 import io.github.akhlaquea01.myfin.biometric.NativeBiometricPlugin;
 import io.github.akhlaquea01.myfin.capture.TransactionCapturePlugin;
 import io.github.akhlaquea01.myfin.share.NativeSharePlugin;
+import io.github.akhlaquea01.myfin.update.NativeAppUpdatePlugin;
 
 public class MainActivity extends BridgeActivity {
     @Override
@@ -17,6 +18,7 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(TransactionCapturePlugin.class);
         registerPlugin(NativeSharePlugin.class);
         registerPlugin(NativeBackupFolderPlugin.class);
+        registerPlugin(NativeAppUpdatePlugin.class);
         // After the system killed and restored the app, the activity reports its ORIGINAL launch
         // intent again; a share in it was already handled and must not be replayed.
         NativeSharePlugin.setRestoredFromSavedState(savedInstanceState != null);

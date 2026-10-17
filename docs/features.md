@@ -30,6 +30,7 @@ This document provides a comprehensive reference of the features built into the 
 22. [Feature 023: Audit Hardening — Imports, Integrity & Start-up](#feature-023-audit-hardening--imports-integrity--start-up)
 23. [Feature 024: Purpose Tags, Card Capture, One Recurring Page & a Categories Revamp](#feature-024-purpose-tags-card-capture-one-recurring-page--a-categories-revamp)
 24. [Feature 025: A Shorter Sidebar — Data, Automation & Settings](#feature-025-a-shorter-sidebar--data-automation--settings)
+25. [Feature 026: Versioned Releases & In-app Updates (Android)](#feature-026-versioned-releases--in-app-updates-android)
 
 ---
 
@@ -644,3 +645,37 @@ The sidebar's last group, "Data & settings", listed nine links. It is now **Mana
 ### Not done
 
 - Planning and Wealth still list a link per screen. Budget vs. Actual (a report on Budgets) and Payoff Planner (a tool on Liabilities) would fold into their parents the same way; their end-to-end specs click those links directly, so that is a separate change.
+
+---
+
+## Feature 026: Versioned Releases & In-app Updates (Android)
+
+### Overview
+
+Every build from `master` used to be a zipped workflow artifact that had to be downloaded and shared to the phone by hand, and the version only changed when someone edited `package.json`. Now each push gets its own version, is published as a GitHub Release, and the Android app can find, download and install it from **About → App updates**.
+
+### Key Capabilities
+
+- **A version per commit**: the workflow names the build `MAJOR.MINOR.<commit count>` (`MAJOR.MINOR` from `package.json`, currently `0.1`), uses the commit count as the Android `versionCode`, and publishes `MyFin-vX.Y.Z.apk` as release `vX.Y.Z` with the commit subjects as notes. Nothing is committed back.
+- **Check for updates**: a button on the About page (Android app only). It shows the newer version, its size and notes, or says you are up to date.
+- **Download and install**: shows progress, then checks the file (size, GitHub's SHA-256, that it is MyFin, newer, and signed with the installed key) before opening Android's installer. The first time, Android sends you to allow MyFin to install unknown apps; it always asks you to confirm, and your data stays.
+- **Nothing runs by itself**: no background checks and no telemetry. The request happens only when you press the button.
+
+### Domain Engine & Architecture
+
+- **Native plugin**: [`NativeAppUpdatePlugin.java`](../android/app/src/main/java/io/github/akhlaquea01/myfin/update/NativeAppUpdatePlugin.java) does the network, download, verification and install hand-off. The decisions (version comparison, which file is the app, which hosts a download may touch) are in [`UpdateRules.java`](../android/app/src/main/java/io/github/akhlaquea01/myfin/update/UpdateRules.java), covered by [`UpdateRulesTest.java`](../android/app/src/test/java/io/github/akhlaquea01/myfin/update/UpdateRulesTest.java).
+- **The network stays out of the web layer**: the Content-Security-Policy keeps `connect-src 'self'`, so script in the page still cannot send anything anywhere. The page cannot name an address either: the plugin asks one fixed repository, remembers the file it found, and downloads and installs only that. Redirects are followed by hand and only to GitHub's file hosts.
+- **Web side**: [`nativeAppUpdate.ts`](../src/lib/native/nativeAppUpdate.ts) wraps the plugin and maps its error codes to messages; [`appUpdateStore.ts`](../src/lib/appUpdateStore.ts) is the state machine (kept at module level so a download survives leaving the page); [`AppUpdateCard.tsx`](../src/components/AppUpdateCard.tsx) is the card, shown by [`AboutPage.tsx`](../src/pages/AboutPage.tsx) only when the plugin exists.
+- **CI**: [`build-apk.yml`](../.github/workflows/build-apk.yml) computes the version, passes it to Vite (`APP_VERSION`, read in `vite.config.ts`) and Gradle, checks the built APK carries it, and a separate `release` job (the only one with `contents: write`) publishes it. Only the newest commit on `master` is published.
+- **Tests**: [`appUpdateStore.test.ts`](../tests/unit/appUpdateStore.test.ts), [`appUpdateCard.test.tsx`](../tests/component/appUpdateCard.test.tsx) and [`aboutPageUpdates.test.tsx`](../tests/component/aboutPageUpdates.test.tsx).
+- **No data or schema change.**
+
+### Needs a device check
+
+- The plugin could not be compiled or run here (no Android SDK); only `UpdateRules.java` was compiled and its tests run with plain `javac`. The first CI run builds the plugin, and an install over an older build on a phone proves the download and the installer hand-off.
+- The release job has never run: confirm a green **Publish GitHub Release** step and the `v0.1.N` release page after the first push.
+
+### Not done
+
+- No automatic or background check; it is a button on purpose. A once-a-day check on launch (opt-in) would be a small addition.
+- Old releases are not pruned; delete them from the Releases page if the list grows.

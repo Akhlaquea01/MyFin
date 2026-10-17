@@ -2,7 +2,8 @@
 
 MyFin is a static Vite + React app. [Capacitor](https://capacitorjs.com) wraps the built `dist/` folder in an Android WebView, and a GitHub Actions workflow
 ([`.github/workflows/build-apk.yml`](.github/workflows/build-apk.yml)) compiles it into an installable **debug APK** on a GitHub-hosted Ubuntu runner.
-You do not need Android Studio, the Android SDK, or Java on your PC.
+You do not need Android Studio, the Android SDK, or Java on your PC. Every build from `master` is also published as a **GitHub Release** (`MyFin-vX.Y.Z.apk`), and the app can
+check that release and install it by itself (**About → App updates**), so there is no download-and-share step.
 
 ```
 npm run build -- --mode capacitor   →   dist/
@@ -15,7 +16,10 @@ npx cap sync android                →   copies dist/ into android/
 1. **Commit and push** the Android files to the `master` branch of your GitHub repository: `android/` (including `android/app/debug.keystore`), `capacitor.config.ts`,
    `.github/workflows/build-apk.yml`, and the `package.json` / `package-lock.json` changes.
 2. Make sure GitHub Actions is enabled: repository **Settings → Actions → General → Allow all actions** (this is the default).
-3. That's it. There are no secrets to configure, and public repositories get free Actions minutes.
+3. That's it. There are no secrets to configure, and public repositories get free Actions minutes. The release step uses the workflow's own token (the `release` job asks for
+   `contents: write`; the build job stays read-only). If a run fails there with "Resource not accessible by integration", check **Settings → Actions → General → Workflow permissions**
+   and that no organisation policy blocks write tokens.
+4. The repository must stay **public**: the app downloads updates from the release without a login. For a private repository the update check would get a 404.
 
 ## Build the APK
 
@@ -25,15 +29,36 @@ npx cap sync android                →   copies dist/ into android/
 The first run takes roughly 5–10 minutes; later runs are faster because npm and Gradle downloads are cached. When the run finishes, its summary shows the build number and the
 signing-certificate fingerprint.
 
+## Versions and releases
+
+Every build gets a new, higher version without anyone editing a file:
+
+- **Version** = `MAJOR.MINOR` from `version` in `package.json` + the **number of commits** as the patch. With `"version": "0.1.0"` and 93 commits the build is **0.1.93**, the file is
+  `MyFin-v0.1.93.apk` and the release is tagged `v0.1.93`. To start a new line (for example `0.2`), change `package.json` to `0.2.0`; its patch number is ignored.
+- **`versionCode`** (the integer Android compares) is the same commit count. It only ever goes up, which is what lets each APK install over the last. Rewriting `master`'s history so
+  the commit count drops would make Android refuse the next update.
+- **Release notes** are the commit subjects since the previous release. Only the newest commit on `master` is published (re-running an old workflow never creates a release), and a
+  re-run of the same commit replaces the file in its release instead of failing.
+- Nothing is committed back by CI, so there are no version-bump commits to merge. Your local `npm run dev` shows the `package.json` version (`0.1.0`); the APK shows the CI one.
+
 ## Download and install
 
+**Easiest — from the phone:** open <https://github.com/Akhlaquea01/MyFin/releases/latest> and tap `MyFin-vX.Y.Z.apk`. No login and no unzipping.
+
+**Inside the app (once a build with this feature is installed):** **Settings → About → App updates → Check for updates**. If a newer version is published it shows the version, size
+and notes; **Download and install** fetches it, checks it, and opens Android's installer. The first time, Android sends you to a screen to allow MyFin to **install unknown apps** —
+switch it on, go back, and tap **Install**. Android always asks you to confirm; an app cannot update itself silently. Your data stays.
+
+**From the workflow run (the old way):**
+
 1. Open the finished (green) run and scroll to **Artifacts**. Download **`myfin-debug-apk`** — GitHub delivers it as a `.zip`.
-2. Unzip it to get `app-debug.apk`. You can do this on your PC and copy the file to the phone, or open the zip with the phone's Files app.
-3. Tap `app-debug.apk` on the phone. Android asks you to allow **Install unknown apps** for the app you opened it from (Files, Chrome, …) — allow it once, then **Install**.
+2. Unzip it to get `MyFin-vX.Y.Z.apk`. You can do this on your PC and copy the file to the phone, or open the zip with the phone's Files app.
+3. Tap the APK on the phone. Android asks you to allow **Install unknown apps** for the app you opened it from (Files, Chrome, …) — allow it once, then **Install**.
    If Play Protect warns about an unknown developer, choose **Install anyway**: this is a debug build that is not distributed through Google Play.
 
 **Updating:** install a newer APK straight over the old one. Your data is kept, because every build is signed with the same committed debug key and each build has a higher
-version number (the run number). Artifacts are kept for 30 days.
+version number (the commit count). Run artifacts are kept for 30 days; releases are kept until you delete them. A phone that has a build from before in-app updates needs one manual
+install of a newer APK first; after that it can update itself.
 
 > **Back up first.** Uninstalling the app, or clearing its storage, permanently deletes everything in it. Use **Backup** inside MyFin before doing either.
 
@@ -62,7 +87,13 @@ version number (the run number). Artifacts are kept for 30 days.
   unlock with your PIN — the backup is encrypted with it) leaves the phone as a new encrypted `myfin-auto-backup-YYYY-MM-DD.json` file. Old files are not deleted. If Android
   revokes the folder, the next run is recorded as failed and the page says so. **Remind me weekly** additionally schedules a notification with fixed text (no financial details) so
   a missed backup does not go unnoticed; it is the one notification MyFin hands to Android's scheduler.
-- **Not available in the APK** (they rely on browser features; MyFin hides or skips them): the PWA update prompt (updating is installing a new APK) and the "browser couldn't
+- **In-app updates** (**About → App updates**): MyFin looks up the newest release of its own repository on GitHub, downloads `MyFin-vX.Y.Z.apk`, checks it (size, GitHub's SHA-256,
+  that it is MyFin, that it is newer, that it is signed with the installed app's key) and hands it to Android's installer. It only happens when you press the buttons — there is no
+  background checking. The request is made by the app's native code, not the web page, to `api.github.com` and the release download of this one repository; GitHub sees your IP
+  address and a generic `MyFin-Android-Updater` name, nothing from your data. The page itself still cannot make network requests. Android shows its own confirmation, and asks once
+  to allow MyFin to **install unknown apps** (the `REQUEST_INSTALL_PACKAGES` permission). Google Play Protect may still warn about a file-based app that reads SMS; choose **Install
+  anyway**.
+- **Not available in the APK** (they rely on browser features; MyFin hides or skips them): the PWA update prompt (replaced by **App updates** above) and the "browser couldn't
   guarantee protected storage" banner. Take regular Backups — see above.
 - The hardware/gesture **Back** button follows the app: it first closes an open dialog or the navigation drawer, then steps back through MyFin's pages, and from the Dashboard leaves
   the app.
@@ -117,15 +148,17 @@ app with an empty database** (the old one stays installed). Back up first, and o
 3. `package_name` and `custom_url_scheme` in `android/app/src/main/res/values/strings.xml`
 4. Move `android/app/src/main/java/io/github/akhlaquea01/myfin/MainActivity.java` into the matching new folders and update its `package` line
 
-**Version:** `versionName` is the `version` in `package.json`; `versionCode` is the workflow run number (set in the workflow and read by `android/app/build.gradle`).
+**Version:** `versionName` is `MAJOR.MINOR` from `package.json` plus the commit count; `versionCode` is the commit count (both set by the workflow and read by
+`android/app/build.gradle`) — see [Versions and releases](#versions-and-releases).
 
 **App icon:** the launcher icon is Capacitor's default. To use your own artwork, put a 1024×1024 `assets/icon-only.png` (plus `assets/icon-foreground.png` and
 `assets/icon-background.png` for adaptive icons) in the repo and run `npx @capacitor/assets generate --android` once, then commit the generated `android/app/src/main/res/` files.
 
 ## Production API URLs and environment variables
 
-MyFin needs **none today**: it is local-first, makes no network requests, and its Content-Security-Policy (`connect-src 'self'`, set in `vite.config.ts`) forbids them. Nothing
-in `.env` files reaches the build either — they are gitignored, so the cloud build never sees them.
+MyFin needs **none today**: it is local-first, the web layer makes no network requests, and its Content-Security-Policy (`connect-src 'self'`, set in `vite.config.ts`) forbids them.
+The one exception sits outside the web layer: the APK's native update plugin (`android/.../update/NativeAppUpdatePlugin.java`) contacts GitHub when you press **Check for updates**,
+as described above; the page cannot reach it with an address of its own. Nothing in `.env` files reaches the build either — they are gitignored, so the cloud build never sees them.
 
 If you add a feature that calls a server:
 
@@ -163,7 +196,11 @@ The Gradle step (turning `android/` into an APK) is deliberately run only by Git
 | `SDK location not found`, `Failed to install the following SDK components`, or a licence error | The runner image no longer ships Android platform 36 / build-tools 36. Add a pinned `android-actions/setup-android` step after Java setup with `packages: platforms;android-36 build-tools;36.0.0`, or pin `runs-on` to an image version that has them.                            |
 | `Keystore was tampered with, or password was incorrect`                                        | `android/app/debug.keystore` was replaced or regenerated with different credentials. It must be a PKCS12 file with alias `androiddebugkey` and password `android` (see `signingConfigs` in `android/app/build.gradle`).                                                            |
 | Phone says **App not installed**                                                               | Usually a signature mismatch: the installed copy was signed with another key (an earlier build from before the keystore was committed, or one built elsewhere). Back up in the app, uninstall it, install again. Also caused by a lower version number or too little free storage. |
-| Phone shows the old version after installing                                                   | Check Settings → Apps → MyFin for the version. A build with a lower run number than the installed one cannot replace it.                                                                                                                                                           |
+| Phone shows the old version after installing                                                   | Check Settings → Apps → MyFin for the version. A build with a lower version number (commit count) than the installed one cannot replace it.                                                                                                                                        |
+| **App updates** says "No update has been published yet"                                        | No release exists. Push to `master` or run **Build Android APK** on `master`, and check that its **Publish GitHub Release** job passed. The repository must be public.                                                                                                             |
+| **App updates** says GitHub is limiting requests                                               | GitHub allows about 60 anonymous API calls per hour per network address. Wait and try again.                                                                                                                                                                                       |
+| In-app update ends with "App not installed" or says the update uses a different key            | The installed copy was signed with another key, or is newer than the release. Back up, uninstall, and install the release APK by hand (see "Phone says App not installed" above).                                                                                                  |
+| In-app update opens a settings screen instead of the installer                                 | Android needs you to allow MyFin to **install unknown apps** once. Switch on **Allow from this source**, go back to MyFin, and tap **Install**.                                                                                                                                    |
 | Blank screen on launch                                                                         | Update **Android System WebView** and Chrome from Google Play (the app needs a current WebView). To see errors, enable USB debugging and open `chrome://inspect` on a PC.                                                                                                          |
 | "Save cancelled." when exporting                                                               | You dismissed the share sheet. Run the export again and pick a destination.                                                                                                                                                                                                        |
 | A build for an older commit was cancelled                                                      | Expected: the workflow cancels superseded runs on the same branch.                                                                                                                                                                                                                 |

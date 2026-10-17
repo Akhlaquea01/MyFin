@@ -36,6 +36,7 @@ Every transaction, account balance, category, payee, and receipt attachment is e
 - 📊 **Financial Health Score (0–100)**: Quantitative wellness diagnostic assessing emergency runway, savings rate, and debt-to-income (DTI) ratio.
 - 📱 **PWA Web Share Target**: Native OS share integration allowing you to share bank SMS alerts and receipts directly into the quick-add drawer.
 - 📲 **Android Auto-capture** _(APK only)_: Bank SMS and payment-app notifications (GPay, PhonePe, Paytm, bank apps) are read as they arrive and added to your Review queue, where you can edit and confirm them. Messages are locked away on arrival and only opened after you unlock the app.
+- 🔄 **In-app updates** _(APK only)_: Every build is published as a versioned GitHub Release (`MyFin-vX.Y.Z.apk`). **About → App updates** checks for a newer one, downloads it and opens Android's installer — only when you press the button, and your data stays.
 - 📥 **Multi-Account Statement Importer**: High-speed CSV and Excel parser with fuzzy column mapping and intelligent duplicate detection.
 - 🤝 **Peer Lending & Borrowing**: Track money lent to or borrowed from contacts with settlement milestones and ledger integration.
 - 📑 **Year-in-Review & Vector PDF Export**: Interactive annual retrospective infographic with vector-grade client-side PDF export.

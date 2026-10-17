@@ -90,6 +90,10 @@
     <uses-permission android:name="android.permission.RECEIVE_SMS" />
     <!-- The "N new transactions to review" alert (a runtime permission on Android 13+). -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Lets About > App updates hand a downloaded MyFin APK to Android's installer. Android still
+         asks the user to switch on "Install unknown apps" for MyFin and to confirm each install.
+         See update/NativeAppUpdatePlugin.java. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <!-- Phones without a SIM or telephony can still install the app. -->
     <uses-feature android:name="android.hardware.telephony" android:required="false" />
 </manifest>

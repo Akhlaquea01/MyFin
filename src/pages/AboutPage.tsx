@@ -1,7 +1,9 @@
 import { Info, Compass } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
+import { AppUpdateCard } from '../components/AppUpdateCard';
 import { useQuickTour } from '../hooks/useQuickTour';
+import { isNativeAppUpdateAvailable } from '../lib/native/nativeAppUpdate';
 
 const CAPABILITIES = [
 	'Encrypted double-sided ledger with split transactions',
@@ -20,8 +22,8 @@ const CAPABILITIES = [
 	'Starter setup template export & import'
 ];
 
-// About page: version, creator, description, and a shortcut back into the quick tour — none
-// of this existed before (no route surfaced package.json's version anywhere in the UI).
+// About page: version, creator, description, a shortcut back into the quick tour and, in the
+// Android app, the update check.
 export function AboutPage() {
 	const { startTour } = useQuickTour();
 
@@ -50,6 +52,9 @@ export function AboutPage() {
 					</dl>
 				</CardContent>
 			</Card>
+
+			{/* Only the Android app can install an update; the PWA has its own update prompt. */}
+			{isNativeAppUpdateAvailable() && <AppUpdateCard />}
 
 			<Card className="mb-6">
 				<CardHeader>
