@@ -16,7 +16,6 @@ function makeRule(overrides: Partial<CategorizationRule>): CategorizationRule {
 		tagIds: [],
 		createdAt: now,
 		updatedAt: now,
-		deletedAt: null,
 		...overrides
 	};
 }

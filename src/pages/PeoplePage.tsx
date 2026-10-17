@@ -351,22 +351,22 @@ function PersonCard({
 
 	const { getEncryptionKey } = useSession();
 	const key = getEncryptionKey();
+	const confirm = useConfirm();
 
 	async function onDeletePerson() {
+		const confirmed = await confirm({
+			message: `Delete ${person.name}? Their settled loans and repayments are deleted too; the money movements already in your accounts stay. This cannot be undone.`,
+			confirmLabel: 'Delete person',
+			destructive: true
+		});
+		if (!confirmed) return;
 		try {
-			await PersonRepository.softDelete(key, person.id);
+			await PersonRepository.remove(key, person.id);
 		} catch (err) {
 			toast.error(err instanceof Error ? err.message : 'Could not delete this person.');
 			return;
 		}
-		toast.success('Person deleted', {
-			action: {
-				label: 'Undo',
-				onClick: () => {
-					void PersonRepository.restore(key, person.id).then(onChanged);
-				}
-			}
-		});
+		toast.success('Person deleted');
 		await onChanged();
 	}
 
@@ -537,7 +537,22 @@ function LoanRow({
 	}
 
 	async function onUndoRepayment(repaymentId: string) {
-		await LoanRepaymentRepository.softDelete(key, repaymentId);
+		if (
+			!(await confirm({
+				message:
+					'Undo this repayment? It is deleted, the money goes back to where it was and the amount is owed again.',
+				confirmLabel: 'Undo repayment',
+				destructive: true
+			}))
+		) {
+			return;
+		}
+		try {
+			await LoanRepaymentRepository.remove(key, repaymentId);
+		} catch (err) {
+			toast.error(err instanceof Error ? err.message : 'Could not undo this repayment.');
+			return;
+		}
 		toast.success('Repayment undone');
 		await onChanged();
 	}
@@ -545,39 +560,20 @@ function LoanRow({
 	async function onRemoveLoan() {
 		if (
 			!(await confirm({
-				message: `Remove this loan? It, its repayments and the money movement behind them go to Trash, and the account balance goes back to what it was before. Use this to fix a loan recorded with the wrong amount, date or account.`,
+				message: `Remove this loan? It, its repayments and the money movement behind them are deleted, and the account balance goes back to what it was before. Use this to fix a loan recorded with the wrong amount, date or account. This cannot be undone.`,
 				confirmLabel: 'Remove loan',
 				destructive: true
 			}))
 		) {
 			return;
 		}
-		let removedRepaymentIds: string[];
 		try {
-			({ removedRepaymentIds } = await PersonLoanRepository.remove(key, loan.id));
+			await PersonLoanRepository.remove(key, loan.id);
 		} catch (err) {
 			toast.error(err instanceof Error ? err.message : 'Could not remove this loan.');
 			return;
 		}
-		toast.success('Loan removed', {
-			action: {
-				label: 'Undo',
-				// Brings back the loan AND the repayments that were removed with it; otherwise the loan
-				// reappears as if nothing had ever been paid back.
-				onClick: () => {
-					void (async () => {
-						await PersonLoanRepository.restore(key, loan.id);
-						for (const repaymentId of removedRepaymentIds) {
-							await LoanRepaymentRepository.restore(key, repaymentId);
-						}
-					})()
-						.then(onChanged)
-						.catch((err: unknown) =>
-							toast.error(err instanceof Error ? err.message : 'Could not undo.')
-						);
-				}
-			}
-		});
+		toast.success('Loan removed');
 		await onChanged();
 	}
 

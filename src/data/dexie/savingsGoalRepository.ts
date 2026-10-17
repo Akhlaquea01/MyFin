@@ -1,6 +1,5 @@
 import { db, type SavingsGoalRow, type GoalContributionRow } from './db';
 import { putEncrypted, getDecrypted, decryptRows } from './encryptedTable';
-import { deletedAtIndex, NOT_DELETED } from './indexable';
 import type { SavingsGoal, GoalContribution } from '../../domain/entities';
 import { todayLocalISO } from '../../domain/shared/dateMath';
 
@@ -16,10 +15,9 @@ export const SavingsGoalRepository = {
 			targetAmount: input.targetAmount,
 			targetDate: input.targetDate,
 			createdAt: now,
-			updatedAt: now,
-			deletedAt: null
+			updatedAt: now
 		};
-		await putEncrypted(db.savingsGoals, key, goal, { deletedAt: NOT_DELETED });
+		await putEncrypted(db.savingsGoals, key, goal, {});
 		return goal;
 	},
 
@@ -27,22 +25,20 @@ export const SavingsGoalRepository = {
 		const existing = await getDecrypted<SavingsGoalRow, SavingsGoal>(db.savingsGoals, key, id);
 		if (!existing) throw new Error(`SavingsGoal ${id} not found`);
 		const updated: SavingsGoal = { ...existing, ...changes, id, updatedAt: Date.now() };
-		await putEncrypted(db.savingsGoals, key, updated, {
-			deletedAt: deletedAtIndex(updated.deletedAt)
-		});
+		await putEncrypted(db.savingsGoals, key, updated, {});
 		return updated;
 	},
 
-	async softDelete(key: CryptoKey, id: string): Promise<void> {
-		await this.update(key, id, { deletedAt: Date.now() });
-	},
-
-	async restore(key: CryptoKey, id: string): Promise<void> {
-		await this.update(key, id, { deletedAt: null });
+	/** Deletes the goal along with its contributions. */
+	async remove(id: string): Promise<void> {
+		await db.transaction('rw', db.savingsGoals, db.goalContributions, async () => {
+			await db.goalContributions.where('goalId').equals(id).delete();
+			await db.savingsGoals.delete(id);
+		});
 	},
 
 	async list(key: CryptoKey): Promise<SavingsGoal[]> {
-		const rows = await db.savingsGoals.filter((row) => row.deletedAt === NOT_DELETED).toArray();
+		const rows = await db.savingsGoals.toArray();
 		return decryptRows<SavingsGoalRow, SavingsGoal>(key, rows);
 	}
 };

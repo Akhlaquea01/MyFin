@@ -470,7 +470,7 @@ describe('Budget engine', () => {
 			expect(await hasActiveBudgetForCategory(key, categoryId)).toBe(true);
 		});
 
-		it('returns false when the only budget for the category is soft-deleted', async () => {
+		it('returns false when the only budget for the category was deleted', async () => {
 			const budget = await BudgetRepository.create(key, {
 				categoryId,
 				periodType: 'monthly',
@@ -478,7 +478,7 @@ describe('Budget engine', () => {
 				rolloverEnabled: false,
 				isSinkingFund: false
 			});
-			await BudgetRepository.softDelete(key, budget.id);
+			await BudgetRepository.remove(budget.id);
 			expect(await hasActiveBudgetForCategory(key, categoryId)).toBe(false);
 		});
 

@@ -29,12 +29,11 @@ describe('Ledger repositories (Account, Category, Transaction) against Dexie', (
 			[]
 		);
 
-		await expect(AccountRepository.softDelete(key, account.id)).rejects.toThrow(
-			/active transactions/
-		);
+		await expect(AccountRepository.remove(account.id)).rejects.toThrow(/still has transactions/);
+		expect(await AccountRepository.getById(key, account.id)).not.toBeNull();
 	});
 
-	it('allows deleting an account once its transactions are soft-deleted', async () => {
+	it('allows deleting an account once its transactions are deleted', async () => {
 		const account = await AccountRepository.create(key, {
 			name: 'Checking',
 			type: 'bank',
@@ -47,11 +46,10 @@ describe('Ledger repositories (Account, Category, Transaction) against Dexie', (
 			{ accountId: account.id, date: '2026-02-01', amount: -1000, type: 'expense' },
 			[]
 		);
-		await TransactionRepository.softDelete(key, tx.id);
+		await TransactionRepository.remove([tx.id]);
 
-		await expect(AccountRepository.softDelete(key, account.id)).resolves.not.toThrow();
-		const deleted = await AccountRepository.getById(key, account.id);
-		expect(deleted?.deletedAt).not.toBeNull();
+		await expect(AccountRepository.remove(account.id)).resolves.not.toThrow();
+		expect(await AccountRepository.getById(key, account.id)).toBeNull();
 	});
 
 	it('splits a transaction across multiple categories summing to the total', async () => {
@@ -123,7 +121,7 @@ describe('Ledger repositories (Account, Category, Transaction) against Dexie', (
 		expect(byText[0].notes).toBe('Coffee shop');
 	});
 
-	it('excludes soft-deleted transactions from search by default', async () => {
+	it('removes a deleted transaction from search', async () => {
 		const account = await AccountRepository.create(key, {
 			name: 'Checking',
 			type: 'bank',
@@ -136,16 +134,10 @@ describe('Ledger repositories (Account, Category, Transaction) against Dexie', (
 			{ accountId: account.id, date: '2026-02-02', amount: -100, type: 'expense' },
 			[]
 		);
-		await TransactionRepository.softDelete(key, tx.id);
+		await TransactionRepository.remove([tx.id]);
 
 		const results = await TransactionRepository.search(key, { accountId: account.id });
 		expect(results).toHaveLength(0);
-
-		const withDeleted = await TransactionRepository.search(key, {
-			accountId: account.id,
-			includeDeleted: true
-		});
-		expect(withDeleted).toHaveLength(1);
 	});
 
 	// spec 012: tag-based filtering & search
@@ -284,7 +276,7 @@ describe('Ledger repositories (Account, Category, Transaction) against Dexie', (
 			expect(results[0].id).toBe(tx.id);
 		});
 
-		it('TagRepository.listInUse excludes a tag with zero live transactions', async () => {
+		it('TagRepository.listInUse excludes a tag with zero transactions', async () => {
 			const account = await createAccount();
 			const conference = await TagRepository.getOrCreate(key, 'conference');
 			const tx = await TransactionRepository.create(
@@ -296,7 +288,7 @@ describe('Ledger repositories (Account, Category, Transaction) against Dexie', (
 
 			expect((await TagRepository.listInUse(key)).map((t) => t.id)).toContain(conference.id);
 
-			await TransactionRepository.softDelete(key, tx.id);
+			await TransactionRepository.remove([tx.id]);
 
 			expect((await TagRepository.listInUse(key)).map((t) => t.id)).not.toContain(conference.id);
 		});

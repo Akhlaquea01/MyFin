@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { db } from '../../src/data/dexie/db';
 import { AccountRepository } from '../../src/data/dexie/accountRepository';
 import { CategoryRepository } from '../../src/data/dexie/categoryRepository';
@@ -15,6 +15,7 @@ import { deriveEncryptionKey, randomSaltBase64 } from '../../src/data/crypto/cry
 
 // A loan is not an account, so paying its EMI used to leave the balance owed untouched.
 describe('paying a loan or card liability from an account', () => {
+	afterEach(() => vi.restoreAllMocks());
 	let key: CryptoKey;
 	let bankId: string;
 	let loanId: string;
@@ -180,8 +181,20 @@ describe('paying a loan or card liability from an account', () => {
 			expect(liability.outstandingBalance).toBe(1_000_000 - 50_000);
 			expect(liability.payments).toHaveLength(1);
 			expect(await bankBalance()).toBe(500_000 - 50_000);
-			// The reversed entry is in Trash, not in the ledger.
+			// The reversed entry is gone from the ledger.
 			expect(await TransactionRepository.search(key, {})).toHaveLength(1);
+		});
+
+		it('owes the amount again if the ledger entry cannot be deleted', async () => {
+			const { payment } = await pay(100_000);
+			vi.spyOn(TransactionEngine, 'deleteTransaction').mockRejectedValueOnce(
+				new Error('disk full')
+			);
+
+			await expect(undoLiabilityPayment(key, loanId, payment.id)).rejects.toThrow('disk full');
+
+			expect(await owed()).toBe(900_000);
+			expect(await bankBalance()).toBe(400_000);
 		});
 
 		it('refuses a payment that is not on this liability', async () => {
@@ -203,16 +216,11 @@ describe('paying a loan or card liability from an account', () => {
 			expect(await TransactionRepository.getLoanLink(key, 'something-else')).toBeNull();
 		});
 
-		it('cannot be turned into a transfer, permanently purged, or offered as a transfer match', async () => {
+		it('cannot be turned into a transfer or offered as a transfer match', async () => {
 			const { payment } = await pay(100_000);
 			await expect(
 				TransactionEngine.convertToTransfer(key, payment.transactionId, { accountId: bankId })
 			).rejects.toThrow(/Liabilities page/);
-
-			await TransactionRepository.softDelete(key, payment.transactionId);
-			await expect(TransactionRepository.purge(key, payment.transactionId)).rejects.toThrow(
-				/liability payment/
-			);
 
 			// A matching credit on another account must not be linked to it either.
 			const savings = await AccountRepository.create(key, {
@@ -228,7 +236,6 @@ describe('paying a loan or card liability from an account', () => {
 				amount: 100_000,
 				type: 'income'
 			});
-			await TransactionRepository.restore(key, payment.transactionId);
 			expect(await TransactionEngine.findTransferCandidates(key, credit.id)).toEqual([]);
 		});
 

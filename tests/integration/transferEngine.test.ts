@@ -59,7 +59,7 @@ describe('transfer and card-payment engine', () => {
 	});
 
 	describe('deleting and restoring a transfer', () => {
-		it('deleting either leg moves BOTH to trash and restores both balances', async () => {
+		it('deleting either leg deletes BOTH and restores both balances', async () => {
 			const [out, into] = await TransactionEngine.recordTransfer(key, {
 				fromAccountId: bank.id,
 				toAccountId: card.id,
@@ -69,43 +69,12 @@ describe('transfer and card-payment engine', () => {
 
 			// Delete the *card* leg: the bank leg must go with it, not stay behind.
 			await TransactionEngine.deleteTransaction(key, into.id);
-			expect((await TransactionRepository.getById(key, out.id))?.deletedAt).not.toBeNull();
-			expect((await TransactionRepository.getById(key, into.id))?.deletedAt).not.toBeNull();
-			expect(await balanceOf(bank.id)).toBe(100_000);
-			expect(await balanceOf(card.id)).toBe(-40_000);
-			expect(await TransactionRepository.search(key, {})).toHaveLength(0);
-		});
-
-		it('restoring either leg brings the whole transfer back', async () => {
-			const [out, into] = await TransactionEngine.recordTransfer(key, {
-				fromAccountId: bank.id,
-				toAccountId: card.id,
-				amount: 15_000,
-				date: '2026-03-10'
-			});
-			await TransactionEngine.deleteTransaction(key, out.id);
-			await TransactionEngine.restoreTransaction(key, out.id);
-
-			expect((await TransactionRepository.getById(key, into.id))?.deletedAt).toBeNull();
-			expect(await balanceOf(bank.id)).toBe(85_000);
-			expect(await balanceOf(card.id)).toBe(-25_000);
-		});
-
-		it('permanently purging one leg purges the other too, so no orphaned half-transfer survives', async () => {
-			const [out, into] = await TransactionEngine.recordTransfer(key, {
-				fromAccountId: bank.id,
-				toAccountId: card.id,
-				amount: 15_000,
-				date: '2026-03-10'
-			});
-			await TransactionEngine.deleteTransaction(key, out.id);
-			await TransactionRepository.purge(key, out.id);
-
 			expect(await TransactionRepository.getById(key, out.id)).toBeNull();
 			expect(await TransactionRepository.getById(key, into.id)).toBeNull();
 			expect(await TransactionRepository.getSplits(key, into.id)).toEqual([]);
 			expect(await balanceOf(bank.id)).toBe(100_000);
 			expect(await balanceOf(card.id)).toBe(-40_000);
+			expect(await TransactionRepository.search(key, {})).toHaveLength(0);
 		});
 
 		it('deleting an ordinary transaction is unchanged', async () => {
@@ -115,10 +84,10 @@ describe('transfer and card-payment engine', () => {
 				amount: -5_000,
 				type: 'expense'
 			});
+			expect(await balanceOf(bank.id)).toBe(95_000);
 			await TransactionEngine.deleteTransaction(key, tx.id);
 			expect(await balanceOf(bank.id)).toBe(100_000);
-			await TransactionEngine.restoreTransaction(key, tx.id);
-			expect(await balanceOf(bank.id)).toBe(95_000);
+			expect(await TransactionRepository.getById(key, tx.id)).toBeNull();
 		});
 	});
 

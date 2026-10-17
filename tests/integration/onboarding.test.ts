@@ -9,7 +9,6 @@ import {
 	randomSaltBase64
 } from '../../src/data/crypto/cryptoService';
 import { putEncrypted, getDecrypted } from '../../src/data/dexie/encryptedTable';
-import { NOT_DELETED } from '../../src/data/dexie/indexable';
 import type { Account } from '../../src/domain/entities';
 import { DEFAULT_AUTO_LOCK_TIMEOUT_MS } from '../../src/domain/entities';
 
@@ -64,10 +63,9 @@ describe('Onboarding: PIN setup persists UserProfile and gates data access', () 
 			billingCycleDay: null,
 			isArchived: false,
 			createdAt: Date.now(),
-			updatedAt: Date.now(),
-			deletedAt: null
+			updatedAt: Date.now()
 		};
-		await putEncrypted(db.accounts, correctKey, account, { deletedAt: NOT_DELETED });
+		await putEncrypted(db.accounts, correctKey, account, {});
 
 		const readBack = await getDecrypted<AccountRow, Account>(db.accounts, correctKey, 'acc-1');
 		expect(readBack?.name).toBe('Checking');

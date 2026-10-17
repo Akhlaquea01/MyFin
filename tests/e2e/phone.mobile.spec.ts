@@ -22,7 +22,7 @@ async function seed(page: Page) {
 		.toISOString()
 		.slice(0, 10);
 	const stamp = now.getTime();
-	const base = { createdAt: stamp, updatedAt: stamp, deletedAt: null };
+	const base = { createdAt: stamp, updatedAt: stamp };
 	const entities: Record<string, unknown[]> = {
 		accounts: [
 			{

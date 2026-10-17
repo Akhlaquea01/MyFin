@@ -129,7 +129,6 @@ export function parseDataTemplate(raw: string): ParseTemplateResult {
 /**
  * Builds an unencrypted, complete DataTemplate from current database records.
  * NEVER includes user security credentials (UserProfile, PIN, salts, biometric enrollments).
- * Excludes soft-deleted records (research.md §4).
  */
 export async function buildDataTemplate(key: CryptoKey): Promise<DataTemplate> {
 	const [
@@ -180,7 +179,7 @@ export async function buildDataTemplate(key: CryptoKey): Promise<DataTemplate> {
 		MerchantCategorySignalRepository.listAll(key),
 		NotificationPreferenceRepository.get(key),
 		DebtPlannerPreferenceRepository.get(key),
-		TransactionRepository.search(key, { includeDeleted: false }),
+		TransactionRepository.search(key),
 		TransactionSplitRepository.listAll(key),
 		TransactionTagRepository.list(),
 		AttachmentRepository.list(key),
@@ -888,10 +887,7 @@ export async function importDataTemplate(
 	for (const acc of entities.accounts ?? []) {
 		const resolvedAccId = accountRemap.get(acc.id);
 		if (resolvedAccId && !txIndexByAccount.has(resolvedAccId)) {
-			const existingTxs = await TransactionRepository.search(key, {
-				accountId: resolvedAccId,
-				includeDeleted: false
-			});
+			const existingTxs = await TransactionRepository.search(key, { accountId: resolvedAccId });
 			const accIndex = new Map<string, string>();
 			for (const tx of existingTxs) {
 				accIndex.set(duplicateKey(tx.date, tx.amount), tx.id);

@@ -4,7 +4,6 @@ import {
 	normalizeTagText,
 	tagNameMatchesQuery,
 	filterTagOptions,
-	distinctTagIdsInUse,
 	transactionMatchesFreeText
 } from '../../src/domain/transactions/tagFilterEngine';
 import type { TagOption } from '../../src/domain/transactions/tagFilterEngine';
@@ -72,33 +71,6 @@ describe('filterTagOptions', () => {
 
 	it('returns an empty array when nothing matches', () => {
 		expect(filterTagOptions(options, 'zzz')).toEqual([]);
-	});
-});
-
-describe('distinctTagIdsInUse', () => {
-	it('excludes a tag referenced only by a deleted transaction', () => {
-		const rows = [{ transactionId: 'deleted-tx', tagId: 'tag-1' }];
-		const live = new Set<string>();
-		expect(distinctTagIdsInUse(rows, live)).toEqual(new Set());
-	});
-
-	it('includes a tag referenced by a live transaction', () => {
-		const rows = [{ transactionId: 'live-tx', tagId: 'tag-1' }];
-		const live = new Set(['live-tx']);
-		expect(distinctTagIdsInUse(rows, live)).toEqual(new Set(['tag-1']));
-	});
-
-	it('includes a tag referenced by both a live and a deleted transaction', () => {
-		const rows = [
-			{ transactionId: 'live-tx', tagId: 'tag-1' },
-			{ transactionId: 'deleted-tx', tagId: 'tag-1' }
-		];
-		const live = new Set(['live-tx']);
-		expect(distinctTagIdsInUse(rows, live)).toEqual(new Set(['tag-1']));
-	});
-
-	it('returns an empty set for no rows', () => {
-		expect(distinctTagIdsInUse([], new Set())).toEqual(new Set());
 	});
 });
 

@@ -8,7 +8,6 @@ function merchant(overrides: Partial<Merchant> = {}): Merchant {
 		name: 'Cafe Coffee Day',
 		createdAt: 0,
 		updatedAt: 0,
-		deletedAt: null,
 		...overrides
 	};
 }

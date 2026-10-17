@@ -1,4 +1,5 @@
 import type { BackupPayload } from '../backupService';
+import { dropTrashed } from './dropTrashed';
 
 /**
  * Migrates a v1.3.0 payload forward to v1.4.0: spec 010 (lending/borrowing) and spec 013
@@ -8,7 +9,7 @@ import type { BackupPayload } from '../backupService';
  * additive/forward only).
  */
 export function migrateFromV1_3(payload: BackupPayload): BackupPayload {
-	return {
+	return dropTrashed({
 		...payload,
 		exportedEntities: {
 			...payload.exportedEntities,
@@ -17,5 +18,5 @@ export function migrateFromV1_3(payload: BackupPayload): BackupPayload {
 			personLoanRepayments: payload.exportedEntities.personLoanRepayments ?? [],
 			savedFilterViews: payload.exportedEntities.savedFilterViews ?? []
 		}
-	};
+	});
 }

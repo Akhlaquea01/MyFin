@@ -253,7 +253,7 @@ export function BackupSettingsPage() {
 				pin: restorePin,
 				fallbackSalt: parsedFile.kdf.salt,
 				incomingCount: payload.exportedEntities.transactions.length,
-				currentCount: await TransactionRepository.countActive(),
+				currentCount: await TransactionRepository.count(),
 				createdAt: parsedFile.createdAt
 			});
 		} catch (err) {

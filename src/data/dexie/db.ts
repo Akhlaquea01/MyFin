@@ -1,7 +1,6 @@
-import Dexie, { type EntityTable } from 'dexie';
+import Dexie, { type EntityTable, type Transaction as DexieTransaction } from 'dexie';
 import type { EncryptedBlob } from '../crypto/cryptoService';
 import type { UserProfile, AutoBackupSettings } from '../../domain/entities';
-import { NOT_DELETED } from './indexable';
 
 /**
  * Every table except `userProfile` stores a row shaped as its non-sensitive structural
@@ -15,24 +14,19 @@ export interface EncryptedRow {
 	encryptedData: EncryptedBlob;
 }
 
-// NOTE: `deletedAt`/`parentId`/`duplicateOfId`/`transferPairId` below are typed `number`/
-// `string`, never `| null` — real IndexedDB rejects `null` as an index key or query bound
-// ("Invalid key provided"), unlike the fake-indexeddb polyfill Node-side tests run
-// against. Callers must go through src/data/dexie/indexable.ts's sentinel mappers
-// (0 / '') rather than storing `null` directly in these columns.
+// NOTE: `parentId`/`duplicateOfId`/`transferPairId` below are typed `string`, never `| null` —
+// real IndexedDB rejects `null` as an index key or query bound ("Invalid key provided"),
+// unlike the fake-indexeddb polyfill Node-side tests run against. Callers must go through
+// src/data/dexie/indexable.ts's sentinel mapper ('') rather than storing `null` directly in
+// these columns.
 
-export interface AccountRow extends EncryptedRow {
-	deletedAt: number;
-}
+export type AccountRow = EncryptedRow;
 
 export interface CategoryRow extends EncryptedRow {
 	parentId: string;
-	deletedAt: number;
 }
 
-export interface MerchantRow extends EncryptedRow {
-	deletedAt: number;
-}
+export type MerchantRow = EncryptedRow;
 
 export interface MerchantAliasRow extends EncryptedRow {
 	merchantId: string;
@@ -58,7 +52,6 @@ export interface TagRow extends EncryptedRow {
 export interface TransactionRow extends EncryptedRow {
 	accountId: string;
 	date: string;
-	deletedAt: number;
 	reviewStatus: 'confirmed' | 'unreviewed';
 	duplicateOfId: string;
 	transferPairId: string;
@@ -78,7 +71,6 @@ export interface TransactionTagRow {
 
 export interface BudgetRow extends EncryptedRow {
 	categoryId: string;
-	deletedAt: number;
 }
 
 export interface BudgetItemRow extends EncryptedRow {
@@ -99,18 +91,14 @@ export interface ExpectedEventRow extends EncryptedRow {
 	status: 'pending' | 'matched' | 'missed';
 }
 
-export interface InvestmentHoldingRow extends EncryptedRow {
-	deletedAt: number;
-}
+export type InvestmentHoldingRow = EncryptedRow;
 
 export interface InvestmentValuationRow extends EncryptedRow {
 	holdingId: string;
 	date: string;
 }
 
-export interface LiabilityRow extends EncryptedRow {
-	deletedAt: number;
-}
+export type LiabilityRow = EncryptedRow;
 
 export interface NetWorthSnapshotRow extends EncryptedRow {
 	date: string;
@@ -123,9 +111,7 @@ export interface BackupRecordRow extends EncryptedRow {
 // Singleton row ('local-user'); no structural columns beyond `id` are needed.
 export type DebtPlannerPreferenceRow = EncryptedRow;
 
-export interface SavingsGoalRow extends EncryptedRow {
-	deletedAt: number;
-}
+export type SavingsGoalRow = EncryptedRow;
 
 export interface GoalContributionRow extends EncryptedRow {
 	goalId: string;
@@ -157,28 +143,23 @@ export interface UnreadableCaptureRow extends EncryptedRow {
 
 export interface CategorizationRuleRow extends EncryptedRow {
 	merchantId: string;
-	deletedAt: number;
 }
 
 // Singleton-per-merchant row (id = the merchant's own id); no structural columns beyond
 // `id` are needed.
 export type MerchantCategorySignalRow = EncryptedRow;
 
-export interface PersonRow extends EncryptedRow {
-	deletedAt: number;
-}
+export type PersonRow = EncryptedRow;
 
 export interface PersonLoanRow extends EncryptedRow {
 	personId: string;
 	accountId: string;
 	direction: 'lent' | 'borrowed';
-	deletedAt: number;
 }
 
 export interface PersonLoanRepaymentRow extends EncryptedRow {
 	loanId: string;
 	accountId: string;
-	deletedAt: number;
 }
 
 export interface SavedFilterViewRow extends EncryptedRow {
@@ -324,7 +305,7 @@ class MyFinDatabase extends Dexie {
 			.stores({
 				budgets: 'id, categoryId, deletedAt'
 			})
-			.upgrade((tx) => tx.table('budgets').toCollection().modify({ deletedAt: NOT_DELETED }));
+			.upgrade((tx) => tx.table('budgets').toCollection().modify({ deletedAt: 0 }));
 		// v12: adds the scheduled local encrypted backup settings singleton (spec 019,
 		// FR-026–FR-031). Isolated in its own table rather than folded into `userProfile`
 		// because `directoryHandle` is a structured-clone-only browser object, not a plain JSON
@@ -343,6 +324,80 @@ class MyFinDatabase extends Dexie {
 			notificationInbox: 'id, dedupeKey, createdAt, isRead',
 			unreadableCaptures: 'id, receivedAt'
 		});
+		// v15: deletes are permanent, so the `deletedAt` soft-delete column and its indexes go. Rows
+		// that were already in Trash are removed here, along with everything that hung off them —
+		// otherwise they would sit in the database forever with no screen left to show or purge them.
+		// Only plaintext structural columns are used: an upgrade runs without the encryption key.
+		this.version(15)
+			.stores({
+				accounts: 'id',
+				categories: 'id, parentId',
+				merchants: 'id',
+				transactions: 'id, accountId, date, reviewStatus, duplicateOfId, transferPairId',
+				budgets: 'id, categoryId',
+				investmentHoldings: 'id',
+				liabilities: 'id',
+				savingsGoals: 'id',
+				categorizationRules: 'id, merchantId',
+				people: 'id',
+				personLoans: 'id, personId, accountId, direction',
+				personLoanRepayments: 'id, loanId, accountId'
+			})
+			.upgrade(purgeTrashedRows);
+	}
+}
+
+/** Ids of rows in Trash as v1–v14 stored it: `deletedAt` 0 = live, a timestamp = trashed. */
+function trashedIds(tx: DexieTransaction, table: string): Promise<string[]> {
+	return tx
+		.table<{ id: string; deletedAt?: number }, string>(table)
+		.filter((row) => typeof row.deletedAt === 'number' && row.deletedAt !== 0)
+		.primaryKeys();
+}
+
+async function purgeTrashedRows(tx: DexieTransaction): Promise<void> {
+	const removeChildren = async (child: string, index: string, parentIds: string[]) => {
+		if (parentIds.length > 0) await tx.table(child).where(index).anyOf(parentIds).delete();
+	};
+
+	const transactionIds = await trashedIds(tx, 'transactions');
+	await removeChildren('transactionSplits', 'transactionId', transactionIds);
+	await removeChildren('transactionTags', 'transactionId', transactionIds);
+	await removeChildren('attachments', 'transactionId', transactionIds);
+	await tx.table('transactions').bulkDelete(transactionIds);
+
+	const holdingIds = await trashedIds(tx, 'investmentHoldings');
+	await removeChildren('investmentValuations', 'holdingId', holdingIds);
+	await tx.table('investmentHoldings').bulkDelete(holdingIds);
+
+	const goalIds = await trashedIds(tx, 'savingsGoals');
+	await removeChildren('goalContributions', 'goalId', goalIds);
+	await tx.table('savingsGoals').bulkDelete(goalIds);
+
+	const budgetIds = await trashedIds(tx, 'budgets');
+	await removeChildren('budgetItems', 'budgetId', budgetIds);
+	await tx.table('budgets').bulkDelete(budgetIds);
+
+	// A person's loans and repayments go with them (a person can only be deleted once nothing is
+	// owed), as do a trashed loan's repayments.
+	const personIds = await trashedIds(tx, 'people');
+	const loansOfPeople = personIds.length
+		? await tx.table('personLoans').where('personId').anyOf(personIds).primaryKeys()
+		: [];
+	const loanIds = [...new Set([...(await trashedIds(tx, 'personLoans')), ...loansOfPeople])];
+	await removeChildren('personLoanRepayments', 'loanId', loanIds);
+	await tx.table('personLoanRepayments').bulkDelete(await trashedIds(tx, 'personLoanRepayments'));
+	await tx.table('personLoans').bulkDelete(loanIds);
+	await tx.table('people').bulkDelete(personIds);
+
+	for (const table of [
+		'accounts',
+		'categories',
+		'merchants',
+		'liabilities',
+		'categorizationRules'
+	]) {
+		await tx.table(table).bulkDelete(await trashedIds(tx, table));
 	}
 }
 

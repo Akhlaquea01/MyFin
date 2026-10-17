@@ -140,23 +140,14 @@ export function CategoriesPage() {
 			return;
 		}
 		const confirmed = await confirm({
-			message: `Remove the ${category.name} category? You can undo this right after.`,
+			message: `Remove the ${category.name} category? Its transactions become uncategorized. This cannot be undone.`,
 			confirmLabel: 'Remove category',
 			destructive: true
 		});
 		if (!confirmed) return;
 		try {
-			await CategoryRepository.softDelete(key, category.id);
-			// Categories have no Trash entry of their own to recover this from — an in-toast
-			// undo is the only way back.
-			toast.success(`${category.name} deleted`, {
-				action: {
-					label: 'Undo',
-					onClick: () => {
-						void CategoryRepository.restore(key, category.id).then(refresh);
-					}
-				}
-			});
+			await CategoryRepository.remove(key, category.id);
+			toast.success(`${category.name} deleted`);
 			await refresh();
 		} catch (err) {
 			toast.error(err instanceof Error ? err.message : 'Could not delete category.');

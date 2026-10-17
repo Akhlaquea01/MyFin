@@ -198,15 +198,6 @@ describe('recurring matching for bills that arrive uncategorized', () => {
 			expect((await eventStatus()).matchedTransactionId).toBeNull();
 		});
 
-		it('restoring it from Trash claims the event again', async () => {
-			const tx = await TransactionEngine.recordTransaction(key, rent());
-			await TransactionEngine.deleteTransaction(key, tx.id);
-			await TransactionEngine.restoreTransaction(key, tx.id);
-			const event = await eventStatus();
-			expect(event.status).toBe('matched');
-			expect(event.matchedTransactionId).toBe(tx.id);
-		});
-
 		it('editing the date out of the window releases it; editing it back matches again', async () => {
 			const tx = await TransactionEngine.recordTransaction(key, rent());
 			await TransactionEngine.editTransaction(key, tx.id, { date: '2026-04-20' });

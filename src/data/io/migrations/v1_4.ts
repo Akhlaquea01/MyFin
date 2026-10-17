@@ -1,11 +1,11 @@
 import type { BackupPayload } from '../backupService';
+import { dropTrashed } from './dropTrashed';
 
 /**
- * Identity migration for the current schema (contracts/backup-format.md's "Compatibility
- * policy"): '1.4.0' is the current payload shape today, so there is nothing to transform.
- * The next schema bump adds a sibling module here and registers it in `MIGRATIONS` in
- * backupService.ts, taking the payload from this version forward to the next.
+ * Migrates a v1.4.0 payload forward to v1.5.0: deletes became permanent, so whatever the backup
+ * held in Trash is dropped along with what hung off it (contracts/backup-format.md's
+ * "Compatibility policy").
  */
 export function migrateFromV1_4(payload: BackupPayload): BackupPayload {
-	return payload;
+	return dropTrashed(payload);
 }

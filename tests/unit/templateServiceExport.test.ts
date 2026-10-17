@@ -99,8 +99,7 @@ describe('templateService - buildDataTemplate and exportDataTemplateToJsonBlob',
 				billingCycleDay: null,
 				isArchived: false,
 				createdAt: 1000,
-				updatedAt: 1000,
-				deletedAt: null
+				updatedAt: 1000
 			}
 		]);
 		vi.spyOn(CategoryRepository, 'list').mockResolvedValue([]);

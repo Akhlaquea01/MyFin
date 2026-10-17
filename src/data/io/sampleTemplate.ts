@@ -16,8 +16,7 @@ export const SAMPLE_DATA_TEMPLATE: DataTemplate = {
 				billingCycleDay: null,
 				isArchived: false,
 				createdAt: 1788699245267,
-				updatedAt: 1788699245267,
-				deletedAt: null
+				updatedAt: 1788699245267
 			},
 			{
 				id: 'e489f6cd-6245-474c-87c2-3a3cfc44b1a8',
@@ -29,8 +28,7 @@ export const SAMPLE_DATA_TEMPLATE: DataTemplate = {
 				billingCycleDay: null,
 				isArchived: false,
 				createdAt: 1788699457781,
-				updatedAt: 1788699457781,
-				deletedAt: null
+				updatedAt: 1788699457781
 			}
 		],
 		categories: [
@@ -40,8 +38,7 @@ export const SAMPLE_DATA_TEMPLATE: DataTemplate = {
 				parentId: null,
 				icon: 'utensils',
 				createdAt: 1788699245267,
-				updatedAt: 1788699245267,
-				deletedAt: null
+				updatedAt: 1788699245267
 			},
 			{
 				id: 'c2222222-2222-4222-8222-222222222222',
@@ -49,8 +46,7 @@ export const SAMPLE_DATA_TEMPLATE: DataTemplate = {
 				parentId: 'c1111111-1111-4111-8111-111111111111',
 				icon: 'shopping-cart',
 				createdAt: 1788699245267,
-				updatedAt: 1788699245267,
-				deletedAt: null
+				updatedAt: 1788699245267
 			},
 			{
 				id: 'c3333333-3333-4333-8333-333333333333',
@@ -58,8 +54,7 @@ export const SAMPLE_DATA_TEMPLATE: DataTemplate = {
 				parentId: null,
 				icon: 'briefcase',
 				createdAt: 1788699245267,
-				updatedAt: 1788699245267,
-				deletedAt: null
+				updatedAt: 1788699245267
 			}
 		],
 		merchants: [
@@ -67,8 +62,7 @@ export const SAMPLE_DATA_TEMPLATE: DataTemplate = {
 				id: 'm1111111-1111-4111-8111-111111111111',
 				name: 'Supermarket Fresh',
 				createdAt: 1788699245267,
-				updatedAt: 1788699245267,
-				deletedAt: null
+				updatedAt: 1788699245267
 			}
 		],
 		merchantAliases: [
@@ -95,8 +89,7 @@ export const SAMPLE_DATA_TEMPLATE: DataTemplate = {
 				type: 'stock',
 				costBasis: 1000,
 				createdAt: 1788682788686,
-				updatedAt: 1788682788686,
-				deletedAt: null
+				updatedAt: 1788682788686
 			}
 		],
 		investmentValuations: [
@@ -122,8 +115,7 @@ export const SAMPLE_DATA_TEMPLATE: DataTemplate = {
 				linkedAccountId: null,
 				duplicateWarningDismissed: false,
 				createdAt: 1788699245267,
-				updatedAt: 1788699245267,
-				deletedAt: null
+				updatedAt: 1788699245267
 			}
 		],
 		netWorthSnapshots: [
@@ -144,8 +136,7 @@ export const SAMPLE_DATA_TEMPLATE: DataTemplate = {
 				targetAmount: 50000000,
 				targetDate: '2026-12-31',
 				createdAt: 1788699245267,
-				updatedAt: 1788699245267,
-				deletedAt: null
+				updatedAt: 1788699245267
 			}
 		],
 		goalContributions: [
@@ -167,8 +158,7 @@ export const SAMPLE_DATA_TEMPLATE: DataTemplate = {
 				rolloverEnabled: true,
 				isSinkingFund: false,
 				createdAt: 1788699245267,
-				updatedAt: 1788699245267,
-				deletedAt: null
+				updatedAt: 1788699245267
 			}
 		],
 		budgetItems: [
@@ -216,8 +206,7 @@ export const SAMPLE_DATA_TEMPLATE: DataTemplate = {
 				categoryId: 'c2222222-2222-4222-8222-222222222222',
 				tagIds: ['t1111111-1111-4111-8111-111111111111'],
 				createdAt: 1788699245267,
-				updatedAt: 1788699245267,
-				deletedAt: null
+				updatedAt: 1788699245267
 			}
 		],
 		merchantCategorySignals: [
@@ -258,8 +247,7 @@ export const SAMPLE_DATA_TEMPLATE: DataTemplate = {
 				reviewStatus: 'confirmed',
 				duplicateOfId: null,
 				createdAt: 1788699245267,
-				updatedAt: 1788699245267,
-				deletedAt: null
+				updatedAt: 1788699245267
 			},
 			{
 				id: 'tx222222-2222-4222-8222-222222222222',
@@ -274,8 +262,7 @@ export const SAMPLE_DATA_TEMPLATE: DataTemplate = {
 				reviewStatus: 'confirmed',
 				duplicateOfId: null,
 				createdAt: 1788699245267,
-				updatedAt: 1788699245267,
-				deletedAt: null
+				updatedAt: 1788699245267
 			},
 			{
 				id: 'tx333333-3333-4333-8333-333333333333',
@@ -290,8 +277,7 @@ export const SAMPLE_DATA_TEMPLATE: DataTemplate = {
 				reviewStatus: 'confirmed',
 				duplicateOfId: null,
 				createdAt: 1788699245267,
-				updatedAt: 1788699245267,
-				deletedAt: null
+				updatedAt: 1788699245267
 			}
 		],
 		transactionSplits: [
@@ -337,8 +323,7 @@ export const SAMPLE_DATA_TEMPLATE: DataTemplate = {
 				name: 'Rahul Sharma',
 				notes: 'Colleague',
 				createdAt: 1788699245267,
-				updatedAt: 1788699245267,
-				deletedAt: null
+				updatedAt: 1788699245267
 			}
 		],
 		personLoans: [
@@ -355,8 +340,7 @@ export const SAMPLE_DATA_TEMPLATE: DataTemplate = {
 				writeOffAmount: 0,
 				writeOffAt: null,
 				createdAt: 1788699245267,
-				updatedAt: 1788699245267,
-				deletedAt: null
+				updatedAt: 1788699245267
 			}
 		],
 		loanRepayments: [
@@ -368,8 +352,7 @@ export const SAMPLE_DATA_TEMPLATE: DataTemplate = {
 				accountId: '3d71c774-55e6-4c08-86fc-81d0881faffd',
 				transactionId: 'tx333333-3333-4333-8333-333333333333',
 				createdAt: 1788699245267,
-				updatedAt: 1788699245267,
-				deletedAt: null
+				updatedAt: 1788699245267
 			}
 		],
 		savedFilterViews: [

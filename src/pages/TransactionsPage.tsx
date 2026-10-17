@@ -108,7 +108,7 @@ function mergeCounts(
 	return next;
 }
 
-// User Story 2 (P2): search/filter (FR-013) and soft-delete (FR-014) of transactions.
+// User Story 2 (P2): search/filter (FR-013) and delete (FR-014) of transactions.
 export function TransactionsPage() {
 	const { getEncryptionKey } = useSession();
 	const key = getEncryptionKey();
@@ -312,23 +312,15 @@ export function TransactionsPage() {
 		}
 		const confirmed = await confirm({
 			message: tx.transferPairId
-				? 'This is a transfer — both sides (the money leaving one account and arriving in the other) will move to trash. You can undo this right after.'
-				: 'Move this transaction to trash? You can undo this right after.',
-			confirmLabel: 'Move to trash',
+				? 'This is a transfer — both sides (the money leaving one account and arriving in the other) will be deleted, along with any receipts. This cannot be undone.'
+				: 'Delete this transaction and any attached receipts? This cannot be undone.',
+			confirmLabel: 'Delete permanently',
 			destructive: true
 		});
 		if (!confirmed) return;
 		try {
 			await TransactionEngine.deleteTransaction(key, tx.id);
-			toast.success('Transaction moved to trash', {
-				duration: 10_000,
-				action: {
-					label: 'Undo',
-					onClick: () => {
-						void TransactionEngine.restoreTransaction(key, tx.id).then(refresh);
-					}
-				}
-			});
+			toast.success('Transaction deleted');
 			await refresh();
 		} catch (err) {
 			toast.error(err instanceof Error ? err.message : 'Could not delete transaction.');
@@ -974,8 +966,8 @@ function AttachmentsDialog({
 	}
 
 	async function removeAttachment(attachment: Attachment) {
-		// AttachmentRepository.remove is a permanent hard delete (no Trash entry, no undo) —
-		// unlike a transaction's own soft-delete above, this needs its own confirmation.
+		// AttachmentRepository.remove is a permanent hard delete (no undo), so it needs its own
+		// confirmation.
 		if (
 			!(await confirm({
 				message: 'Permanently delete this receipt? This cannot be undone.',

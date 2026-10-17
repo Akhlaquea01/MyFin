@@ -31,7 +31,6 @@ export function buildSearchIndex(
 	const entries: SearchIndexEntry[] = [];
 
 	for (const tx of transactions) {
-		if (tx.deletedAt) continue;
 		entries.push({
 			type: 'transaction',
 			id: tx.id,
@@ -43,7 +42,6 @@ export function buildSearchIndex(
 	}
 
 	for (const merchant of merchants) {
-		if (merchant.deletedAt) continue;
 		entries.push({
 			type: 'payee',
 			id: merchant.id,
@@ -54,7 +52,6 @@ export function buildSearchIndex(
 	}
 
 	for (const account of accounts) {
-		if (account.deletedAt) continue;
 		entries.push({
 			type: 'account',
 			id: account.id,

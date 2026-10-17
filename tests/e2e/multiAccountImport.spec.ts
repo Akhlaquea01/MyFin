@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { acceptConfirm } from './helpers';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -206,6 +207,7 @@ test('reconciliation prompt copies without navigating, and a reconciliation-shap
 	// --- Discard a flagged duplicate: it disappears, the original it duplicated is untouched
 	//     (acceptance scenario 4) ---
 	await groceryStore.getByRole('button', { name: 'Discard transaction' }).click();
+	await acceptConfirm(page);
 	await expect(groceryStore).toHaveCount(0);
 	await expect(groceries).toBeVisible();
 

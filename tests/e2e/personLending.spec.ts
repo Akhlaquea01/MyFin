@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { lockAndReload, autoAcceptConfirms } from './helpers';
+import { lockAndReload, autoAcceptConfirms, acceptConfirm } from './helpers';
 import { todayLocalISO } from '../../src/domain/shared/dateMath';
 
 // Feature 010 (Personal Lending & Borrowing), User Stories 1-5.
@@ -341,6 +341,7 @@ test('deleting a person with an open loan is blocked, and undoing a repayment re
 	await page.getByRole('link', { name: 'People' }).click();
 	const rohitCard = page.locator('[data-slot="card"]').filter({ hasText: 'Rohit' });
 	await rohitCard.getByRole('button', { name: 'Delete person' }).click();
+	await acceptConfirm(page);
 	await expect(page.getByText(/open loan/i)).toBeVisible();
 	await expect(rohitCard).toBeVisible();
 
@@ -374,6 +375,7 @@ test('deleting a person with an open loan is blocked, and undoing a repayment re
 
 	// Undo the mistaken repayment: balance and pending balance both revert.
 	await divyaCard.getByRole('button', { name: 'Undo' }).click();
+	await acceptConfirm(page, 'Undo this repayment?');
 	const balanceAfterUndo = await accountBalanceText(page, 'Cash');
 	expect(balanceAfterUndo).toBe(balanceAfterLoan);
 	await page.getByRole('link', { name: 'People' }).click();
@@ -381,17 +383,6 @@ test('deleting a person with an open loan is blocked, and undoing a repayment re
 		'₹1,000.00'
 	);
 
-	// The undone repayment shows up in Trash and can be restored.
-	await page.getByRole('link', { name: 'Trash' }).click();
-	const repaymentsSection = page
-		.locator('section')
-		.filter({ has: page.getByRole('heading', { name: 'Loan Repayments' }) });
-	await expect(repaymentsSection.getByText('100.00')).toBeVisible();
-	await repaymentsSection.getByRole('button', { name: 'Restore' }).click();
-	await expect(repaymentsSection.getByText('100.00')).toHaveCount(0);
-
-	await page.getByRole('link', { name: 'People' }).click();
-	await expect(divyaCard.locator('[data-slot="card-content"] span.font-mono')).toHaveText(
-		'₹900.00'
-	);
+	// The undone repayment is gone for good: no repayment left to undo again.
+	await expect(divyaCard.getByRole('button', { name: 'Undo' })).toHaveCount(0);
 });

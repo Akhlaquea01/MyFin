@@ -1,11 +1,10 @@
 import { db, type AccountRow } from './db';
 import { putEncrypted, getDecrypted, decryptRows } from './encryptedTable';
-import { deletedAtIndex, NOT_DELETED } from './indexable';
 import type { Account } from '../../domain/entities';
 
 export type NewAccount = Omit<
 	Account,
-	'id' | 'currentBalance' | 'createdAt' | 'updatedAt' | 'deletedAt' | 'isArchived'
+	'id' | 'currentBalance' | 'createdAt' | 'updatedAt' | 'isArchived'
 > & { id?: string };
 
 export const AccountRepository = {
@@ -24,10 +23,9 @@ export const AccountRepository = {
 			accountLast4: input.accountLast4 ?? null,
 			isArchived: false,
 			createdAt: now,
-			updatedAt: now,
-			deletedAt: null
+			updatedAt: now
 		};
-		await putEncrypted(db.accounts, key, account, { deletedAt: NOT_DELETED });
+		await putEncrypted(db.accounts, key, account, {});
 		return account;
 	},
 
@@ -35,7 +33,7 @@ export const AccountRepository = {
 		const existing = await getDecrypted<AccountRow, Account>(db.accounts, key, id);
 		if (!existing) throw new Error(`Account ${id} not found`);
 		const updated: Account = { ...existing, ...changes, id, updatedAt: Date.now() };
-		await putEncrypted(db.accounts, key, updated, { deletedAt: deletedAtIndex(updated.deletedAt) });
+		await putEncrypted(db.accounts, key, updated, {});
 		return updated;
 	},
 
@@ -43,15 +41,11 @@ export const AccountRepository = {
 		await this.update(key, id, { currentBalance });
 	},
 
-	async softDelete(key: CryptoKey, id: string): Promise<void> {
-		if (await this.hasActiveTransactions(id)) {
-			throw new Error('Cannot delete an account that still has active transactions.');
+	async remove(id: string): Promise<void> {
+		if (await this.hasTransactions(id)) {
+			throw new Error('Cannot delete an account that still has transactions.');
 		}
-		await this.update(key, id, { deletedAt: Date.now() });
-	},
-
-	async restore(key: CryptoKey, id: string): Promise<void> {
-		await this.update(key, id, { deletedAt: null });
+		await db.accounts.delete(id);
 	},
 
 	async getById(key: CryptoKey, id: string): Promise<Account | null> {
@@ -59,20 +53,15 @@ export const AccountRepository = {
 	},
 
 	async list(key: CryptoKey, includeArchived = true): Promise<Account[]> {
-		const rows = await db.accounts.where('deletedAt').equals(NOT_DELETED).toArray();
+		const rows = await db.accounts.toArray();
 		const accounts = await decryptRows<AccountRow, Account>(key, rows);
-		// IndexedDB ties on the `deletedAt` index fall back to primary-key (UUID) order,
-		// not insertion order — sort explicitly so account pickers are stable/predictable.
+		// Sort explicitly: rows come back in primary-key (UUID) order, not insertion order, so
+		// account pickers would otherwise be unstable/unpredictable.
 		accounts.sort((a, b) => a.createdAt - b.createdAt);
 		return includeArchived ? accounts : accounts.filter((a) => !a.isArchived);
 	},
 
-	async hasActiveTransactions(id: string): Promise<boolean> {
-		const count = await db.transactions
-			.where('accountId')
-			.equals(id)
-			.filter((row) => row.deletedAt === NOT_DELETED)
-			.count();
-		return count > 0;
+	async hasTransactions(id: string): Promise<boolean> {
+		return (await db.transactions.where('accountId').equals(id).count()) > 0;
 	}
 };

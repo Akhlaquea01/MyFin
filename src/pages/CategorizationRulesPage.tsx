@@ -306,8 +306,14 @@ export function CategorizationRulesPage() {
 	}
 
 	async function deleteRule(rule: CategorizationRuleWithStatus) {
+		const confirmed = await confirm({
+			message: 'Delete this rule? This cannot be undone.',
+			confirmLabel: 'Delete rule',
+			destructive: true
+		});
+		if (!confirmed) return;
 		try {
-			await CategorizationRuleRepository.softDelete(key, rule.id);
+			await CategorizationRuleRepository.remove(rule.id);
 			toast.success('Rule deleted');
 			await refresh();
 		} catch (err) {

@@ -28,7 +28,6 @@ function waiting(
 		duplicateOfId: null,
 		createdAt: 0,
 		updatedAt: 0,
-		deletedAt: null,
 		capture: { channel: 'sms', sender: 'VM-HDFCBK', receivedAt: T0, text: 'x', ...capture },
 		...overrides
 	} as Transaction;

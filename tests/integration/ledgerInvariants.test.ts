@@ -47,12 +47,12 @@ describe('ledger invariants hold under any sequence of operations', () => {
 	});
 
 	async function assertInvariants(context: string) {
-		const all = await TransactionRepository.search(key, { includeDeleted: true });
+		const all = await TransactionRepository.search(key);
 		const byId = new Map(all.map((tx) => [tx.id, tx]));
 		for (const account of accounts) {
 			const stored = (await AccountRepository.getById(key, account.id))!;
-			const live = all.filter((tx) => tx.accountId === account.id && tx.deletedAt === null);
-			const expected = account.openingBalance + live.reduce((sum, tx) => sum + tx.amount, 0);
+			const entries = all.filter((tx) => tx.accountId === account.id);
+			const expected = account.openingBalance + entries.reduce((sum, tx) => sum + tx.amount, 0);
 			expect(stored.currentBalance, `${context}: balance of ${account.name}`).toBe(expected);
 		}
 		for (const tx of all) {
@@ -67,15 +67,12 @@ describe('ledger invariants hold under any sequence of operations', () => {
 				expect(pair!.transferPairId, `${context}: pairing is mutual`).toBe(tx.id);
 				expect(pair!.amount, `${context}: legs cancel`).toBe(-tx.amount);
 				expect(pair!.accountId).not.toBe(tx.accountId);
-				expect(pair!.deletedAt === null, `${context}: legs live or trashed together`).toBe(
-					tx.deletedAt === null
-				);
 			}
 		}
 	}
 
 	it.each([1, 2, 3, 4])(
-		'random create/edit/delete/restore/transfer sequence (seed %i)',
+		'random create/edit/delete/transfer sequence (seed %i)',
 		async (seed) => {
 			const random = mulberry32(seed);
 			const pick = <T>(items: T[]): T => items[Math.floor(random() * items.length)];
@@ -85,9 +82,6 @@ describe('ledger invariants hold under any sequence of operations', () => {
 			for (let step = 0; step < 60; step++) {
 				const live = (await TransactionRepository.search(key)).filter(
 					(tx) => tx.type !== 'transfer'
-				);
-				const trashed = (await TransactionRepository.search(key, { includeDeleted: true })).filter(
-					(tx) => tx.deletedAt !== null
 				);
 				const roll = random();
 				let label: string;
@@ -129,9 +123,6 @@ describe('ledger invariants hold under any sequence of operations', () => {
 					label = 'delete';
 					const all = await TransactionRepository.search(key);
 					await TransactionEngine.deleteTransaction(key, pick(all).id);
-				} else if (roll < 0.82 && trashed.length > 0) {
-					label = 'restore';
-					await TransactionEngine.restoreTransaction(key, pick(trashed).id);
 				} else if (roll < 0.9) {
 					label = 'convert to transfer';
 					const tx = pick(live);

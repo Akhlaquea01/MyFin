@@ -17,7 +17,6 @@ function tx(overrides: Partial<Transaction>): Transaction {
 		duplicateOfId: null,
 		createdAt: 0,
 		updatedAt: 0,
-		deletedAt: null,
 		...overrides
 	};
 }
@@ -28,7 +27,6 @@ function merchant(overrides: Partial<Merchant>): Merchant {
 		name: 'Amazon',
 		createdAt: 0,
 		updatedAt: 0,
-		deletedAt: null,
 		...overrides
 	};
 }
@@ -45,7 +43,6 @@ function account(overrides: Partial<Account>): Account {
 		isArchived: false,
 		createdAt: 0,
 		updatedAt: 0,
-		deletedAt: null,
 		...overrides
 	};
 }
@@ -58,15 +55,6 @@ describe('Search index', () => {
 			[account({ id: 'a-1', name: 'Checking' })]
 		);
 		expect(index.map((e) => e.type).sort()).toEqual(['account', 'payee', 'transaction']);
-	});
-
-	it('excludes soft-deleted rows from the index', () => {
-		const index = buildSearchIndex(
-			[tx({ id: 'tx-1', notes: 'Deleted one', deletedAt: 123 })],
-			[],
-			[]
-		);
-		expect(index).toHaveLength(0);
 	});
 
 	it('matches a case-insensitive substring', () => {

@@ -5,10 +5,6 @@ export type ID = string;
 export type ISODateString = string; // e.g. "2026-09-06"
 export type EpochMillis = number;
 
-export interface SoftDeletable {
-	deletedAt: EpochMillis | null;
-}
-
 export interface Timestamped {
 	createdAt: EpochMillis;
 	updatedAt: EpochMillis;
@@ -16,7 +12,7 @@ export interface Timestamped {
 
 export type AccountType = 'bank' | 'cash' | 'wallet' | 'credit_card';
 
-export interface Account extends Timestamped, SoftDeletable {
+export interface Account extends Timestamped {
 	id: ID;
 	name: string;
 	type: AccountType;
@@ -47,14 +43,14 @@ export interface Account extends Timestamped, SoftDeletable {
 	lowBalanceThresholdMinor?: number;
 }
 
-export interface Category extends Timestamped, SoftDeletable {
+export interface Category extends Timestamped {
 	id: ID;
 	name: string;
 	parentId: ID | null;
 	icon: string | null;
 }
 
-export interface Merchant extends Timestamped, SoftDeletable {
+export interface Merchant extends Timestamped {
 	id: ID;
 	name: string;
 	/** Set when the user dismisses this merchant from the auto-detected Subscriptions view
@@ -113,7 +109,7 @@ export interface CaptureInfo {
 
 export type ReviewStatus = 'confirmed' | 'unreviewed';
 
-export interface Transaction extends Timestamped, SoftDeletable {
+export interface Transaction extends Timestamped {
 	id: ID;
 	accountId: ID;
 	date: ISODateString;
@@ -153,7 +149,7 @@ export type BudgetPeriodType = 'monthly' | 'yearly';
 
 export type BudgetRolloverMode = 'off' | 'positive-only' | 'full';
 
-export interface Budget extends Timestamped, SoftDeletable {
+export interface Budget extends Timestamped {
 	id: ID;
 	categoryId: ID;
 	periodType: BudgetPeriodType;
@@ -207,7 +203,7 @@ export interface ExpectedEvent extends Timestamped {
 export type InvestmentType =
 	'stock' | 'mutual_fund' | 'etf' | 'bond' | 'fixed_deposit' | 'crypto' | 'other';
 
-export interface InvestmentHolding extends Timestamped, SoftDeletable {
+export interface InvestmentHolding extends Timestamped {
 	id: ID;
 	name: string;
 	type: InvestmentType;
@@ -275,7 +271,7 @@ export interface LiabilityPayment {
 	transactionId: ID;
 }
 
-export interface Liability extends Timestamped, SoftDeletable {
+export interface Liability extends Timestamped {
 	id: ID;
 	name: string;
 	type: LiabilityType;
@@ -318,7 +314,7 @@ export interface DebtPlannerPreference extends Timestamped {
 }
 
 /** A user-defined savings target (spec 003); progress is always derived, never stored. */
-export interface SavingsGoal extends Timestamped, SoftDeletable {
+export interface SavingsGoal extends Timestamped {
 	id: ID;
 	name: string;
 	targetAmount: number;
@@ -326,7 +322,7 @@ export interface SavingsGoal extends Timestamped, SoftDeletable {
 }
 
 /** A single logged amount toward a SavingsGoal; may be negative to correct a mistake
- *  (research.md §3, spec 003). No independent soft-delete — see that doc for why. */
+ *  (research.md §3, spec 003). Removed together with its goal. */
 export interface GoalContribution extends Timestamped {
 	id: ID;
 	goalId: ID;
@@ -382,9 +378,7 @@ export interface UnreadableCapture extends Timestamped {
 	text: string;
 }
 
-/** A receipt/photo attached to a Transaction (spec 005). No independent soft-delete —
- *  visibility is entirely derived from the parent transaction's deletedAt (research.md §5,
- *  the same precedent GoalContribution already established for a single-parent child). */
+/** A receipt/photo attached to a Transaction (spec 005). Removed together with its transaction. */
 export interface Attachment extends Timestamped {
 	id: ID;
 	transactionId: ID;
@@ -397,7 +391,7 @@ export interface Attachment extends Timestamped {
 /** An explicit, user-authored merchant/alias -> category+tags mapping (spec 006, Story 1).
  *  When `merchantAliasId` is set, the rule only matches that one specific alias (the "more
  *  specific" case); when `null`, it matches any alias resolving to `merchantId`. */
-export interface CategorizationRule extends Timestamped, SoftDeletable {
+export interface CategorizationRule extends Timestamped {
 	id: ID;
 	/** The merchant this rule is about — or, for a keyword rule, the sentinel
 	 *  `KEYWORD_RULE_MERCHANT_ID` (categorizationRuleRepository.ts), so keyword rules need no extra
@@ -424,7 +418,7 @@ export interface MerchantCategorySignal extends Timestamped {
 
 /** A contact the user lends money to or borrows money from (spec 010). Not linked to phone
  *  contacts or any external directory — purely local app data. */
-export interface Person extends Timestamped, SoftDeletable {
+export interface Person extends Timestamped {
 	id: ID;
 	name: string;
 	notes: string | null;
@@ -437,7 +431,7 @@ export type LoanDirection = 'lent' | 'borrowed';
  *  precedent as SavingsGoal/GoalContribution. `direction`/`principalAmount`/`accountId`/`date`
  *  are immutable after creation (data-model.md): changing them after the linked Transaction
  *  has posted would silently invert or corrupt money already moved. */
-export interface PersonLoan extends Timestamped, SoftDeletable {
+export interface PersonLoan extends Timestamped {
 	id: ID;
 	personId: ID;
 	direction: LoanDirection;
@@ -455,7 +449,7 @@ export interface PersonLoan extends Timestamped, SoftDeletable {
 }
 
 /** A single repayment logged against an open PersonLoan (spec 010). */
-export interface LoanRepayment extends Timestamped, SoftDeletable {
+export interface LoanRepayment extends Timestamped {
 	id: ID;
 	loanId: ID;
 	amount: number;

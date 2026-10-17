@@ -11,8 +11,7 @@ const category = (id: string, name: string, parentId: string | null = null): Cat
 	parentId,
 	icon: null,
 	createdAt: 0,
-	updatedAt: 0,
-	deletedAt: null
+	updatedAt: 0
 });
 
 const CATEGORIES = [

@@ -136,7 +136,7 @@ describe('Auto-categorization fixes', () => {
 				categoryId: transport,
 				tagIds: []
 			});
-			await CategorizationRuleRepository.softDelete(key, rule.id);
+			await CategorizationRuleRepository.remove(rule.id);
 			expect(await listSuggestions(key)).toHaveLength(1);
 		});
 
@@ -187,7 +187,7 @@ describe('Auto-categorization fixes', () => {
 			).resolves.toBeDefined();
 		});
 
-		it('rejects an edit that would collide with another rule, and a restore into an occupied scope', async () => {
+		it('rejects an edit that would collide with another rule', async () => {
 			const a = await MerchantRepository.create(key, 'A');
 			const b = await MerchantRepository.create(key, 'B');
 			await CategorizationRuleRepository.create(key, {
@@ -204,15 +204,14 @@ describe('Auto-categorization fixes', () => {
 				CategorizationRuleRepository.update(key, ruleB.id, { merchantId: a.id })
 			).rejects.toBeInstanceOf(DuplicateRuleError);
 
-			await CategorizationRuleRepository.softDelete(key, ruleB.id);
-			await CategorizationRuleRepository.create(key, {
-				merchantId: b.id,
-				categoryId: transport,
-				tagIds: []
-			});
-			await expect(CategorizationRuleRepository.restore(key, ruleB.id)).rejects.toBeInstanceOf(
-				DuplicateRuleError
-			);
+			await CategorizationRuleRepository.remove(ruleB.id);
+			await expect(
+				CategorizationRuleRepository.create(key, {
+					merchantId: b.id,
+					categoryId: transport,
+					tagIds: []
+				})
+			).resolves.toBeDefined();
 		});
 
 		it('setMerchantRule creates, then updates in place, and clears the learning streak', async () => {
@@ -386,7 +385,7 @@ describe('Auto-categorization fixes', () => {
 			const merchant = await MerchantRepository.create(key, 'Swiggy');
 			const tx = await uncategorized(merchant.id);
 			await setMerchantRule(key, merchant.id, dining);
-			await CategoryRepository.softDelete(key, dining);
+			await CategoryRepository.remove(key, dining);
 			expect((await applyAutoCategorization(key)).updated).toBe(0);
 			expect((await categoryOf(tx.id)).categoryId).toBe(UNCATEGORIZED_CATEGORY_ID);
 		});

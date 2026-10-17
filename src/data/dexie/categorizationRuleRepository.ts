@@ -1,6 +1,5 @@
 import { db, type CategorizationRuleRow } from './db';
 import { putEncrypted, getDecrypted, decryptRows } from './encryptedTable';
-import { deletedAtIndex, NOT_DELETED } from './indexable';
 import { CategoryRepository } from './categoryRepository';
 import { normalizeMatchText, validateKeyword } from '../../domain/categorization/keywordMatching';
 import type { CategorizationRule } from '../../domain/entities';
@@ -41,18 +40,15 @@ export type NewCategorizationRule = NewMerchantRule | NewKeywordRule;
 
 export interface CategorizationRuleWithStatus extends CategorizationRule {
 	/** Derived, never persisted (research.md §5): true when `categoryId` no longer
-	 *  resolves to a live category. */
+	 *  resolves to a category. */
 	isInvalid: boolean;
 }
 
 function toRow(rule: CategorizationRule): Omit<CategorizationRuleRow, 'id' | 'encryptedData'> {
-	return {
-		merchantId: rule.merchantId,
-		deletedAt: deletedAtIndex(rule.deletedAt)
-	};
+	return { merchantId: rule.merchantId };
 }
 
-/** Thrown when a second live rule would cover the same scope as an existing one — the same
+/** Thrown when a second rule would cover the same scope as an existing one — the same
  *  merchant (+ alias), or the same keyword. `pickBestRule` takes the first match, so two rules for
  *  one scope made the winner an accident of storage order — and the second was invisible dead
  *  weight. */
@@ -97,7 +93,6 @@ export const CategorizationRuleRepository = {
 			tagIds: input.tagIds ?? [],
 			createdAt: now,
 			updatedAt: now,
-			deletedAt: null,
 			// Omitted entirely on a merchant rule, so those rows stay byte-for-byte what they were.
 			...(keyword !== null ? { keyword } : {})
 		};
@@ -126,29 +121,21 @@ export const CategorizationRuleRepository = {
 			const validation = validateKeyword(updated.keyword ?? '');
 			if (!validation.ok) throw new Error(validation.message);
 			updated.keyword = (updated.keyword ?? '').trim();
-			if (updated.deletedAt === null) {
-				const clash = await this.findByKeyword(key, updated.keyword);
-				if (clash && clash.id !== id) throw new DuplicateRuleError('keyword');
-			}
+			const clash = await this.findByKeyword(key, updated.keyword);
+			if (clash && clash.id !== id) throw new DuplicateRuleError('keyword');
 		} else {
 			// …and a merchant rule never grows a keyword.
 			delete updated.keyword;
-			if (updated.deletedAt === null) {
-				const clash = await this.findByScope(key, updated.merchantId, updated.merchantAliasId);
-				if (clash && clash.id !== id) throw new DuplicateRuleError();
-			}
+			const clash = await this.findByScope(key, updated.merchantId, updated.merchantAliasId);
+			if (clash && clash.id !== id) throw new DuplicateRuleError();
 		}
 
 		await putEncrypted(db.categorizationRules, key, updated, toRow(updated));
 		return updated;
 	},
 
-	async softDelete(key: CryptoKey, id: string): Promise<void> {
-		await this.update(key, id, { deletedAt: Date.now() });
-	},
-
-	async restore(key: CryptoKey, id: string): Promise<void> {
-		await this.update(key, id, { deletedAt: null });
+	async remove(id: string): Promise<void> {
+		await db.categorizationRules.delete(id);
 	},
 
 	async getById(key: CryptoKey, id: string): Promise<CategorizationRule | null> {
@@ -161,7 +148,7 @@ export const CategorizationRuleRepository = {
 		);
 	},
 
-	/** The live rule covering exactly this merchant + alias scope, if any. */
+	/** The rule covering exactly this merchant + alias scope, if any. */
 	async findByScope(
 		key: CryptoKey,
 		merchantId: string,
@@ -171,7 +158,7 @@ export const CategorizationRuleRepository = {
 		return rules.find((rule) => rule.merchantAliasId === merchantAliasId) ?? null;
 	},
 
-	/** The live keyword rule whose keyword is the same as `keyword` once normalized
+	/** The keyword rule whose keyword is the same as `keyword` once normalized
 	 *  ("Swiggy", "SWIGGY " and "swiggy" are one keyword), if any. */
 	async findByKeyword(key: CryptoKey, keyword: string): Promise<CategorizationRule | null> {
 		const wanted = normalizeMatchText(keyword);
@@ -179,31 +166,25 @@ export const CategorizationRuleRepository = {
 		return rules.find((rule) => normalizeMatchText(rule.keyword ?? '') === wanted) ?? null;
 	},
 
-	/** Live (non-deleted) rules for one merchant — used by `resolveCategorization`. */
+	/** Rules for one merchant — used by `resolveCategorization`. */
 	async listForMerchant(key: CryptoKey, merchantId: string): Promise<CategorizationRule[]> {
-		const rows = await db.categorizationRules
-			.where('merchantId')
-			.equals(merchantId)
-			.filter((row) => row.deletedAt === NOT_DELETED)
-			.toArray();
+		const rows = await db.categorizationRules.where('merchantId').equals(merchantId).toArray();
 		return decryptRows<CategorizationRuleRow, CategorizationRule>(key, rows);
 	},
 
-	/** Every live keyword rule — one indexed query, via the shared pseudo-merchant. */
+	/** Every keyword rule — one indexed query, via the shared pseudo-merchant. */
 	async listKeywordRules(key: CryptoKey): Promise<CategorizationRule[]> {
 		return this.listForMerchant(key, KEYWORD_RULE_MERCHANT_ID);
 	},
 
-	/** Every live rule, annotated with a derived `isInvalid` flag — for the management UI. */
+	/** Every rule, annotated with a derived `isInvalid` flag — for the management UI. */
 	async list(key: CryptoKey): Promise<CategorizationRuleWithStatus[]> {
-		const rows = await db.categorizationRules
-			.filter((row) => row.deletedAt === NOT_DELETED)
-			.toArray();
+		const rows = await db.categorizationRules.toArray();
 		const rules = await decryptRows<CategorizationRuleRow, CategorizationRule>(key, rows);
 		return Promise.all(
 			rules.map(async (rule) => {
 				const category = await CategoryRepository.getById(key, rule.categoryId);
-				return { ...rule, isInvalid: !category || category.deletedAt !== null };
+				return { ...rule, isInvalid: !category };
 			})
 		);
 	}

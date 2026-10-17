@@ -3,7 +3,10 @@ import { db } from '../../src/data/dexie/db';
 import { AccountRepository } from '../../src/data/dexie/accountRepository';
 import { CategoryRepository } from '../../src/data/dexie/categoryRepository';
 import { BudgetRepository } from '../../src/data/dexie/budgetRepository';
-import { TransactionRepository } from '../../src/data/dexie/transactionRepository';
+import {
+	TransactionRepository,
+	UNCATEGORIZED_CATEGORY_ID
+} from '../../src/data/dexie/transactionRepository';
 import {
 	ensureBudgetItemForPeriod,
 	recalcActualAmount
@@ -239,10 +242,10 @@ describe('category hierarchy in budgets and analytics', () => {
 
 		it('a deleted subcategory is reported as Uncategorized, as before', async () => {
 			await spend(groceries, 2_000);
-			await CategoryRepository.softDelete(key, groceries);
+			await CategoryRepository.remove(key, groceries);
 			const breakdown = await categoryBreakdown(key, ...PERIOD);
 			expect(breakdown).toEqual([
-				{ categoryId: groceries, categoryName: 'Uncategorized', total: 2_000 }
+				{ categoryId: UNCATEGORIZED_CATEGORY_ID, categoryName: 'Uncategorized', total: 2_000 }
 			]);
 		});
 	});

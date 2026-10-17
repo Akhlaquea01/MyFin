@@ -82,8 +82,7 @@ describe('templateService - Overlapping import (User Story 3)', () => {
 						billingCycleDay: null,
 						isArchived: false,
 						createdAt: 1000,
-						updatedAt: 1000,
-						deletedAt: null
+						updatedAt: 1000
 					}
 				],
 				categories: [
@@ -93,8 +92,7 @@ describe('templateService - Overlapping import (User Story 3)', () => {
 						parentId: null,
 						icon: null,
 						createdAt: 1000,
-						updatedAt: 1000,
-						deletedAt: null
+						updatedAt: 1000
 					},
 					{
 						id: 'file-cat-2',
@@ -102,8 +100,7 @@ describe('templateService - Overlapping import (User Story 3)', () => {
 						parentId: null,
 						icon: null,
 						createdAt: 1000,
-						updatedAt: 1000,
-						deletedAt: null
+						updatedAt: 1000
 					}
 				],
 				merchants: [],
@@ -137,8 +134,7 @@ describe('templateService - Overlapping import (User Story 3)', () => {
 						reviewStatus: 'confirmed',
 						duplicateOfId: null,
 						createdAt: 1000,
-						updatedAt: 1000,
-						deletedAt: null
+						updatedAt: 1000
 					},
 					{
 						id: 'file-tx-new',
@@ -153,8 +149,7 @@ describe('templateService - Overlapping import (User Story 3)', () => {
 						reviewStatus: 'confirmed',
 						duplicateOfId: null,
 						createdAt: 1000,
-						updatedAt: 1000,
-						deletedAt: null
+						updatedAt: 1000
 					}
 				],
 				transactionSplits: [

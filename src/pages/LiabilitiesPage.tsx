@@ -183,17 +183,15 @@ export function LiabilitiesPage() {
 	}
 
 	async function remove(liability: Liability) {
+		const confirmed = await confirm({
+			message: `Delete ${liability.name}? It stops counting toward your net worth. This cannot be undone.`,
+			confirmLabel: 'Delete liability',
+			destructive: true
+		});
+		if (!confirmed) return;
 		try {
-			await LiabilityRepository.softDelete(key, liability.id);
-			// The toast is the quick way back; once it is gone, the entry waits in Trash.
-			toast.success(`${liability.name} deleted`, {
-				action: {
-					label: 'Undo',
-					onClick: () => {
-						void LiabilityRepository.restore(key, liability.id).then(refresh);
-					}
-				}
-			});
+			await LiabilityRepository.remove(liability.id);
+			toast.success(`${liability.name} deleted`);
 			await refresh();
 		} catch (err) {
 			toast.error(err instanceof Error ? err.message : 'Could not delete liability.');

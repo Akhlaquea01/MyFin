@@ -91,6 +91,7 @@ test('a long queue loads a page at a time, keeps your edits, and shows the rest 
 
 	// Triage shrinks the page and the count together.
 	await page.getByRole('button', { name: 'Discard transaction' }).first().click();
+	await acceptConfirm(page, 'Discard this entry?');
 	await expect(page.getByText('Discarded')).toBeVisible();
 	await expect(confirmButtons).toHaveCount(PAGE - 1);
 	await expect(
@@ -140,9 +141,11 @@ test('discarding down to an empty page brings the next entries in rather than sa
 	// the next click cannot land on a row that is already on its way out.
 	for (let i = 0; i < PAGE - 1; i++) {
 		await discard.first().click();
+		await acceptConfirm(page);
 		await expect(discard).toHaveCount(PAGE - 1 - i);
 	}
 	await discard.first().click();
+	await acceptConfirm(page);
 
 	await expect(page.getByText('Nothing to review.')).toHaveCount(0);
 	await expect(page.getByRole('button', { name: 'Confirm transaction' })).toHaveCount(

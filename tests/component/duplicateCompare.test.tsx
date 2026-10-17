@@ -4,9 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { DuplicateCompare } from '../../src/components/DuplicateCompare';
 import type { Merchant, Transaction } from '../../src/domain/entities';
 
-const merchants: Merchant[] = [
-	{ id: 'm1', name: 'Swiggy', createdAt: 0, updatedAt: 0, deletedAt: null }
-];
+const merchants: Merchant[] = [{ id: 'm1', name: 'Swiggy', createdAt: 0, updatedAt: 0 }];
 
 const original = {
 	id: 'o',
@@ -20,8 +18,7 @@ const original = {
 	duplicateOfId: null,
 	transferPairId: null,
 	createdAt: 0,
-	updatedAt: 0,
-	deletedAt: null
+	updatedAt: 0
 } as Transaction;
 
 function setup(overrides: Partial<React.ComponentProps<typeof DuplicateCompare>> = {}) {

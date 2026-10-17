@@ -1,4 +1,5 @@
 import type { BackupPayload } from '../backupService';
+import { dropTrashed } from './dropTrashed';
 
 /**
  * Migrates a v1.1.0 payload forward to the current shape: specs 005/006 added receipt/photo
@@ -9,7 +10,7 @@ import type { BackupPayload } from '../backupService';
  * intermediate version).
  */
 export function migrateFromV1_1(payload: BackupPayload): BackupPayload {
-	return {
+	return dropTrashed({
 		...payload,
 		exportedEntities: {
 			...payload.exportedEntities,
@@ -23,5 +24,5 @@ export function migrateFromV1_1(payload: BackupPayload): BackupPayload {
 			personLoanRepayments: payload.exportedEntities.personLoanRepayments ?? [],
 			savedFilterViews: payload.exportedEntities.savedFilterViews ?? []
 		}
-	};
+	});
 }

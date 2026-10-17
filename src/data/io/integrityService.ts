@@ -17,7 +17,7 @@ export type IntegrityIssue =
 	| {
 			kind: 'broken-transfer';
 			transactionId: string;
-			reason: 'missing-other-leg' | 'legs-not-paired' | 'amounts-differ' | 'one-leg-in-trash';
+			reason: 'missing-other-leg' | 'legs-not-paired' | 'amounts-differ';
 	  }
 	| { kind: 'invalid-date'; transactionId: string; date: string }
 	| { kind: 'unknown-account'; transactionId: string; accountId: string }
@@ -30,7 +30,7 @@ export interface IntegrityReport {
 
 /**
  * Read-only audit of the ledger against the rules everything else relies on: an account's balance
- * is its opening balance plus its live entries, an entry's categories add up to its amount, both
+ * is its opening balance plus its entries, an entry's categories add up to its amount, both
  * halves of a transfer exist and cancel out, and every entry points at things that exist. Nothing is
  * written. Balances are derived data and `repairBalances` can rebuild them; everything else is
  * reported for the user to look at, because guessing which side of a broken record is right would
@@ -38,12 +38,11 @@ export interface IntegrityReport {
  */
 export async function checkIntegrity(key: CryptoKey): Promise<IntegrityReport> {
 	const [transactions, splitsByTx, accountRows, categoryIds] = await Promise.all([
-		TransactionRepository.search(key, { includeDeleted: true }),
+		TransactionRepository.search(key),
 		TransactionRepository.splitsByTransaction(key),
 		db.accounts.toArray(),
 		db.categories.toCollection().primaryKeys()
 	]);
-	// Trashed accounts included: an entry may still point at one, and that is not an orphan.
 	const accounts = await decryptRows<AccountRow, Account>(key, accountRows);
 	const accountIds = new Set(accounts.map((account) => account.id));
 	const knownCategoryIds = new Set<string>([UNCATEGORIZED_CATEGORY_ID, ...categoryIds.map(String)]);
@@ -51,11 +50,10 @@ export async function checkIntegrity(key: CryptoKey): Promise<IntegrityReport> {
 	const issues: IntegrityIssue[] = [];
 
 	for (const account of accounts) {
-		if (account.deletedAt !== null) continue;
 		const expected =
 			account.openingBalance +
 			transactions
-				.filter((tx) => tx.accountId === account.id && tx.deletedAt === null)
+				.filter((tx) => tx.accountId === account.id)
 				.reduce((sum, tx) => sum + tx.amount, 0);
 		if (account.currentBalance !== expected) {
 			issues.push({
@@ -100,8 +98,6 @@ export async function checkIntegrity(key: CryptoKey): Promise<IntegrityReport> {
 				issues.push({ kind: 'broken-transfer', transactionId: tx.id, reason: 'legs-not-paired' });
 			} else if (other.amount !== -tx.amount) {
 				issues.push({ kind: 'broken-transfer', transactionId: tx.id, reason: 'amounts-differ' });
-			} else if ((other.deletedAt === null) !== (tx.deletedAt === null)) {
-				issues.push({ kind: 'broken-transfer', transactionId: tx.id, reason: 'one-leg-in-trash' });
 			}
 		}
 	}
@@ -146,8 +142,7 @@ const TRANSFER_REASONS: Record<
 > = {
 	'missing-other-leg': 'the other half is missing',
 	'legs-not-paired': 'its two halves point at different partners',
-	'amounts-differ': 'its two halves have different amounts',
-	'one-leg-in-trash': 'only one half is in Trash'
+	'amounts-differ': 'its two halves have different amounts'
 };
 
 function shortId(id: string): string {

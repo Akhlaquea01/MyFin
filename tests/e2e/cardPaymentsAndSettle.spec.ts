@@ -141,7 +141,7 @@ test('a card payment imported as a plain expense can be recorded as a transfer f
 	await expect(accountCard(page, 'ICICI Card').getByText('Used ₹3,500.00')).toBeVisible();
 });
 
-test('deleting one side of a transfer removes both, and Undo brings both back', async ({
+test('deleting one side of a transfer removes both and restores both balances', async ({
 	page
 }) => {
 	await onboard(page, '480130');

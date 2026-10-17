@@ -56,16 +56,12 @@ describe('Auto-categorization (spec 006)', () => {
 				categoryB
 			);
 
-			await CategorizationRuleRepository.softDelete(key, rule.id);
+			await CategorizationRuleRepository.remove(rule.id);
 			expect(await CategorizationRuleRepository.listForMerchant(key, merchant.id)).toEqual([]);
-
-			await CategorizationRuleRepository.restore(key, rule.id);
-			expect(
-				(await CategorizationRuleRepository.listForMerchant(key, merchant.id)).map((r) => r.id)
-			).toEqual([rule.id]);
+			expect(await CategorizationRuleRepository.getById(key, rule.id)).toBeNull();
 		});
 
-		it('flags a rule as invalid once its target category is soft-deleted (FR-009)', async () => {
+		it('flags a rule as invalid once its target category is deleted (FR-009)', async () => {
 			const merchant = await MerchantRepository.create(key, 'Foo');
 			await CategorizationRuleRepository.create(key, {
 				merchantId: merchant.id,
@@ -74,7 +70,7 @@ describe('Auto-categorization (spec 006)', () => {
 			});
 			expect((await CategorizationRuleRepository.list(key))[0].isInvalid).toBe(false);
 
-			await CategoryRepository.softDelete(key, categoryA);
+			await CategoryRepository.remove(key, categoryA);
 			expect((await CategorizationRuleRepository.list(key))[0].isInvalid).toBe(true);
 		});
 	});
@@ -106,14 +102,14 @@ describe('Auto-categorization (spec 006)', () => {
 			}
 		});
 
-		it('a rule whose category was soft-deleted no longer applies', async () => {
+		it('a rule whose category was deleted no longer applies', async () => {
 			const merchant = await MerchantRepository.create(key, 'Foo');
 			await CategorizationRuleRepository.create(key, {
 				merchantId: merchant.id,
 				categoryId: categoryA,
 				tagIds: []
 			});
-			await CategoryRepository.softDelete(key, categoryA);
+			await CategoryRepository.remove(key, categoryA);
 
 			const tx = await TransactionEngine.recordTransaction(key, {
 				accountId,

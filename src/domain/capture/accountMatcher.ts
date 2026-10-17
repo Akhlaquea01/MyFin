@@ -35,7 +35,7 @@ export function matchCaptureAccount(
 	accounts: Account[],
 	defaultAccountId: ID | null
 ): CaptureAccountMatch | null {
-	const active = accounts.filter((a) => !a.isArchived && a.deletedAt === null);
+	const active = accounts.filter((a) => !a.isArchived);
 
 	// "A/c XX1234" names a bank account first; only when none carries those digits is a card
 	// tagged with them considered, then the digits after "card".
@@ -100,7 +100,7 @@ export function findAccountMatches(text: string, accounts: Account[]): CardMatch
 
 	const seen = new Set(matches.map((m) => m.accountId));
 	for (const account of accounts) {
-		if (seen.has(account.id) || account.isArchived || account.deletedAt !== null) continue;
+		if (seen.has(account.id) || account.isArchived) continue;
 		const tag = [
 			[account.accountLast4, accountTail],
 			[account.cardLast4, accountTail],

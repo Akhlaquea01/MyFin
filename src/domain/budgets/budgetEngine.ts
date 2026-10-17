@@ -4,7 +4,6 @@ import { BudgetItemRepository, BudgetRepository } from '../../data/dexie/budgetR
 import { CategoryRepository } from '../../data/dexie/categoryRepository';
 import { categoryWithDescendantIds } from '../categories/categoryHierarchy';
 import type { TransactionSplitRow } from '../../data/dexie/db';
-import { NOT_DELETED } from '../../data/dexie/indexable';
 import type {
 	Budget,
 	BudgetItem,
@@ -98,7 +97,6 @@ export async function recalcActualAmount(
 	const txRows = await db.transactions
 		.where('date')
 		.between(periodStart, periodEnd, true, true)
-		.filter((row) => row.deletedAt === NOT_DELETED)
 		.toArray();
 	if (txRows.length === 0) return 0;
 
@@ -219,7 +217,7 @@ export async function ensureCurrentBudgetItem(
 }
 
 /**
- * Whether an active (non-soft-deleted) budget already exists for `categoryId`, other than
+ * Whether a budget already exists for `categoryId`, other than
  * `excludeBudgetId` itself (FR-015, spec 017) — used both when creating a new budget and when
  * editing an existing one's category, to block/warn against two active budgets double-counting
  * the same category's actuals.

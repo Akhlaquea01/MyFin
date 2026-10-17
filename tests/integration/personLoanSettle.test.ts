@@ -130,10 +130,10 @@ describe('settling and removing person loans', () => {
 			expect(await PersonLoanRepository.listAllOpen(key)).toHaveLength(0);
 			expect(await TransactionRepository.search(key, {})).toHaveLength(0);
 			// ...so the person is no longer blocked from deletion by a phantom open loan.
-			await expect(PersonRepository.softDelete(key, loan.personId)).resolves.toBeUndefined();
+			await expect(PersonRepository.remove(key, loan.personId)).resolves.toBeUndefined();
 		});
 
-		it('reports which repayments it removed, so Undo can restore exactly those', async () => {
+		it('removes repayments the user had already undone along with the live ones', async () => {
 			const loan = await lend(100_000);
 			const keptUndone = await LoanRepaymentRepository.create(key, {
 				loanId: loan.id,
@@ -141,34 +141,19 @@ describe('settling and removing person loans', () => {
 				date: '2026-03-02',
 				accountId
 			});
-			await LoanRepaymentRepository.softDelete(key, keptUndone.id); // undone by the user earlier
-			const live = await LoanRepaymentRepository.create(key, {
+			await LoanRepaymentRepository.remove(key, keptUndone.id); // undone by the user earlier
+			await LoanRepaymentRepository.create(key, {
 				loanId: loan.id,
 				amount: 20_000,
 				date: '2026-03-05',
 				accountId
 			});
 
-			const { removedRepaymentIds } = await PersonLoanRepository.remove(key, loan.id);
-			expect(removedRepaymentIds).toEqual([live.id]);
-
-			// What the "Undo" action does: the loan and the repayments removed with it come back…
-			await PersonLoanRepository.restore(key, loan.id);
-			for (const id of removedRepaymentIds) await LoanRepaymentRepository.restore(key, id);
-
-			// …but not the repayment the user had deliberately undone before.
-			expect(await pending(loan.id)).toBe(100_000 - 20_000);
-			expect(await balance()).toBe(500_000 - 100_000 + 20_000);
-		});
-
-		it('restoring the loan brings its principal movement back', async () => {
-			const loan = await lend(100_000);
 			await PersonLoanRepository.remove(key, loan.id);
-			await PersonLoanRepository.restore(key, loan.id);
 
-			expect(await balance()).toBe(400_000);
-			expect(await PersonLoanRepository.listAllOpen(key)).toHaveLength(1);
-			expect(await pending(loan.id)).toBe(100_000);
+			expect(await LoanRepaymentRepository.listAll(key)).toEqual([]);
+			expect(await PersonLoanRepository.getById(key, loan.id)).toBeUndefined();
+			expect(await balance()).toBe(500_000);
 		});
 	});
 

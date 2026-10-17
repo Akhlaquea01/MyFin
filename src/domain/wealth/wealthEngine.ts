@@ -311,7 +311,7 @@ export async function recordLiabilityPayment(
 		);
 	}
 	const account = await AccountRepository.getById(key, input.accountId);
-	if (!account || account.deletedAt !== null) throw new Error('Account not found.');
+	if (!account) throw new Error('Account not found.');
 	if (account.type === 'credit_card') {
 		throw new Error('Pay from a bank, cash or wallet account, not from a credit card.');
 	}
@@ -352,7 +352,7 @@ export async function recordLiabilityPayment(
 
 /**
  * Reverses a payment recorded with `recordLiabilityPayment`: the amount is owed again and the
- * ledger entry moves to Trash, returning the money to the account. The way to correct a payment
+ * ledger entry is deleted, returning the money to the account. The way to correct a payment
  * recorded with the wrong amount, date or account (its ledger entry is deliberately not editable).
  */
 export async function undoLiabilityPayment(
@@ -365,17 +365,19 @@ export async function undoLiabilityPayment(
 	const payment = liability.payments?.find((p) => p.id === paymentId);
 	if (!payment) throw new Error('Payment not found.');
 
-	// Ledger first, then the balance — and put the entry back if the second step fails, so the money
-	// and the debt are never left moved by only one half.
-	await TransactionEngine.deleteTransaction(key, payment.transactionId);
-	let updated: Liability;
+	// The debt first, then the (irreversible) ledger delete — and put the debt back if that fails,
+	// so the money and the debt are never left moved by only one half.
+	const updated = await LiabilityRepository.update(key, liabilityId, {
+		outstandingBalance: liability.outstandingBalance + payment.amount,
+		payments: (liability.payments ?? []).filter((p) => p.id !== paymentId)
+	});
 	try {
-		updated = await LiabilityRepository.update(key, liabilityId, {
-			outstandingBalance: liability.outstandingBalance + payment.amount,
-			payments: (liability.payments ?? []).filter((p) => p.id !== paymentId)
-		});
+		await TransactionEngine.deleteTransaction(key, payment.transactionId);
 	} catch (err) {
-		await TransactionEngine.restoreTransaction(key, payment.transactionId).catch(() => undefined);
+		await LiabilityRepository.update(key, liabilityId, {
+			outstandingBalance: liability.outstandingBalance,
+			payments: liability.payments
+		}).catch(() => undefined);
 		throw err;
 	}
 	return updated;
@@ -519,7 +521,7 @@ function tradeNote(kind: 'buy' | 'sell', units: number, holdingName: string): st
 /** Money for a trade comes from, or goes to, a bank, cash or wallet account - never a card. */
 async function assertTradeAccount(key: CryptoKey, accountId: string): Promise<void> {
 	const account = await AccountRepository.getById(key, accountId);
-	if (!account || account.deletedAt !== null) throw new Error('Account not found.');
+	if (!account) throw new Error('Account not found.');
 	if (account.type === 'credit_card') {
 		throw new Error('Use a bank, cash or wallet account for this, not a credit card.');
 	}
@@ -567,7 +569,7 @@ export async function recordPurchase(
 	if (purchase.price <= 0) throw new Error('Price must be positive.');
 
 	const holding = await InvestmentHoldingRepository.getById(key, holdingId);
-	if (!holding || holding.deletedAt !== null) throw new Error('Holding not found.');
+	if (!holding) throw new Error('Holding not found.');
 	const accountId = purchase.accountId || null;
 	if (accountId) await assertTradeAccount(key, accountId);
 
@@ -640,7 +642,7 @@ export async function recordSale(
 	if (price !== null && price < 0) throw new Error('Price must be positive.');
 
 	const holding = await InvestmentHoldingRepository.getById(key, holdingId);
-	if (!holding || holding.deletedAt !== null) throw new Error('Holding not found.');
+	if (!holding) throw new Error('Holding not found.');
 
 	const existingUnits = holding.units ?? 0;
 	if (sale.units > existingUnits) {
@@ -702,8 +704,8 @@ export async function recordSale(
 
 /**
  * Reverses the MOST RECENT trade on a holding: its units, average price and cost basis go back to
- * what they were, the value it adjusted is put back, and the account entry it posted (if any) moves
- * to Trash, returning the money. The way to correct a trade recorded with the wrong units, price,
+ * what they were, the value it adjusted is put back, and the account entry it posted (if any) is
+ * deleted, returning the money. The way to correct a trade recorded with the wrong units, price,
  * date or account (its ledger entry is deliberately not editable on its own).
  *
  * Only the latest can be undone: each trade's "before" assumes every trade after it still stands.
@@ -722,23 +724,29 @@ export async function undoLatestTrade(
 		throw new Error('Only the most recent trade can be undone. Undo the later ones first.');
 	}
 
-	// Ledger first, then the holding - and put the entry back if the second step fails, so the money
-	// and the holding are never left moved by only one half.
-	if (trade.transactionId) await TransactionEngine.deleteTransaction(key, trade.transactionId);
-	try {
-		if (trade.valueChange) await revertRecordedValue(key, trade.valueChange);
-		return await InvestmentHoldingRepository.update(key, holdingId, {
-			units: trade.before.units,
-			avgPrice: trade.before.avgPrice,
-			costBasis: trade.before.costBasis,
-			trades: trades.slice(0, -1)
-		});
-	} catch (err) {
-		if (trade.transactionId) {
-			await TransactionEngine.restoreTransaction(key, trade.transactionId).catch(() => undefined);
+	// The holding first, then the (irreversible) ledger delete - and put the holding back if that
+	// fails, so the money and the holding are never left moved by only one half.
+	const reverted = await InvestmentHoldingRepository.update(key, holdingId, {
+		units: trade.before.units,
+		avgPrice: trade.before.avgPrice,
+		costBasis: trade.before.costBasis,
+		trades: trades.slice(0, -1)
+	});
+	if (trade.transactionId) {
+		try {
+			await TransactionEngine.deleteTransaction(key, trade.transactionId);
+		} catch (err) {
+			await InvestmentHoldingRepository.update(key, holdingId, {
+				units: holding.units,
+				avgPrice: holding.avgPrice,
+				costBasis: holding.costBasis,
+				trades
+			}).catch(() => undefined);
+			throw err;
 		}
-		throw err;
 	}
+	if (trade.valueChange) await revertRecordedValue(key, trade.valueChange);
+	return reverted;
 }
 
 /** What can be corrected on a holding. A holding tracked in units is corrected through its units and
@@ -762,7 +770,7 @@ export async function editHolding(
 	const name = edit.name.trim();
 	if (!name) throw new Error('Name is required.');
 	const holding = await InvestmentHoldingRepository.getById(key, holdingId);
-	if (!holding || holding.deletedAt !== null) throw new Error('Holding not found.');
+	if (!holding) throw new Error('Holding not found.');
 
 	if ('units' in edit) {
 		if (!Number.isFinite(edit.units) || edit.units < 0)
@@ -805,7 +813,7 @@ export async function recordValuation(
 		throw new Error('The value cannot be negative.');
 	}
 	const holding = await InvestmentHoldingRepository.getById(key, holdingId);
-	if (!holding || holding.deletedAt !== null) throw new Error('Holding not found.');
+	if (!holding) throw new Error('Holding not found.');
 
 	const [sameDay, ...extras] = (
 		await InvestmentValuationRepository.listForHolding(key, holdingId)

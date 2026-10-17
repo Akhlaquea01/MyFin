@@ -19,7 +19,6 @@ function rule(overrides: Partial<CategorizationRule>): CategorizationRule {
 		keyword: 'swiggy',
 		createdAt: 1,
 		updatedAt: 1,
-		deletedAt: null,
 		...overrides
 	};
 }

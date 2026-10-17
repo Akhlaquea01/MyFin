@@ -184,11 +184,7 @@ export function ReviewPage() {
 		const originals = await Promise.all(
 			originalIds.map((id) => TransactionRepository.getById(key, id))
 		);
-		setDuplicateOriginals(
-			Object.fromEntries(
-				originalIds.map((id, i) => [id, originals[i]?.deletedAt === null ? originals[i] : null])
-			)
-		);
+		setDuplicateOriginals(Object.fromEntries(originalIds.map((id, i) => [id, originals[i]])));
 
 		const tagNames = new Map(allTags.map((t) => [t.id, t.name]));
 		const nextFirstSplit: Record<string, TransactionSplit | undefined> = {};
@@ -322,7 +318,7 @@ export function ReviewPage() {
 			]);
 			setMerchants(allMerchants);
 			setTags(allTags);
-			if (!tx || tx.deletedAt !== null || tx.reviewStatus !== 'unreviewed') {
+			if (!tx || tx.reviewStatus !== 'unreviewed') {
 				removeFromPage(id);
 				return;
 			}
@@ -569,27 +565,20 @@ export function ReviewPage() {
 		}
 	}
 
-	function reject(tx: Transaction): Promise<void> {
+	async function reject(tx: Transaction): Promise<void> {
+		// Confirm and Discard sit right next to each other on every card, and a discard cannot be undone.
+		const confirmed = await confirm({
+			message: 'Discard this entry? It is deleted permanently, along with any receipts.',
+			confirmLabel: 'Discard',
+			destructive: true
+		});
+		if (!confirmed) return;
 		return runForRow(tx.id, 'Could not discard this entry', () => rejectOne(tx));
 	}
 
 	async function rejectOne(tx: Transaction) {
 		await TransactionEngine.deleteTransaction(key, tx.id);
-		// This page exists for fast triage of many transactions, with Confirm/Discard sitting
-		// right next to each other — an undo path matters more here than on a page where
-		// deletion is a slower, more deliberate action.
-		toast.success('Discarded', {
-			duration: 10_000,
-			action: {
-				label: 'Undo',
-				onClick: () => {
-					// Quietly, so bringing the entry back does not wipe edits typed on other cards.
-					void TransactionEngine.restoreTransaction(key, tx.id).then(() =>
-						refreshQuietlyRef.current()
-					);
-				}
-			}
-		});
+		toast.success('Discarded');
 		// Local patch: remove the discarded transaction from the queue
 		removeFromPage(tx.id);
 	}
