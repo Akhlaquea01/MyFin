@@ -2,7 +2,10 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { db } from '../../src/data/dexie/db';
 import { AccountRepository } from '../../src/data/dexie/accountRepository';
 import { CategoryRepository } from '../../src/data/dexie/categoryRepository';
-import { RecurringRepository } from '../../src/data/dexie/recurringRepository';
+import {
+	ExpectedEventRepository,
+	RecurringRepository
+} from '../../src/data/dexie/recurringRepository';
 import { TransactionRepository } from '../../src/data/dexie/transactionRepository';
 import { projectAccountBalance } from '../../src/domain/forecast/forecastEngine';
 import { deriveEncryptionKey, randomSaltBase64 } from '../../src/data/crypto/cryptoService';
@@ -76,6 +79,39 @@ describe('Cash-flow forecast engine', () => {
 		// Balance drops from 500000 to 350000, below the 400000 threshold, even though it never
 		// goes negative.
 		expect(forecast.warning).not.toBeNull();
+	});
+
+	it('does not count a payment twice: once as a past matched payment, once as the next scheduled one', async () => {
+		const rule = await RecurringRepository.create(key, {
+			accountId,
+			categoryId,
+			amount: -20_000,
+			frequency: 'monthly',
+			dayOfPeriod: 25
+		});
+		// Three earlier months, each paid and matched to its reminder the way recording the payment does
+		// (the entry itself carries no `recurringRuleId`; only the reminder points at it).
+		for (const date of ['2026-06-25', '2026-07-25', '2026-08-25']) {
+			const payment = await TransactionRepository.create(
+				key,
+				{ accountId, date, amount: -20_000, type: 'expense' },
+				[]
+			);
+			await ExpectedEventRepository.create(key, {
+				recurringRuleId: rule.id,
+				expectedDate: date,
+				status: 'matched',
+				matchedTransactionId: payment.id
+			});
+		}
+
+		const forecast = await projectAccountBalance(key, accountId, 30, asOf);
+
+		// Only the 25 September payment is still to come. The three already-made ones must not also be
+		// spread across the horizon as "everyday spending".
+		expect(forecast.points[forecast.points.length - 1].projectedBalanceMinor).toBe(
+			500_000 - 20_000
+		);
 	});
 
 	it('marks low confidence for an account with no recurring rules and minimal history', async () => {

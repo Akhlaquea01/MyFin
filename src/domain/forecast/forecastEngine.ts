@@ -20,7 +20,7 @@ function toDateOnly(d: Date): string {
  * contracts/cashflow-forecast.md), combining two contributions per day: (a) deterministic —
  * this account's active `RecurringRule`s' pending `ExpectedEvent`s landing inside the horizon
  * (reusing `recurringEngine.generateExpectedEvents`, never re-deriving it), and (b) drift — the
- * trailing 90-day average daily net of transactions *not* already linked to a recurring rule,
+ * trailing 90-day average daily net of transactions *not* already accounted for by a recurring rule,
  * spread evenly across the horizon. `warning` is the first day the trajectory crosses the
  * account's low-balance threshold (default 0) — or, for a credit card, the day the projected amount
  * owed would pass its credit limit.
@@ -56,9 +56,9 @@ export async function projectAccountBalance(
 		}
 	}
 
-	// Drift: transactions NOT already linked to a recurring rule (Transaction.recurringRuleId,
-	// spec 016) — those are already counted deterministically above via expected events, so
-	// counting them again here would double-count them.
+	// Drift: transactions NOT already accounted for by a recurring rule (the entry a rule was created
+	// from, or one matched to a reminder) — those are counted deterministically above via expected
+	// events, so counting them again here would double-count them.
 	const driftFrom = toDateOnly(new Date(asOf.getTime() - DRIFT_LOOKBACK_DAYS * DAY_MS));
 	// A credit card is the one account where transfers ARE the story: its balance is debt, and the
 	// monthly bill payment (a transfer in from a bank account) is what brings it down. Leaving them
@@ -66,11 +66,20 @@ export async function projectAccountBalance(
 	// account a transfer is money moving to another of the user's own accounts, which is not this
 	// account's drift (and a person-loan movement, being unpaired, never counts for any account).
 	const isCard = account.type === 'credit_card';
+	// A payment recorded against its reminder (matched, or tied to a bill when marked as one) is the
+	// past half of that schedule; the next one is already in `eventsInHorizon`. Only the entry that
+	// CREATED a rule carries `recurringRuleId`, so without this every earlier payment of a rule was also
+	// spread across the horizon as everyday spending, counting each recurring bill twice.
+	const paidByRule = new Set(
+		(await ExpectedEventRepository.listMatched(key)).map((event) => event.matchedTransactionId)
+	);
 	const recentTransactions = (
 		await TransactionRepository.search(key, { accountId, dateFrom: driftFrom })
 	).filter(
 		(tx) =>
-			(tx.type !== 'transfer' || (isCard && tx.transferPairId !== null)) && !tx.recurringRuleId
+			(tx.type !== 'transfer' || (isCard && tx.transferPairId !== null)) &&
+			!tx.recurringRuleId &&
+			!paidByRule.has(tx.id)
 	);
 	const driftNet = recentTransactions.reduce((sum, tx) => sum + tx.amount, 0);
 	const driftPerDay = recentTransactions.length > 0 ? driftNet / DRIFT_LOOKBACK_DAYS : 0;
