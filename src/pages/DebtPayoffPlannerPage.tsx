@@ -18,9 +18,10 @@ import type { DebtPayoffPlan, PayoffStrategy } from '../domain/debtPlanner/types
 import type { Liability } from '../domain/entities';
 import { formatMinorUnits, parseMoneyToMinorUnits, formatMoney } from '../domain/shared/money';
 import { toast } from 'sonner';
+import { isoDateToLocalDate, localDateAsUtc } from '../domain/shared/dateMath';
 
 function formatDate(iso: string): string {
-	return new Date(iso).toLocaleDateString(undefined, { year: 'numeric', month: 'long' });
+	return isoDateToLocalDate(iso).toLocaleDateString(undefined, { year: 'numeric', month: 'long' });
 }
 
 /** Whole months between `asOf` and `iso` (both truncated to first-of-month), or null. */
@@ -199,13 +200,17 @@ export function DebtPayoffPlannerPage() {
 			liabilities: eligible,
 			strategy,
 			extraMonthlyPayment,
-			asOfDate: new Date()
+			asOfDate: localDateAsUtc()
 		});
 	}, [eligible, strategy, extraMonthlyPayment]);
 
 	const comparison = useMemo(() => {
 		if (eligible.length === 0) return null;
-		return compareStrategies({ liabilities: eligible, extraMonthlyPayment, asOfDate: new Date() });
+		return compareStrategies({
+			liabilities: eligible,
+			extraMonthlyPayment,
+			asOfDate: localDateAsUtc()
+		});
 	}, [eligible, extraMonthlyPayment]);
 
 	const liabilityById = new Map(liabilities.map((l) => [l.id, l]));
@@ -295,7 +300,7 @@ export function DebtPayoffPlannerPage() {
 									<CardContent className="grid grid-cols-2 gap-6">
 										{(['avalanche', 'snowball'] as const).map((s) => {
 											const p = comparison[s];
-											const months = monthsUntil(new Date(), p.payoffDate);
+											const months = monthsUntil(localDateAsUtc(), p.payoffDate);
 											return (
 												<div key={s} className="flex flex-col gap-1">
 													<p className="text-sm font-medium capitalize">{s}</p>

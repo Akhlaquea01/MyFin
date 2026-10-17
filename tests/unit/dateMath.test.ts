@@ -1,6 +1,8 @@
-import { describe, it, expect } from 'vitest';
+import { afterEach, describe, it, expect } from 'vitest';
 import {
 	addDaysISO,
+	addMonthsISO,
+	isoDateToLocalDate,
 	isValidIsoDate,
 	localDateAsUtc,
 	todayLocalISO
@@ -51,6 +53,37 @@ describe('localDateAsUtc', () => {
 		expect(localDateAsUtc(new Date(2026, 5, 15, 17, 45)).toISOString()).toBe(
 			'2026-06-15T00:00:00.000Z'
 		);
+	});
+});
+
+describe('time-zone hazards of calendar dates', () => {
+	const originalTz = process.env.TZ;
+	afterEach(() => {
+		if (originalTz === undefined) delete process.env.TZ;
+		else process.env.TZ = originalTz;
+	});
+
+	it('isoDateToLocalDate names the same calendar day behind UTC, where a plain parse is a day early', () => {
+		process.env.TZ = 'America/New_York';
+		// `new Date('2026-12-01')` is midnight UTC: still 30 November in New York, so a page that
+		// formatted it showed "November 2026" for a December payoff date.
+		expect(new Date('2026-12-01').getDate()).toBe(30);
+		const day = isoDateToLocalDate('2026-12-01');
+		expect([day.getFullYear(), day.getMonth(), day.getDate()]).toEqual([2026, 11, 1]);
+	});
+
+	it('isoDateToLocalDate is the same day ahead of UTC too', () => {
+		process.env.TZ = 'Asia/Kolkata';
+		const day = isoDateToLocalDate('2026-12-01');
+		expect([day.getFullYear(), day.getMonth(), day.getDate()]).toEqual([2026, 11, 1]);
+	});
+
+	it('month arithmetic from a plain `new Date()` is a month early for the first hours of the month in India', () => {
+		process.env.TZ = 'Asia/Kolkata';
+		const justAfterMidnight = new Date('2026-10-31T21:00:00Z'); // 02:30 on 1 November in India
+		expect(addMonthsISO(justAfterMidnight, 1)).toBe('2026-11-01');
+		// Handed the local calendar day instead (as the planner and goal projection now do), it is right.
+		expect(addMonthsISO(localDateAsUtc(justAfterMidnight), 1)).toBe('2026-12-01');
 	});
 });
 

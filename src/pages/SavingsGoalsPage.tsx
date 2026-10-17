@@ -34,7 +34,7 @@ import {
 	parseMoneyOrZero,
 	formatMoney
 } from '../domain/shared/money';
-import { todayLocalISO } from '../domain/shared/dateMath';
+import { isoDateToLocalDate, localDateAsUtc, todayLocalISO } from '../domain/shared/dateMath';
 import { useConfirm } from '../lib/confirm';
 
 const goalSchema = z.object({
@@ -55,7 +55,7 @@ function todayISO(): string {
 }
 
 function formatDate(iso: string): string {
-	return new Date(iso).toLocaleDateString(undefined, { year: 'numeric', month: 'long' });
+	return isoDateToLocalDate(iso).toLocaleDateString(undefined, { year: 'numeric', month: 'long' });
 }
 
 // User Story 1 (P1): create a goal, log contributions, see progress and achieved status.
@@ -254,7 +254,7 @@ function GoalCard({
 	const progress = computeGoalProgress({
 		goal: { id: goal.id, targetAmount: goal.targetAmount, targetDate: goal.targetDate },
 		contributions: contributions.map((c) => ({ amount: c.amount, date: c.date })),
-		asOfDate: new Date()
+		asOfDate: localDateAsUtc()
 	});
 	const barPercent = Math.min(100, Math.max(0, progress.progressPercent));
 

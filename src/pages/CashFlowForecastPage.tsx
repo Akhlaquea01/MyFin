@@ -21,11 +21,12 @@ import type { BalanceForecast, ForecastHorizonDays } from '../domain/forecast/ty
 import type { Account } from '../domain/entities';
 import { isValidMoney, parseMoneyOrZero, formatMoney } from '../domain/shared/money';
 import { getPrimaryColor, withAlpha, getAxisColor, getGridColor } from '../lib/chartColors';
+import { isoDateToLocalDate } from '../domain/shared/dateMath';
 
 const HORIZON_OPTIONS: ForecastHorizonDays[] = [30, 60, 90];
 
 function formatDate(iso: string): string {
-	return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+	return isoDateToLocalDate(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
 // User Story 2 (P1, spec 019): projects an account's balance forward and warns before a

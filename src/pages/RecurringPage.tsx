@@ -53,6 +53,7 @@ import { buildCategoryLabels } from '../domain/categories/categoryHierarchy';
 import { DAY_RANGE } from '../domain/recurring/recurringDay';
 import { deleteRecurringRule, updateRecurringRule } from '../domain/recurring/recurringEngine';
 import { useConfirm } from '../lib/confirm';
+import { isoDateToLocalDate } from '../domain/shared/dateMath';
 
 const ruleSchema = z
 	.object({
@@ -127,7 +128,7 @@ function ruleKind(rule: RecurringRule): Exclude<RuleFilter, 'all'> {
 }
 
 function formatDate(iso: string): string {
-	return new Date(iso).toLocaleDateString(undefined, {
+	return isoDateToLocalDate(iso).toLocaleDateString(undefined, {
 		year: 'numeric',
 		month: 'short',
 		day: 'numeric'

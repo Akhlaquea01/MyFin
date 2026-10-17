@@ -28,6 +28,15 @@ export function localDateAsUtc(now: Date = new Date()): Date {
 }
 
 /**
+ * A `Date` at LOCAL midnight on the calendar day "YYYY-MM-DD" names, for formatting with the
+ * locale methods. `new Date('2026-12-01')` is midnight UTC instead — still 30 November anywhere
+ * behind UTC — so a stored date that was formatted that way showed up a day (or a month) early.
+ */
+export function isoDateToLocalDate(iso: string): Date {
+	return new Date(`${iso}T00:00:00`);
+}
+
+/**
  * Whether `value` is a real calendar date written "YYYY-MM-DD". An empty `<input type="date">`
  * yields "", and `new Date('2026-02-31')` rolls forward instead of failing — either one stored
  * as a transaction date drops the entry out of every period query and report.
