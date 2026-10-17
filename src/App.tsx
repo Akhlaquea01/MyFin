@@ -63,7 +63,6 @@ const NewTransactionPage = lazyPage(
 );
 const TransferPage = lazyPage(() => import('./pages/TransferPage'), 'TransferPage');
 const CategoriesPage = lazyPage(() => import('./pages/CategoriesPage'), 'CategoriesPage');
-const TrashPage = lazyPage(() => import('./pages/TrashPage'), 'TrashPage');
 const QuickAddPage = lazyPage(() => import('./pages/QuickAddPage'), 'QuickAddPage');
 const ShareTargetLandingPage = lazyPage(
 	() => import('./pages/ShareTargetLandingPage'),
@@ -328,7 +327,6 @@ function Gate() {
 							<Route path="transactions/new" element={<NewTransactionPage />} />
 							<Route path="transactions/transfer" element={<TransferPage />} />
 							<Route path="categories" element={<CategoriesPage />} />
-							<Route path="trash" element={<TrashPage />} />
 							<Route path="quick-add" element={<QuickAddPage />} />
 							<Route path="review" element={<ReviewPage />} />
 							<Route path="import/bulk-text" element={<BulkTextImportPage />} />

@@ -26,7 +26,6 @@ import {
 	TrendingDown,
 	Tags,
 	Target,
-	Trash2,
 	TrendingUp,
 	Upload,
 	Users,
@@ -131,7 +130,6 @@ const NAV_GROUPS: { label: string | null; items: NavItem[] }[] = [
 			{ to: '/notification-settings', label: 'Notifications', icon: Bell },
 			{ to: '/categorization-rules', label: 'Auto-Categorize', icon: Wand2 },
 			{ to: '/categories', label: 'Categories', icon: Tags, dataTour: 'categories-nav' },
-			{ to: '/trash', label: 'Trash', icon: Trash2 },
 			{ to: '/about', label: 'About', icon: Info }
 		]
 	}
