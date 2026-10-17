@@ -1,0 +1,98 @@
+name: CI
+
+# Runs the same checks CONTRIBUTING.md asks for before a pull request: formatting and lint, the type
+# check, the unit/integration suite, and the Playwright end-to-end suite. The Android APK is built by
+# build-apk.yml.
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches: [master]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Lint, type check and unit tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      # Actions are pinned to full commit SHAs (the tag is in the comment) so a moved tag can't
+      # change what runs here.
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # The repo's .npmrc has engine-strict=true and jsdom needs Node ^22.22.2 || ^24.15.0 || >=26,
+      # so the Node version matters; 24 matches local development and build-apk.yml.
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Prettier (formatting) and ESLint, as `npm run lint`.
+      - name: Lint
+        run: npm run lint
+
+      - name: Type check
+        run: npm run check
+
+      # Vitest: the node project (unit + integration against fake-indexeddb) and the jsdom
+      # component project.
+      - name: Unit and integration tests
+        run: npx vitest --run
+
+  e2e:
+    name: End-to-end tests
+    runs-on: ubuntu-24.04
+    # The suite runs with one worker (playwright.config.ts) and builds the app first: about ten minutes
+    # on a developer machine, so allow a slower runner.
+    timeout-minutes: 45
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Both Playwright projects (desktop and the Pixel 7 phone profile) run on Chromium.
+      - name: Install the browser
+        run: npx playwright install --with-deps chromium
+
+      # playwright.config.ts starts the server itself (`npm run build && npm run preview`). A spec that
+      # passes on a retry is reported as flaky rather than failing the run; the retry also records a
+      # trace.
+      - name: Run Playwright
+        run: npx playwright test --retries=2 --trace=on-first-retry --reporter=list,html
+        env:
+          CI: 'true'
+          PLAYWRIGHT_HTML_OPEN: never
+
+      - name: Upload the Playwright report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: playwright-report
+          path: |
+            playwright-report/
+            test-results/
+          if-no-files-found: ignore
+          retention-days: 14

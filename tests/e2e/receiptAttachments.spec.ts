@@ -43,6 +43,15 @@ async function addTransaction(page: Page, accountName: string, amount: string, n
 	await expect(page.getByRole('heading', { name: 'Transactions' })).toBeVisible();
 }
 
+/** Presses Escape until no dialog is left open, whether one keypress closes one layer or both. */
+async function closeAllDialogs(page: Page) {
+	const dialogs = page.getByRole('dialog');
+	await expect(async () => {
+		if ((await dialogs.count()) > 0) await page.keyboard.press('Escape');
+		await expect(dialogs).toHaveCount(0, { timeout: 500 });
+	}).toPass({ timeout: 10_000 });
+}
+
 function attachmentsDialogFor(page: Page, notes: string) {
 	return {
 		open: async () => {
@@ -164,9 +173,12 @@ test('attach, view, and remove a receipt; rejects unsupported/oversized files; c
 	const fullSizeDialog = page.getByRole('dialog').filter({ hasText: 'Receipt' });
 	await expect(fullSizeDialog.getByAltText('Receipt attachment full size')).toBeVisible();
 	await page.keyboard.press('Escape');
+	await expect(fullSizeDialog).toBeHidden();
 
-	// Escape closes both the nested full-size view and the Attachments dialog behind it, so
-	// reopen before continuing.
+	// Escape closes the full-size view and, depending on timing, the Attachments dialog behind it
+	// too. Settle on "everything closed" before reopening: while that dialog is still open it hides
+	// the page behind it from the accessibility tree, so the row's button cannot be found.
+	await closeAllDialogs(page);
 	dialog = await dialogHelper.open();
 
 	// Remove clears the thumbnail and the row indicator.
