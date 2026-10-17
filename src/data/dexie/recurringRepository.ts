@@ -9,6 +9,7 @@ export interface NewRecurringRule {
 	frequency: RecurringFrequency;
 	dayOfPeriod: number;
 	label?: string;
+	isSubscription?: boolean;
 }
 
 export const RecurringRepository = {
@@ -23,6 +24,8 @@ export const RecurringRepository = {
 			dayOfPeriod: input.dayOfPeriod,
 			isActive: true,
 			label: input.label,
+			// Written only when set, so a rule that is not a subscription keeps the shape it always had.
+			...(input.isSubscription ? { isSubscription: true } : {}),
 			createdAt: now,
 			updatedAt: now
 		};
@@ -62,6 +65,14 @@ export const RecurringRepository = {
 	async listActive(key: CryptoKey): Promise<RecurringRule[]> {
 		const rows = await db.recurringRules.where('isActive').equals(1).toArray();
 		return decryptRows<RecurringRuleRow, RecurringRule>(key, rows);
+	},
+
+	/** Deletes the rule together with its expected events, which mean nothing without it. */
+	async remove(id: string): Promise<void> {
+		await db.transaction('rw', db.recurringRules, db.expectedEvents, async () => {
+			await db.expectedEvents.where('recurringRuleId').equals(id).delete();
+			await db.recurringRules.delete(id);
+		});
 	}
 };
 
@@ -109,6 +120,11 @@ export const ExpectedEventRepository = {
 		const rows = await db.expectedEvents.where('recurringRuleId').equals(recurringRuleId).toArray();
 		const events = await decryptRows<ExpectedEventRow, ExpectedEvent>(key, rows);
 		return events.sort((a, b) => (a.expectedDate < b.expectedDate ? 1 : -1));
+	},
+
+	/** Deletes the given events (a schedule that was changed, so these dates no longer apply). */
+	async removeMany(ids: string[]): Promise<void> {
+		await db.expectedEvents.bulkDelete(ids);
 	},
 
 	async listAll(key: CryptoKey): Promise<ExpectedEvent[]> {

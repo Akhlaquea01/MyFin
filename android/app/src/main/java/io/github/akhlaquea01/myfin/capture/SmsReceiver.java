@@ -27,7 +27,10 @@ public class SmsReceiver extends BroadcastReceiver {
 
         // A long SMS arrives in several parts; join the parts from each sender.
         Map<String, StringBuilder> bySender = new LinkedHashMap<>();
-        long receivedAt = System.currentTimeMillis();
+        // One stamp per sender: parts from different senders in one broadcast are different messages,
+        // and each must keep its own time (it is what tells a repeat from a second payment).
+        Map<String, Long> receivedBySender = new LinkedHashMap<>();
+        long now = System.currentTimeMillis();
         for (SmsMessage part : parts) {
             if (part == null) continue;
             String sender = part.getOriginatingAddress();
@@ -40,14 +43,15 @@ public class SmsReceiver extends BroadcastReceiver {
             String text = part.getMessageBody();
             if (text != null) body.append(text);
             long stamp = part.getTimestampMillis();
-            if (stamp > 0) receivedAt = stamp;
+            if (stamp > 0) receivedBySender.put(sender, stamp);
         }
 
         for (Map.Entry<String, StringBuilder> entry : bySender.entrySet()) {
             String sender = entry.getKey();
             String body = entry.getValue().toString();
             if (!CaptureFilter.isCandidateSms(sender, body)) continue;
-            CaptureIntake.capture(context, "sms", sender, null, body, receivedAt);
+            Long stamp = receivedBySender.get(sender);
+            CaptureIntake.capture(context, "sms", sender, null, body, stamp != null ? stamp : now);
         }
     }
 }

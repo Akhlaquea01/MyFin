@@ -16,6 +16,7 @@ import {
 } from './ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { CategoryPicker } from './CategoryPicker';
+import { PurposeField } from './PurposeField';
 import { useSession } from '../context/SessionContext';
 import {
 	TransactionRepository,
@@ -25,6 +26,7 @@ import {
 } from '../data/dexie/transactionRepository';
 import { TagRepository, TransactionTagRepository } from '../data/dexie/tagRepository';
 import { TransactionEngine } from '../domain/transactions/transactionEngine';
+import { purposeIncomplete, samePurpose } from '../domain/transactions/purposeEngine';
 import { linkedTransactionNotice } from '../domain/transactions/linkedTransactionNotice';
 import { resolveMerchant } from '../domain/parser/merchantResolver';
 import { recordConfirmation } from '../domain/categorization/resolveCategorization';
@@ -36,6 +38,7 @@ import type {
 	Category,
 	Merchant,
 	Transaction,
+	TransactionPurpose,
 	TransactionSplit
 } from '../domain/entities';
 
@@ -99,6 +102,7 @@ export function EditTransactionDialog({
 	const [categoryId, setCategoryId] = useState(UNCATEGORIZED_CATEGORY_ID);
 	const [tagsText, setTagsText] = useState('');
 	const [notes, setNotes] = useState(transaction.notes ?? '');
+	const [purpose, setPurpose] = useState<TransactionPurpose | null>(transaction.purpose ?? null);
 
 	useEffect(() => {
 		let cancelled = false;
@@ -149,6 +153,7 @@ export function EditTransactionDialog({
 			return;
 		}
 		setSaving(true);
+		let purposeEffectMessage: string | null = null;
 		try {
 			if (kind === 'transfer') {
 				await TransactionEngine.editTransferPair(key, transaction.id, {
@@ -159,6 +164,10 @@ export function EditTransactionDialog({
 			} else {
 				const magnitude = parseMoneyOrZero(amount);
 				const signed = type === 'expense' ? -magnitude : magnitude;
+				// Only spending has a purpose; an entry changed to income drops it.
+				const chosenPurpose = type === 'expense' ? purpose : null;
+				const incompletePurpose = purposeIncomplete(chosenPurpose);
+				if (incompletePurpose) throw new Error(incompletePurpose);
 
 				// Only look the merchant up again if the user actually changed the text.
 				let merchantId = transaction.merchantId;
@@ -190,8 +199,18 @@ export function EditTransactionDialog({
 				await TransactionEngine.editTransaction(
 					key,
 					transaction.id,
-					{ accountId, date, amount: signed, type, merchantId, notes: notes.trim() || null },
-					splits
+					{
+						accountId,
+						date,
+						amount: signed,
+						type,
+						merchantId,
+						notes: notes.trim() || null,
+						// Left out when unchanged, so an entry that never had a purpose is not given an empty one.
+						...(samePurpose(chosenPurpose, transaction.purpose) ? {} : { purpose: chosenPurpose })
+					},
+					splits,
+					{ onPurposeEffect: (message) => (purposeEffectMessage = message) }
 				);
 
 				if (tagsText.trim() !== originalTagNames.trim()) {
@@ -223,6 +242,7 @@ export function EditTransactionDialog({
 				}
 			}
 			toast.success('Transaction updated');
+			if (purposeEffectMessage) toast.success(purposeEffectMessage);
 			onOpenChange(false);
 			onSaved();
 		} catch (err) {
@@ -376,6 +396,14 @@ export function EditTransactionDialog({
 										</p>
 									)}
 								</div>
+								{type === 'expense' && (
+									<PurposeField
+										idPrefix="edit-tx-purpose"
+										value={purpose}
+										onChange={setPurpose}
+										hintText={merchantText}
+									/>
+								)}
 								<div className="flex flex-col gap-1.5">
 									<Label htmlFor="edit-tx-merchant">Merchant</Label>
 									<Input

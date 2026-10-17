@@ -44,6 +44,19 @@ function StateBadge({ ok, okText, notOkText }: { ok: boolean; okText: string; no
 	);
 }
 
+/** Plain-words names for the reasons a message was ignored (see `IgnoreReason`). */
+const IGNORE_REASON_TEXT: Record<string, string> = {
+	otp: 'one-time code',
+	promo: 'offer',
+	'not-transactional': 'not about money',
+	failed: 'failed payment',
+	'future-or-request': 'reminder or request',
+	'balance-only': 'balance alert',
+	'personal-sender': 'from a person',
+	'too-long': 'too long',
+	'no-amount': 'no amount'
+};
+
 function permissionText(state: PermissionState): string {
 	return state === 'denied' ? 'Blocked' : 'Not allowed yet';
 }
@@ -87,12 +100,13 @@ export function AutoCapturePage() {
 			setAccounts(accts);
 			if (!loaded) {
 				const saved = profile?.capture;
-				const eligible = accts.filter((a) => a.type !== 'credit_card');
+				// Prefer the one non-card account; a user whose only account is a credit card can
+				// still turn capture on.
+				const nonCard = accts.filter((a) => a.type !== 'credit_card');
+				const suggested = nonCard.length === 1 ? nonCard[0] : accts.length === 1 ? accts[0] : null;
 				setSmsOn(saved?.sms ?? true);
 				setNotificationsOn(saved?.notifications ?? true);
-				setDefaultAccountId(
-					saved?.defaultAccountId ?? (eligible.length === 1 ? eligible[0].id : '')
-				);
+				setDefaultAccountId(saved?.defaultAccountId ?? suggested?.id ?? '');
 				setLoaded(true);
 			}
 		} catch {
@@ -122,8 +136,11 @@ export function AutoCapturePage() {
 		);
 	}
 
-	const eligibleAccounts = accounts.filter((a) => a.type !== 'credit_card');
+	// Any account can be the default: messages that name an account or card by its digits are filed
+	// there regardless, and a card-only user has nothing else to pick.
+	const eligibleAccounts = accounts;
 	const enabled = !!settings?.enabled;
+	const ignoredTotal = Object.values(settings?.ignoredCounts ?? {}).reduce((a, b) => a + b, 0);
 	const sdk = status?.sdkInt ?? 0;
 
 	const missing: string[] = [];
@@ -203,7 +220,7 @@ export function AutoCapturePage() {
 			const profile = await UserProfileRepository.get();
 			if (profile?.capture) {
 				await UserProfileRepository.update({
-					capture: { ...profile.capture, unreadableCount: 0, droppedCount: 0 }
+					capture: { ...profile.capture, unreadableCount: 0, droppedCount: 0, ignoredCounts: {} }
 				});
 			}
 			await refresh();
@@ -355,14 +372,16 @@ export function AutoCapturePage() {
 							<SelectContent>
 								{eligibleAccounts.map((a) => (
 									<SelectItem key={a.id} value={a.id}>
-										{a.name}
+										{a.type === 'credit_card' ? `${a.name} (credit card)` : a.name}
 									</SelectItem>
 								))}
 							</SelectContent>
 						</Select>
 						<p className="text-xs text-muted-foreground">
 							Used when a message does not say which account it is about. Messages name an account
-							by its last digits; add them under Accounts so each one is filed correctly.
+							or card by its last digits; add them under Accounts so each one is filed correctly. A
+							message that says "credit card" goes to your credit card account when you have just
+							one.
 						</p>
 						{eligibleAccounts.length === 0 && (
 							<p className="text-xs text-amber-700 dark:text-amber-400">
@@ -451,8 +470,19 @@ export function AutoCapturePage() {
 								because too many piled up while MyFin was locked.
 							</p>
 						)}
+						{ignoredTotal > 0 && (
+							<p className="text-muted-foreground">
+								{ignoredTotal} message(s) were ignored as not being transactions:{' '}
+								{Object.entries(settings?.ignoredCounts ?? {})
+									.filter(([, count]) => count > 0)
+									.map(([reason, count]) => `${count} ${IGNORE_REASON_TEXT[reason] ?? reason}`)
+									.join(', ')}
+								. If a bank message you expected is missing, it may be one of these.
+							</p>
+						)}
 						{((settings?.unreadableCount ?? 0) > 0 ||
-							(settings?.droppedCount ?? 0) + status.dropped > 0) && (
+							(settings?.droppedCount ?? 0) + status.dropped > 0 ||
+							ignoredTotal > 0) && (
 							<div>
 								<Button size="sm" variant="ghost" onClick={() => void clearNotices()}>
 									Clear these notices

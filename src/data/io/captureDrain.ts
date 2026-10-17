@@ -127,11 +127,16 @@ async function run(key: CryptoKey): Promise<DrainResult | null> {
 	// Re-read: the settings page may have saved something while this was running.
 	const latest = (await UserProfileRepository.get())?.capture;
 	if (latest) {
+		const ignoredCounts = { ...latest.ignoredCounts };
+		for (const [reason, count] of Object.entries(total.ignored)) {
+			ignoredCounts[reason] = (ignoredCounts[reason] ?? 0) + (count ?? 0);
+		}
 		await UserProfileRepository.update({
 			capture: {
 				...latest,
 				unreadableCount: (latest.unreadableCount ?? 0) + total.unreadable + undecryptable,
 				droppedCount: (latest.droppedCount ?? 0) + dropped,
+				ignoredCounts,
 				lastDrainAt: Date.now()
 			}
 		});

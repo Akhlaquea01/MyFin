@@ -43,11 +43,21 @@ export interface Account extends Timestamped {
 	lowBalanceThresholdMinor?: number;
 }
 
+/** Whether a category collects spending or income. Only used to decide which list it appears in. */
+export type CategoryKind = 'expense' | 'income';
+
 export interface Category extends Timestamped {
 	id: ID;
 	name: string;
 	parentId: ID | null;
 	icon: string | null;
+	/** One of the palette keys `cat-1` … `cat-8` (index.css), chosen on the Categories page. A key,
+	 *  not a colour value, so it follows light and dark mode. Absent/null = automatic: the next free
+	 *  palette slot, as before. A subcategory always takes its parent's colour. */
+	color?: string | null;
+	/** Set when the category is created from the Income list. Absent on every category that
+	 *  predates the field: those are placed by what has been filed under them. */
+	kind?: CategoryKind;
 }
 
 export interface Merchant extends Timestamped {
@@ -82,6 +92,22 @@ export type TransactionSource =
 	| 'notification_capture';
 export type CaptureChannel = 'sms' | 'notification';
 
+/** What a spending entry was FOR, when it is one of the four things worth tracking separately from
+ *  its category: paying off debt, putting money aside, investing, or paying a bill. */
+export type PurposeKind = 'debt' | 'savings' | 'investment' | 'bills';
+
+/**
+ * Marks a transaction as debt repayment, savings, investment or a bill, and says which one:
+ * `targetId` is the liability, savings goal, holding or recurring rule it went to (null = just
+ * the tag). The tag lives on the transaction; the effect on the target (a lower balance owed, a
+ * goal contribution, a bill marked paid) is applied by `purposeEngine` once the entry is confirmed
+ * and found again through the target's own link back to this transaction.
+ */
+export interface TransactionPurpose {
+	kind: PurposeKind;
+	targetId: ID | null;
+}
+
 /**
  * Where an automatically captured transaction came from, kept so Review can show the original
  * message next to the parsed values. Deliberately NOT stored in `notes`: `formatTransactionLabel`
@@ -94,14 +120,26 @@ export interface CaptureInfo {
 	receivedAt: EpochMillis;
 	/** The message as received (title and body for a notification). */
 	text: string;
-	/** Why the account may be wrong: no account number matched, or several did. Cleared once the
-	 *  user edits the entry. */
-	accountCheck?: 'default-account' | 'unmatched-tail' | null;
+	/** Why the account may be wrong: no account number matched, or several did; or the message
+	 *  said "credit card" and the only credit-card account was assumed. Cleared once the user edits
+	 *  the entry. */
+	accountCheck?: 'default-account' | 'unmatched-tail' | 'card-type-guess' | null;
+	/** The message named no money-in or money-out verb, so the direction was assumed from the card
+	 *  it was about (a credit-card charge). Shown in Review so the sign can be checked. */
+	directionGuessed?: boolean;
 	/** The account digits the message mentioned that matched nothing, to help the user pick. */
 	tailHint?: string | null;
 	/** The bank's UPI/UTR/reference number from the message. The one thing that tells a replayed
 	 *  message from a second, identical payment. */
 	refNo?: string | null;
+	/** When the message itself says the payment happened: its date (the entry's `date`) plus the
+	 *  time of day written in the text, as epoch millis. `receivedAt` is when the phone got the
+	 *  message; this is when the bank says the money moved, and the two can differ by minutes or
+	 *  hours. Absent when the text states no time. Used to rank likely duplicates. */
+	txnAt?: EpochMillis | null;
+	/** Salted digest of channel, sender, time and text — the same one the replay ledger keys on —
+	 *  so an entry can be tied to the exact message that made it without keeping a second copy. */
+	msgHash?: string | null;
 	/** The same payment also seen again (the SMS and a payment-app notification, or a messaging
 	 *  app's copy of that SMS), folded into this one entry rather than creating another. */
 	alsoSeenAs?: { channel: CaptureChannel; sender: string; receivedAt: EpochMillis }[];
@@ -127,6 +165,8 @@ export interface Transaction extends Timestamped {
 	recurringRuleId?: ID | null;
 	/** Set only on entries created by automatic capture (Android app). */
 	capture?: CaptureInfo | null;
+	/** What this entry was for (debt, savings, investment, bills). Absent/null = no purpose. */
+	purpose?: TransactionPurpose | null;
 }
 
 export interface TransactionSplit {
@@ -188,6 +228,11 @@ export interface RecurringRule extends Timestamped {
 	 *  via createRuleFromTransaction (FR-005, spec 016). Display falls back to category-name
 	 *  rendering when absent. Not indexed. */
 	label?: string;
+	/** Marks a rule as a subscription (streaming, software, memberships). Presentation only: it
+	 *  decides which filter chip the rule appears under and whether it counts in the monthly
+	 *  subscription total; matching, reminders and the forecast treat it like any other rule.
+	 *  Absent on every rule that predates the field. */
+	isSubscription?: boolean;
 }
 
 export type ExpectedEventStatus = 'pending' | 'matched' | 'missed';
@@ -328,6 +373,10 @@ export interface GoalContribution extends Timestamped {
 	goalId: ID;
 	amount: number;
 	date: ISODateString;
+	/** The ledger entry this contribution was made from, when it came from marking a transaction as
+	 *  savings. Lets the contribution follow that transaction if it is edited or deleted. Absent
+	 *  for a contribution logged directly on the goal. */
+	transactionId?: ID | null;
 }
 
 /** Singleton — governs the on-open recurring/budget notification check (spec 004). */
@@ -543,6 +592,9 @@ export interface CaptureSettings {
 	unreadableCount?: number;
 	/** Messages the phone discarded because too many piled up while MyFin was locked. */
 	droppedCount?: number;
+	/** Messages judged not to be transactions, by reason (`IgnoreReason`). Counts only: the text is
+	 *  never kept. Lets the user see WHY a bank message did not appear. */
+	ignoredCounts?: Record<string, number>;
 	lastDrainAt?: EpochMillis;
 }
 

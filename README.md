@@ -42,7 +42,7 @@ Every transaction, account balance, category, payee, and receipt attachment is e
 - 🏷️ **Tag Taxonomy & Saved Filter Views**: Non-hierarchical multidimensional tagging with fast boolean query filters and saved presets.
 - 🎨 **Starter Setup Templates**: Export and share sanitized configurations (categories, rules, budgets) without exposing private financial balances.
 - 🚶 **Interactive Onboarding Tour**: Built-in spotlight guide introducing key workflows to new users.
-- 🔁 **Subscription Tracker**: Automatically detects repeating merchant charges from your existing transaction history — no manual setup — and flags subscriptions that look lapsed.
+- 🔁 **Recurring & Subscriptions in one place**: Track bills, income and subscriptions as recurring rules, and let MyFin find repeating charges in your history ("Found in your history") — including credit-card charges captured from SMS — so you can track them with one tap or dismiss them. Possibly-lapsed subscriptions are flagged.
 - 📈 **Cash-Flow Forecasting**: Projects each account's balance 30/60/90 days out and warns in advance of a projected low or negative balance.
 - 📐 **Budget vs. Actual Variance Report**: A dedicated month-range report comparing budgeted and actual spend per category.
 - ✉️ **Envelope Rollover Budgeting**: Opt-in mode that carries a category's unspent budget — or its overspend deficit — into the next period.

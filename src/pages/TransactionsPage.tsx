@@ -63,6 +63,8 @@ import { ConvertToTransferDialog } from '../components/ConvertToTransferDialog';
 import { TransactionEngine } from '../domain/transactions/transactionEngine';
 import { filterTagOptions, type TagOption } from '../domain/transactions/tagFilterEngine';
 import { formatTransactionLabel } from '../domain/transactions/transactionLabel';
+import { describeCaptureMoment } from '../domain/capture/captureMoment';
+import { PURPOSE_SHORT_LABELS } from '../domain/transactions/purposeEngine';
 import { linkedTransactionNotice } from '../domain/transactions/linkedTransactionNotice';
 import { validateAttachmentFile, compressImage } from '../lib/imageAttachment';
 import type {
@@ -723,7 +725,20 @@ export function TransactionsPage() {
 										key={tx.id}
 										style={isVirtualized ? { height: ROW_HEIGHT_PX } : undefined}
 									>
-										<TableCell className="text-muted-foreground">{tx.date}</TableCell>
+										<TableCell className="text-muted-foreground">
+											{tx.date}
+											{tx.capture && (
+												<span
+													className="ml-1 text-xs whitespace-nowrap"
+													title={describeCaptureMoment(tx.capture)}
+												>
+													{new Date(tx.capture.txnAt ?? tx.capture.receivedAt).toLocaleTimeString(
+														undefined,
+														{ hour: 'numeric', minute: '2-digit' }
+													)}
+												</span>
+											)}
+										</TableCell>
 										<TableCell className="w-full max-w-0">
 											<div className="flex min-w-0 items-center gap-2">
 												<span className="truncate" title={formatTransactionLabel(tx, merchants)}>
@@ -732,6 +747,11 @@ export function TransactionsPage() {
 												{tx.type === 'transfer' && (
 													<Badge variant="secondary" className="shrink-0">
 														{tx.transferPairId ? 'Transfer' : 'Loan'}
+													</Badge>
+												)}
+												{tx.purpose && (
+													<Badge variant="secondary" className="shrink-0">
+														{PURPOSE_SHORT_LABELS[tx.purpose.kind]}
 													</Badge>
 												)}
 												{tx.reviewStatus === 'unreviewed' && (

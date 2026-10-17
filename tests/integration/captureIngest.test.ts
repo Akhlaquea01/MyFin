@@ -462,3 +462,183 @@ describe('ingestCapturedMessages keyword rules', () => {
 		expect(tx.notes).toBeNull();
 	});
 });
+
+describe('ingestCapturedMessages message times', () => {
+	let key: CryptoKey;
+	let account: string;
+
+	beforeEach(async () => {
+		await db.delete();
+		await db.open();
+		resetBlindIndexSaltCache();
+		nextId = 0;
+		key = await deriveEncryptionKey('8387', randomSaltBase64());
+		account = (
+			await AccountRepository.create(key, {
+				name: 'HDFC',
+				type: 'bank',
+				openingBalance: 100_000,
+				creditLimit: null,
+				billingCycleDay: null,
+				accountLast4: '1234'
+			})
+		).id;
+	});
+
+	const ingest = (messages: IngestMessage[]) =>
+		ingestCapturedMessages(key, messages, { defaultAccountId: account });
+
+	it('keeps the time the message states, next to when it was received, and a hash of the message', async () => {
+		// Received 5 Oct 2026 14:01 local; the SMS says the payment was at 13:58 the same day.
+		const received = new Date(2026, 9, 5, 14, 1, 0).getTime();
+		await ingest([
+			sms('Rs.250.00 debited from A/c XX1234 to SWIGGY on 05-10-26, 13:58:20', received)
+		]);
+		const [tx] = await TransactionRepository.listUnreviewed(key);
+		expect(tx.capture?.receivedAt).toBe(received);
+		expect(tx.capture?.txnAt).toBe(new Date(2026, 9, 5, 13, 58).getTime());
+		expect(tx.capture?.msgHash).toMatch(/^capture:/);
+	});
+
+	it('leaves the stated time out when the text has none, or when it lies after the message arrived', async () => {
+		const received = new Date(2026, 9, 5, 14, 1, 0).getTime();
+		await ingest([
+			sms('Rs.250.00 debited from A/c XX1234 to SWIGGY on 05-10-26', received),
+			// "23:59" on the day it arrived at 14:01 cannot be right.
+			sms('Rs.300.00 debited from A/c XX1234 to ZOMATO on 05-10-26, 23:59:00', received + 1000)
+		]);
+		const entries = await TransactionRepository.listUnreviewed(key);
+		expect(entries).toHaveLength(2);
+		for (const tx of entries) expect(tx.capture?.txnAt ?? null).toBeNull();
+	});
+
+	it('flags a second same-channel copy of a payment instead of dropping it', async () => {
+		const first = new Date(2026, 9, 5, 14, 0, 0).getTime();
+		const again = first + 2 * 60 * 1000;
+		await ingest([sms('Rs.250.00 debited from A/c XX1234 to SWIGGY on 05-10-26', first)]);
+		const report = await ingest([
+			sms('Rs.250.00 debited from A/c XX1234 to SWIGGY on 05-10-26', again, 'AX-AXISBK')
+		]);
+		expect(report).toMatchObject({ created: 1, duplicatesFlagged: 1 });
+		const flagged = (await TransactionRepository.listUnreviewed(key)).find((t) => t.duplicateOfId);
+		expect(flagged?.capture?.receivedAt).toBe(again);
+	});
+});
+
+describe('ingestCapturedMessages credit-card alerts', () => {
+	let key: CryptoKey;
+	let bank: string;
+	let card: string;
+
+	beforeEach(async () => {
+		await db.delete();
+		await db.open();
+		resetBlindIndexSaltCache();
+		nextId = 0;
+		key = await deriveEncryptionKey('8385', randomSaltBase64());
+		bank = (
+			await AccountRepository.create(key, {
+				name: 'HDFC Savings',
+				type: 'bank',
+				openingBalance: 100_000,
+				creditLimit: null,
+				billingCycleDay: null,
+				accountLast4: '1234'
+			})
+		).id;
+	});
+
+	const addCard = (cardLast4: string | null = null) =>
+		AccountRepository.create(key, {
+			name: 'HDFC Card',
+			type: 'credit_card',
+			openingBalance: 0,
+			creditLimit: 100_000,
+			billingCycleDay: 15,
+			cardLast4
+		}).then((a) => a.id);
+	const balance = async (id: string) => (await AccountRepository.getById(key, id))!.currentBalance;
+
+	it('files an untagged credit-card charge on the only credit card, not the default bank account', async () => {
+		card = await addCard();
+		const report = await ingestCapturedMessages(
+			key,
+			[sms('Rs.1299.00 spent on your HDFC Bank Credit Card ending 5678 at AMAZON on 05-10-2026.')],
+			{ defaultAccountId: bank }
+		);
+
+		expect(report).toMatchObject({ created: 1, needsAccountCheck: 1 });
+		const [tx] = await TransactionRepository.listUnreviewed(key);
+		expect(tx).toMatchObject({ accountId: card, amount: -129900, type: 'expense' });
+		expect(tx.capture).toMatchObject({ accountCheck: 'card-type-guess', tailHint: '5678' });
+		// The bank balance did not move for a card purchase.
+		expect(await balance(bank)).toBe(100_000);
+	});
+
+	it('files a tagged card by its digits with nothing to check', async () => {
+		card = await addCard('5678');
+		await ingestCapturedMessages(
+			key,
+			[sms('Rs.1299.00 spent on your HDFC Bank Credit Card ending 5678 at AMAZON on 05-10-2026.')],
+			{ defaultAccountId: bank }
+		);
+		const [tx] = await TransactionRepository.listUnreviewed(key);
+		expect(tx.accountId).toBe(card);
+		expect(tx.capture?.accountCheck).toBeNull();
+	});
+
+	it('works when the card is the only account and the default', async () => {
+		await db.delete();
+		await db.open();
+		resetBlindIndexSaltCache();
+		key = await deriveEncryptionKey('8386', randomSaltBase64());
+		card = await addCard();
+		const report = await ingestCapturedMessages(
+			key,
+			[sms('Rs.450.00 spent on HDFC CC 1234 at SWIGGY')],
+			{ defaultAccountId: null }
+		);
+		expect(report).toMatchObject({ created: 1, noAccount: 0 });
+		const [tx] = await TransactionRepository.listUnreviewed(key);
+		expect(tx.accountId).toBe(card);
+	});
+
+	it('reads a charge that never says "debited" and notes that the direction was assumed', async () => {
+		card = await addCard('5678');
+		const report = await ingestCapturedMessages(
+			key,
+			[
+				sms(
+					'Thank you for using your HDFC Bank Credit Card ending 5678 for Rs.800.00 at BIGBASKET.'
+				)
+			],
+			{ defaultAccountId: bank }
+		);
+		expect(report).toMatchObject({ created: 1, unreadable: 0 });
+		const [tx] = await TransactionRepository.listUnreviewed(key);
+		expect(tx).toMatchObject({ accountId: card, amount: -80000 });
+		expect(tx.capture?.directionGuessed).toBe(true);
+	});
+
+	it('keeps a foreign-currency charge in the unreadable list instead of filing rupees', async () => {
+		card = await addCard('1234');
+		const report = await ingestCapturedMessages(
+			key,
+			[sms('USD 12.00 spent on HDFC Bank Credit Card ending 1234 at OPENAI on 05-Oct-26.')],
+			{ defaultAccountId: bank }
+		);
+		expect(report).toMatchObject({ created: 0, unreadable: 1 });
+		expect(await TransactionRepository.listUnreviewed(key)).toHaveLength(0);
+	});
+
+	it('does not file a bank debit for a card bill on the card', async () => {
+		card = await addCard();
+		await ingestCapturedMessages(
+			key,
+			[sms('Rs.5,000.00 debited from A/c XX1234 towards your Credit Card payment on 05-Oct-26.')],
+			{ defaultAccountId: bank }
+		);
+		const [tx] = await TransactionRepository.listUnreviewed(key);
+		expect(tx.accountId).toBe(bank);
+	});
+});

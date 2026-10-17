@@ -67,6 +67,10 @@ import { createRuleFromTransaction } from '../domain/recurring/recurringEngine';
 import { DAY_RANGE, clampDay, defaultDayFor } from '../domain/recurring/recurringDay';
 import { isNativeApp } from '../lib/native/platform';
 import { originalMessageOf } from '../domain/capture/originalMessage';
+import { suggestAccountTag } from '../domain/capture/accountMatcher';
+import { formatMoment } from '../domain/capture/captureMoment';
+import { PurposeField } from '../components/PurposeField';
+import { purposeIncomplete } from '../domain/transactions/purposeEngine';
 import { REVIEW_CHANGED_EVENT } from '../data/io/captureDrain';
 import type {
 	Account,
@@ -76,6 +80,7 @@ import type {
 	RecurringFrequency,
 	Tag,
 	Transaction,
+	TransactionPurpose,
 	TransactionSplit
 } from '../domain/entities';
 import { useConfirm } from '../lib/confirm';
@@ -87,15 +92,27 @@ const PAGE_SIZE = 50;
 /** Where a captured entry came from, in one line: the sender, when it arrived, and anything the
  *  user should know about how it was filed. */
 function describeCaptureSource(capture: CaptureInfo): string {
-	const when = new Date(capture.receivedAt).toLocaleString(undefined, {
-		day: 'numeric',
-		month: 'short',
-		hour: 'numeric',
-		minute: '2-digit'
-	});
-	const parts = [`${capture.sender} · ${when}`];
+	const parts = [`${capture.sender} · ${formatMoment(capture.receivedAt)}`];
+	if (typeof capture.txnAt === 'number') {
+		parts.push(
+			`payment time ${new Date(capture.txnAt).toLocaleTimeString(undefined, {
+				hour: 'numeric',
+				minute: '2-digit'
+			})}`
+		);
+	}
 	if (capture.accountCheck === 'unmatched-tail' && capture.tailHint) {
 		parts.push(`message mentions account ending ${capture.tailHint}`);
+	}
+	if (capture.accountCheck === 'card-type-guess') {
+		parts.push(
+			capture.tailHint
+				? `message says credit card ending ${capture.tailHint}; filed on your only credit card`
+				: 'message says credit card; filed on your only credit card'
+		);
+	}
+	if (capture.directionGuessed) {
+		parts.push('no debit or credit wording, so it was read as spending');
 	}
 	if (capture.alsoSeenAs && capture.alsoSeenAs.length > 0) {
 		parts.push(
@@ -159,8 +176,7 @@ export function ReviewPage() {
 	const loadedCategoryRef = useRef<Record<string, string>>({});
 	const loadedTagsRef = useRef<Record<string, string>>({});
 	// "Account not matched" is only a useful hint when there is more than one account to choose from.
-	const hasAccountChoice =
-		accounts.filter((a) => !a.isArchived && a.type !== 'credit_card').length >= 2;
+	const hasAccountChoice = accounts.filter((a) => !a.isArchived).length >= 2;
 
 	/**
 	 * Loads the newest `limit` waiting entries with their splits and tags — one query each for ALL
@@ -386,7 +402,23 @@ export function ReviewPage() {
 		const categoryId = categoryChoice[tx.id] ?? UNCATEGORIZED_CATEGORY_ID;
 		const splits: SplitInput[] = [{ categoryId, amount: tx.amount }];
 		const tagIds = await parseTagIds(tx);
-		await TransactionEngine.confirmTransaction(key, tx.id, splits, tagIds);
+		const incompletePurpose = purposeIncomplete(tx.purpose ?? null);
+		if (incompletePurpose) throw new Error(incompletePurpose);
+		await TransactionEngine.confirmTransaction(key, tx.id, splits, tagIds, {
+			// What marking it as debt, savings or a bill just did, as its own message.
+			onPurposeEffect: (message) => {
+				if (message) toast.success(message);
+			}
+		});
+	}
+
+	/** Marks an entry waiting in Review as debt, savings, investment or a bill (or clears it). It is
+	 *  stored on the entry now; the debt, goal or bill is only changed when the entry is confirmed. */
+	function changePurpose(tx: Transaction, purpose: TransactionPurpose | null): Promise<void> {
+		return runForRow(tx.id, 'Could not change the purpose', async () => {
+			const updated = await TransactionEngine.editTransaction(key, tx.id, { purpose });
+			setItems((prev) => prev.map((t) => (t.id === tx.id ? updated : t)));
+		});
 	}
 
 	/**
@@ -598,7 +630,33 @@ export function ReviewPage() {
 		return runForRow(tx.id, 'Could not move this entry', async () => {
 			const updated = await TransactionEngine.editTransaction(key, tx.id, { accountId });
 			setItems((prev) => prev.map((t) => (t.id === tx.id ? updated : t)));
+			// The message named digits no account carried: offer to remember them on this account so
+			// the next one files itself.
+			const target = accounts.find((a) => a.id === accountId);
+			const suggestion =
+				tx.capture?.accountCheck && target ? suggestAccountTag(tx.capture.text, target) : null;
+			if (target && suggestion) {
+				toast(`This message mentions •• ${suggestion.digits}`, {
+					action: {
+						label: `Save on ${target.name}`,
+						onClick: () => void saveAccountTag(target.id, suggestion)
+					}
+				});
+			}
 		});
+	}
+
+	async function saveAccountTag(
+		accountId: string,
+		tag: { field: 'cardLast4' | 'accountLast4'; digits: string }
+	): Promise<void> {
+		try {
+			const saved = await AccountRepository.update(key, accountId, { [tag.field]: tag.digits });
+			setAccounts((prev) => prev.map((a) => (a.id === saved.id ? saved : a)));
+			toast.success(`Saved •• ${tag.digits}. Matching messages will file here.`);
+		} catch {
+			toast.error('Could not save those digits.');
+		}
 	}
 
 	const isFlagged = (tx: Transaction) => !!tx.duplicateOfId || !!tx.capture?.accountCheck;
@@ -716,7 +774,9 @@ export function ReviewPage() {
 							</Badge>
 						) : tx.capture?.accountCheck && hasAccountChoice ? (
 							<Badge variant="outline" className="border-warning/50 text-warning">
-								Account not matched — check
+								{tx.capture.accountCheck === 'card-type-guess'
+									? 'Card assumed — check'
+									: 'Account not matched — check'}
 							</Badge>
 						) : source === 'suggestion' ? (
 							<Badge variant="secondary">Suggested</Badge>
@@ -813,6 +873,7 @@ export function ReviewPage() {
 									{tx.duplicateOfId && original && (
 										<DuplicateCompare
 											original={original}
+											duplicate={tx}
 											reason={duplicateReason(original, tx)}
 											merchants={merchants}
 											accountLabel={
@@ -855,12 +916,24 @@ export function ReviewPage() {
 										</div>
 									)}
 
-									<details className="group text-xs" open={!!(tagsInput[tx.id] ?? '') || undefined}>
+									<details
+										className="group text-xs"
+										open={!!(tagsInput[tx.id] ?? '') || !!tx.purpose || undefined}
+									>
 										<summary className="flex cursor-pointer list-none items-center gap-1 text-muted-foreground [&::-webkit-details-marker]:hidden">
 											<ChevronDown className="size-3.5 transition-transform group-open:rotate-180" />
 											More options
 										</summary>
 										<div className="mt-3 flex flex-col gap-3">
+											{tx.type === 'expense' && (
+												<PurposeField
+													idPrefix={`purpose-${tx.id}`}
+													value={tx.purpose ?? null}
+													onChange={(next) => void changePurpose(tx, next)}
+													disabled={busyIds.has(tx.id)}
+													hintText={`${merchantName(tx.merchantId) ?? ''} ${tx.notes ?? ''}`}
+												/>
+											)}
 											<div className="flex flex-col gap-1.5">
 												<Label htmlFor={`tags-${tx.id}`}>Tags (comma-separated)</Label>
 												<Input

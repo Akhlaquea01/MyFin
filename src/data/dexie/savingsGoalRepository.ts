@@ -46,7 +46,7 @@ export const SavingsGoalRepository = {
 export const GoalContributionRepository = {
 	async create(
 		key: CryptoKey,
-		input: { goalId: string; amount: number; date: string }
+		input: { goalId: string; amount: number; date: string; transactionId?: string | null }
 	): Promise<GoalContribution> {
 		if (input.amount === 0) {
 			throw new Error('Contribution amount must be non-zero');
@@ -61,6 +61,8 @@ export const GoalContributionRepository = {
 			goalId: input.goalId,
 			amount: input.amount,
 			date: input.date,
+			// Written only when set, so a contribution logged on the goal keeps the shape it always had.
+			...(input.transactionId ? { transactionId: input.transactionId } : {}),
 			createdAt: now,
 			updatedAt: now
 		};

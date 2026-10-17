@@ -7,6 +7,13 @@ import static org.junit.Assert.assertTrue;
 
 import org.junit.Test;
 
+import java.io.File;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.util.ArrayList;
+import java.util.List;
+
 /**
  * The native filter only has to be generous enough that nothing real is lost before it is sealed;
  * the web layer makes the real decision after unlock. These tests pin what must get through and
@@ -103,5 +110,70 @@ public class CaptureFilterTest {
         assertEquals("PhonePe", CaptureFilter.paymentAppName("com.phonepe.app"));
         assertNull(CaptureFilter.paymentAppName("com.whatsapp"));
         assertNull(CaptureFilter.paymentAppName(null));
+    }
+
+    @Test
+    public void creditCardWordingTheWebFilterAcceptsGetsThroughHere() {
+        assertTrue(CaptureFilter.isCandidateSms("VM-ICICIB",
+                "Txn of INR 1,234.00 done on ICICI Bank Credit Card XX1234 at NETFLIX.COM"));
+        assertTrue(CaptureFilter.isCandidateSms("VM-SBICRD",
+                "Payment of Rs 649.00 on card XX1234 to NETFLIX was successful"));
+        assertTrue(CaptureFilter.isCandidateSms("AX-AMEXIN",
+                "You have swiped your Amex Card XX1001 for INR 2,499.00 at ZOMATO"));
+    }
+
+    @Test
+    public void aDebitAlertWithAFraudWarningFooterIsNotMistakenForACode() {
+        assertTrue(CaptureFilter.isCandidateSms("VM-HDFCBK",
+                "Rs.500.00 debited from A/c XX1234 on 05-Oct-26 to AMAZON. Never share OTP, CVV or PIN."));
+        // A code message still never reaches disk.
+        assertFalse(CaptureFilter.isCandidateSms("VM-HDFCBK",
+                "123456 is your OTP for txn of Rs.500 at AMAZON. Do not share."));
+    }
+
+    /**
+     * Every message in tests/fixtures/captureAcceptCases.txt is one the web layer's filter accepts
+     * (captureFilter.test.ts checks that side), so this filter, which only has to be more
+     * generous, must let all of them through. A real transaction dropped here is lost for good.
+     */
+    @Test
+    public void everySharedAcceptCaseGetsThrough() throws IOException {
+        List<String[]> cases = sharedAcceptCases();
+        assertTrue("the shared fixture should not be empty", cases.size() >= 10);
+        for (String[] c : cases) {
+            assertTrue("dropped by the native filter: " + c[1], CaptureFilter.isCandidateSms(c[0], c[1]));
+        }
+    }
+
+    private static List<String[]> sharedAcceptCases() throws IOException {
+        // Gradle runs unit tests from the module directory (android/app); an IDE may run from the root.
+        String[] candidates = {
+            "../../tests/fixtures/captureAcceptCases.txt",
+            "tests/fixtures/captureAcceptCases.txt"
+        };
+        File file = null;
+        for (String candidate : candidates) {
+            File f = new File(candidate);
+            if (f.isFile()) {
+                file = f;
+                break;
+            }
+        }
+        if (file == null) {
+            throw new IOException("captureAcceptCases.txt not found from " + new File(".").getAbsolutePath());
+        }
+        String raw = new String(Files.readAllBytes(file.toPath()), StandardCharsets.UTF_8)
+                .replace("\r\n", "\n");
+        List<String[]> out = new ArrayList<>();
+        // Sections are separated by a line of four dashes; the first one is the file's header.
+        String[] sections = raw.split("(?m)^----$");
+        for (int i = 1; i < sections.length; i++) {
+            String section = sections[i].trim();
+            if (section.isEmpty()) continue;
+            int newline = section.indexOf('\n');
+            String sender = section.substring(0, newline).replaceFirst("^sender:\\s*", "").trim();
+            out.add(new String[] {sender, section.substring(newline + 1)});
+        }
+        return out;
     }
 }

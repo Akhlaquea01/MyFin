@@ -131,9 +131,70 @@ describe('export', () => {
 			'merchant',
 			'tags',
 			'status',
-			'counterpart'
+			'counterpart',
+			'captured_at',
+			'payment_at',
+			'purpose'
 		]);
 		expect(parsed.rows[0]).toMatchObject({ date: '2026-03-02', amount: '-5.00', notes: 'Tea' });
+	});
+
+	it('exports when a captured message arrived and what time it states, empty for the rest', async () => {
+		const received = Date.UTC(2026, 9, 5, 13, 59, 33);
+		const stated = Date.UTC(2026, 9, 5, 13, 58, 0);
+		await TransactionEngine.recordTransaction(key, {
+			accountId: bankId,
+			date: '2026-10-05',
+			amount: -25_000,
+			type: 'expense',
+			notes: 'Captured',
+			source: 'sms_capture',
+			reviewStatus: 'unreviewed',
+			capture: {
+				channel: 'sms',
+				sender: 'VM-HDFCBK',
+				receivedAt: received,
+				txnAt: stated,
+				text: 'Rs.250.00 debited'
+			}
+		});
+		await TransactionEngine.recordTransaction(key, {
+			accountId: bankId,
+			date: '2026-10-06',
+			amount: -500,
+			type: 'expense',
+			notes: 'By hand'
+		});
+		const rows = await buildExportRows(key);
+		expect(rows.find((r) => r.notes === 'Captured')).toMatchObject({
+			captured_at: new Date(received).toISOString(),
+			payment_at: new Date(stated).toISOString()
+		});
+		expect(rows.find((r) => r.notes === 'By hand')).toMatchObject({
+			captured_at: '',
+			payment_at: ''
+		});
+	});
+
+	it('exports the purpose an entry was marked with, empty for the rest', async () => {
+		await TransactionEngine.recordTransaction(key, {
+			accountId: bankId,
+			date: '2026-03-02',
+			amount: -500,
+			type: 'expense',
+			notes: 'SIP',
+			purpose: { kind: 'investment', targetId: null }
+		});
+		await TransactionEngine.recordTransaction(key, {
+			accountId: bankId,
+			date: '2026-03-03',
+			amount: -700,
+			type: 'expense',
+			notes: 'Tea'
+		});
+		const rows = await buildExportRows(key);
+		expect(rows.find((r) => r.notes === 'SIP')?.purpose).toBe('investment');
+		expect(rows.find((r) => r.notes === 'Tea')?.purpose).toBe('');
 	});
 
 	it('neutralizes spreadsheet formulas in the new text columns too', async () => {

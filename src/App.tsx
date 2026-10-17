@@ -1,5 +1,5 @@
 import { lazy, useEffect, useRef, useState, type ComponentType } from 'react';
-import { BrowserRouter, Route, Routes } from 'react-router-dom';
+import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { Toaster } from './components/ui/sonner';
 import { TooltipProvider } from './components/ui/tooltip';
 import { SessionProvider, useSession } from './context/SessionContext';
@@ -107,7 +107,6 @@ const CategorizationRulesPage = lazyPage(
 	() => import('./pages/CategorizationRulesPage'),
 	'CategorizationRulesPage'
 );
-const SubscriptionsPage = lazyPage(() => import('./pages/SubscriptionsPage'), 'SubscriptionsPage');
 const CashFlowForecastPage = lazyPage(
 	() => import('./pages/CashFlowForecastPage'),
 	'CashFlowForecastPage'
@@ -336,7 +335,11 @@ function Gate() {
 							<Route path="people" element={<PeoplePage />} />
 							<Route path="recurring" element={<RecurringPage />} />
 							<Route path="recurring/upcoming" element={<RecurringUpcomingPage />} />
-							<Route path="subscriptions" element={<SubscriptionsPage />} />
+							{/* Subscriptions are part of Recurring now; the old address (bookmarks, notifications) lands there. */}
+							<Route
+								path="subscriptions"
+								element={<Navigate to="/recurring?filter=subscriptions" replace />}
+							/>
 							<Route path="forecast" element={<CashFlowForecastPage />} />
 							<Route path="investments" element={<InvestmentsPage />} />
 							<Route path="liabilities" element={<LiabilitiesPage />} />

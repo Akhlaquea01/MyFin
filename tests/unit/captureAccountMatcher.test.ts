@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { findAccountMatches, matchCaptureAccount } from '../../src/domain/capture/accountMatcher';
+import {
+	findAccountMatches,
+	matchCaptureAccount,
+	suggestAccountTag
+} from '../../src/domain/capture/accountMatcher';
 import type { Account } from '../../src/domain/entities';
 
 function account(id: string, overrides: Partial<Account> = {}): Account {
@@ -168,5 +172,101 @@ describe('findAccountMatches', () => {
 	it('ignores archived accounts', () => {
 		const archived = account('old', { accountLast4: '1234', isArchived: true });
 		expect(findAccountMatches('debited from A/c XX1234', [archived])).toEqual([]);
+	});
+});
+
+describe('matchCaptureAccount — credit-card messages the digits cannot settle', () => {
+	const bank = account('bank', { accountLast4: '1234' });
+	const onlyCard = account('card', { type: 'credit_card' });
+	const creditCard = { instrument: 'credit_card' as const, isCardPayment: false };
+
+	it('files a "credit card" message on the only credit-card account, flagged', () => {
+		expect(
+			matchCaptureAccount({ ...tails(null), ...creditCard }, [bank, onlyCard], 'bank')
+		).toEqual({
+			accountId: 'card',
+			how: 'card-type',
+			accountCheck: 'card-type-guess',
+			tailHint: null
+		});
+	});
+
+	it('does so even when the card was never tagged and the message names digits', () => {
+		expect(
+			matchCaptureAccount({ ...tails(null, '9999'), ...creditCard }, [bank, onlyCard], 'bank')
+		).toMatchObject({ accountId: 'card', accountCheck: 'card-type-guess', tailHint: '9999' });
+	});
+
+	it('works for a user whose only account is the card, with no default chosen', () => {
+		expect(
+			matchCaptureAccount({ ...tails(null), ...creditCard }, [onlyCard], null)?.accountId
+		).toBe('card');
+	});
+
+	it('still prefers the digits when they name a card', () => {
+		const tagged = account('tagged', { type: 'credit_card', cardLast4: '5678' });
+		expect(
+			matchCaptureAccount(
+				{ ...tails(null, '5678'), ...creditCard },
+				[bank, onlyCard, tagged],
+				'bank'
+			)
+		).toMatchObject({ accountId: 'tagged', how: 'card-tail', accountCheck: null });
+	});
+
+	it('does not guess between two credit cards', () => {
+		const second = account('second', { type: 'credit_card' });
+		expect(
+			matchCaptureAccount({ ...tails(null), ...creditCard }, [bank, onlyCard, second], 'bank')
+		).toMatchObject({ accountId: 'bank', accountCheck: 'default-account' });
+	});
+
+	it('does not file a card with different saved digits: that is probably another card', () => {
+		const tagged = account('tagged', { type: 'credit_card', cardLast4: '5678' });
+		expect(
+			matchCaptureAccount({ ...tails(null, '9999'), ...creditCard }, [bank, tagged], 'bank')
+		).toMatchObject({ accountId: 'bank', accountCheck: 'unmatched-tail', tailHint: '9999' });
+	});
+
+	it('leaves a bank debit for a card bill on the bank account', () => {
+		expect(
+			matchCaptureAccount(
+				{ ...tails('0000'), instrument: 'credit_card', isCardPayment: true },
+				[bank, onlyCard],
+				'bank'
+			)
+		).toMatchObject({ accountId: 'bank' });
+		expect(
+			matchCaptureAccount({ ...tails('0000'), ...creditCard }, [bank, onlyCard], 'bank')
+		).toMatchObject({ accountId: 'bank' });
+	});
+
+	it('ignores the card hint when the message does not say credit card', () => {
+		expect(matchCaptureAccount(tails(null), [bank, onlyCard], 'bank')).toMatchObject({
+			accountId: 'bank',
+			accountCheck: 'default-account'
+		});
+	});
+});
+
+describe('suggestAccountTag', () => {
+	it('offers the card digits for an untagged credit card', () => {
+		const card = account('card', { type: 'credit_card' });
+		expect(
+			suggestAccountTag('Rs.500 spent on your Credit Card ending 5678 at AMAZON', card)
+		).toEqual({ field: 'cardLast4', digits: '5678' });
+	});
+
+	it('offers the account digits for an untagged bank account', () => {
+		expect(suggestAccountTag('Rs.500 debited from A/c XX1234 to SWIGGY', account('bank'))).toEqual({
+			field: 'accountLast4',
+			digits: '1234'
+		});
+	});
+
+	it('offers nothing when the account already carries that tag or the message names none', () => {
+		const tagged = account('card', { type: 'credit_card', cardLast4: '1111' });
+		expect(suggestAccountTag('Rs.500 spent on Credit Card ending 5678', tagged)).toBeNull();
+		expect(suggestAccountTag('Paid Rs 250 to Swiggy', account('bank'))).toBeNull();
 	});
 });

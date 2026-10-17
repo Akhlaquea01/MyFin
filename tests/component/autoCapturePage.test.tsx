@@ -180,6 +180,57 @@ describe('AutoCapturePage', () => {
 		await waitFor(() => expect(mocks.drain).toHaveBeenCalled());
 	});
 
+	it('lets a user whose only account is a credit card turn capture on, with the card as default', async () => {
+		const card = await AccountRepository.create(key, {
+			name: 'HDFC Card',
+			type: 'credit_card',
+			openingBalance: 0,
+			creditLimit: 100_000,
+			billingCycleDay: 15
+		});
+		mocks.status = {
+			...mocks.status,
+			sms: 'granted',
+			notificationListenerEnabled: true,
+			postNotifications: 'granted'
+		};
+		renderPage();
+
+		const turnOn = await screen.findByRole('button', { name: 'Turn on auto-capture' });
+		await waitFor(() => expect(turnOn).toBeEnabled());
+		expect(screen.queryByText(/no account to file messages under/)).toBeNull();
+		await userEvent.click(turnOn);
+
+		await waitFor(() =>
+			expect(mocks.enableCapture).toHaveBeenCalledWith(key, {
+				sms: true,
+				notifications: true,
+				defaultAccountId: card.id
+			})
+		);
+	});
+
+	it('shows how many messages were ignored and why', async () => {
+		await addAccount('HDFC');
+		const profile = await UserProfileRepository.get();
+		await UserProfileRepository.update({
+			capture: {
+				enabled: true,
+				sms: true,
+				notifications: true,
+				defaultAccountId: null,
+				ignoredCounts: { otp: 3, promo: 2 }
+			}
+		});
+		expect(profile).toBeTruthy();
+		mocks.status = { ...mocks.status, sms: 'granted', notificationListenerEnabled: true };
+		renderPage();
+
+		expect(
+			await screen.findByText(/5 message\(s\) were ignored as not being transactions/)
+		).toHaveTextContent('3 one-time code, 2 offer');
+	});
+
 	it('shows the specific reason when the secure-storage check fails', async () => {
 		const { CaptureSetupError } = await import('../../src/data/io/captureSetup');
 		await addAccount('HDFC');

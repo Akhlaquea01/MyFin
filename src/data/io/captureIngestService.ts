@@ -33,6 +33,7 @@ import { classifyMessage } from '../../domain/capture/captureFilter';
 import { parseCapturedMessage } from '../../domain/capture/captureParser';
 import { matchCaptureAccount } from '../../domain/capture/accountMatcher';
 import { findPairedCapture, PAIRING_WINDOW_MS } from '../../domain/capture/capturePairing';
+import { momentFromDateAndTime } from '../../domain/capture/captureMoment';
 import {
 	messageText,
 	type CapturePayload,
@@ -95,6 +96,8 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const DATE_BELIEVED_BEFORE_MS = 7 * DAY_MS;
 const DATE_BELIEVED_AFTER_MS = DAY_MS;
 const MAX_STORED_TEXT = 1000;
+/** A stated payment time may run a little ahead of the phone's clock before it stops being believed. */
+const TXN_TIME_SLACK_MS = 10 * 60 * 1000;
 
 /** The date to file an entry under: the one written in the message if it is plausibly recent,
  *  otherwise the (local) day the message arrived. */
@@ -231,14 +234,21 @@ async function ingestOne(message: IngestMessage, ctx: RunContext): Promise<'done
 
 	const signed = parsed.type === 'expense' ? -parsed.amount : parsed.amount;
 	const date = resolveCaptureDate(parsed.txnDate, payload.receivedAt);
+	// The time the message says the payment happened. A time that lands after the message arrived
+	// is not believed: it means the date and the time do not belong together.
+	const stated = parsed.txnTime ? momentFromDateAndTime(date, parsed.txnTime) : null;
+	const txnAt = stated !== null && stated <= payload.receivedAt + TXN_TIME_SLACK_MS ? stated : null;
 	const capture: CaptureInfo = {
 		channel: payload.channel,
 		sender: payload.sender,
 		receivedAt: payload.receivedAt,
+		txnAt,
+		msgHash: ledgerKey,
 		text,
 		accountCheck: match.accountCheck,
 		tailHint: match.tailHint,
-		refNo: parsed.refNo
+		refNo: parsed.refNo,
+		...(parsed.directionGuessed ? { directionGuessed: true } : {})
 	};
 
 	// Another sighting of a payment already filed: fold it in rather than adding a second entry. The
@@ -310,6 +320,7 @@ async function ingestOne(message: IngestMessage, ctx: RunContext): Promise<'done
 			merchantName: normalized ?? undefined,
 			merchantId: resolved?.merchantId,
 			merchants: ctx.merchants,
+			capture: { receivedAt: payload.receivedAt, txnAt },
 			refNo: parsed.refNo
 		}
 	);

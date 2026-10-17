@@ -185,6 +185,43 @@ export async function matchTransaction(
 	});
 }
 
+/** How far from a bill's due date an entry the user explicitly tied to it may be. Wider than the
+ *  automatic window: here the user has said which bill it is, so only a payment clearly meant for a
+ *  different month is turned down. */
+const LINK_WINDOW_DAYS = 20;
+
+/**
+ * Marks the nearest unpaid expected payment of rule `ruleId` as paid by `transaction`, because the
+ * user said so (marking the entry as a bill and choosing which). Unlike `matchTransaction` this does
+ * not insist on the same amount or category. Returns the event, or null if the rule has no unpaid
+ * payment within `LINK_WINDOW_DAYS` of the entry's date.
+ */
+export async function linkTransactionToRule(
+	key: CryptoKey,
+	transaction: Transaction,
+	ruleId: string
+): Promise<ExpectedEvent | null> {
+	if (transaction.type === 'transfer') return null;
+	const events = await ExpectedEventRepository.listForRule(key, ruleId);
+	const already = events.find((e) => e.matchedTransactionId === transaction.id);
+	if (already) return already;
+
+	const txDate = new Date(transaction.date).getTime();
+	const windowMs = LINK_WINDOW_DAYS * DAY_MS;
+	let best: { event: ExpectedEvent; distance: number } | null = null;
+	for (const event of events) {
+		if (event.status === 'matched') continue;
+		const distance = Math.abs(new Date(event.expectedDate).getTime() - txDate);
+		if (distance > windowMs) continue;
+		if (!best || distance < best.distance) best = { event, distance };
+	}
+	if (!best) return null;
+	return ExpectedEventRepository.update(key, best.event.id, {
+		status: 'matched',
+		matchedTransactionId: transaction.id
+	});
+}
+
 /**
  * Detaches every expected event matched to `transactionId` — the transaction was deleted, edited,
  * or turned into a transfer. A past-due event goes back to `missed`, a future one to `pending`, so
@@ -222,6 +259,16 @@ export async function rematchTransaction(
 	try {
 		await releaseMatches(key, transaction.id);
 		if (transaction.type === 'transfer') return null;
+		// A bill the user tied to a specific recurring rule stays tied to it. Only once the entry is
+		// confirmed: one still in Review has not claimed anything yet.
+		if (
+			transaction.purpose?.kind === 'bills' &&
+			transaction.purpose.targetId &&
+			transaction.reviewStatus === 'confirmed'
+		) {
+			const linked = await linkTransactionToRule(key, transaction, transaction.purpose.targetId);
+			if (linked) return linked;
+		}
 		const splits = await TransactionRepository.getSplits(key, transaction.id);
 		for (const split of splits) {
 			const matched = await matchTransaction(key, transaction, split.categoryId);
@@ -231,6 +278,69 @@ export async function rematchTransaction(
 		// Recurring matching is a convenience layered on top of the ledger.
 	}
 	return null;
+}
+
+/** The parts of a rule that decide on which dates a payment is expected. */
+const SCHEDULE_FIELDS = ['frequency', 'dayOfPeriod'] as const;
+
+/**
+ * Saves changes to a rule (any of its fields). Changing when it recurs makes the reminders still
+ * waiting for the old dates wrong, so those are dropped and come back on the new dates the next time
+ * the schedule is read (the Upcoming page, the forecast and the reminder check all generate them).
+ * What already happened is kept: a payment that was matched stays matched, and a due date that was
+ * missed stays missed, because those describe the past, not the plan.
+ */
+export async function updateRecurringRule(
+	key: CryptoKey,
+	ruleId: string,
+	changes: Partial<
+		Pick<
+			RecurringRule,
+			| 'accountId'
+			| 'categoryId'
+			| 'amount'
+			| 'frequency'
+			| 'dayOfPeriod'
+			| 'label'
+			| 'isSubscription'
+			| 'isActive'
+		>
+	>
+): Promise<RecurringRule> {
+	const before = (await RecurringRepository.list(key)).find((r) => r.id === ruleId);
+	if (!before) throw new Error('That recurring rule no longer exists.');
+	const scheduleChanged = SCHEDULE_FIELDS.some(
+		(field) => field in changes && changes[field] !== before[field]
+	);
+	const updated = await RecurringRepository.update(key, ruleId, changes);
+	if (scheduleChanged) {
+		const stale = (await ExpectedEventRepository.listForRule(key, ruleId))
+			.filter((event) => event.status === 'pending')
+			.map((event) => event.id);
+		await ExpectedEventRepository.removeMany(stale);
+	}
+	return updated;
+}
+
+/**
+ * Deletes a rule for good, with its reminders. Nothing the user recorded is touched, but entries
+ * that pointed at the rule stop doing so: a bill marked "paid" by the rule keeps its place in the
+ * ledger, the entry that created the rule is no longer "already recurring", and an entry tagged as
+ * this bill keeps its Bills tag but no longer names a rule that is gone.
+ */
+export async function deleteRecurringRule(key: CryptoKey, ruleId: string): Promise<void> {
+	const rule = (await RecurringRepository.list(key)).find((r) => r.id === ruleId);
+	if (!rule) return;
+	for (const tx of await TransactionRepository.search(key)) {
+		const sourced = tx.recurringRuleId === ruleId;
+		const tagged = tx.purpose?.kind === 'bills' && tx.purpose.targetId === ruleId;
+		if (!sourced && !tagged) continue;
+		await TransactionRepository.update(key, tx.id, {
+			...(sourced ? { recurringRuleId: null } : {}),
+			...(tagged && tx.purpose ? { purpose: { kind: 'bills', targetId: null } } : {})
+		});
+	}
+	await RecurringRepository.remove(ruleId);
 }
 
 /** Flags pending events whose due date has passed as missed (FR-031). */

@@ -260,3 +260,127 @@ describe('extractAccountTails', () => {
 		expect(Date.now() - started).toBeLessThan(500);
 	});
 });
+
+describe('parseCapturedMessage — credit-card alerts', () => {
+	it.each<[string, string]>([
+		[
+			'Your HDFC Bank Credit Card ending 1234 has been used for a transaction of INR 1,299.00 at AMAZON on 05-Oct-26.',
+			'AMAZON'
+		],
+		['Txn of INR 649.00 done on ICICI Bank Credit Card XX1234 at NETFLIX on 05-Oct-26.', 'NETFLIX'],
+		['You have swiped your Amex Card XX1001 for INR 2,499.00 at ZOMATO on 05-Oct-26.', 'ZOMATO'],
+		[
+			'Thank you for using your HDFC Bank Credit Card ending 1234 for Rs.800.00 at BIGBASKET.',
+			'BIGBASKET'
+		]
+	])('reads the charge as spending when no verb says so: %s', (body, merchant) => {
+		const parsed = parseCapturedMessage(sms(body));
+		expect(parsed).toMatchObject({ type: 'expense', merchantText: merchant });
+		expect(parsed?.amount).toBeGreaterThan(0);
+	});
+
+	it('marks a direction that was only assumed from the card', () => {
+		const assumed = parseCapturedMessage(
+			sms('Thank you for using your HDFC Bank Credit Card ending 1234 for Rs.800.00 at BIGBASKET.')
+		);
+		expect(assumed).toMatchObject({ instrument: 'credit_card', directionGuessed: true });
+		const stated = parseCapturedMessage(
+			sms('Rs.1299.00 spent on your HDFC Bank Credit Card ending 5678 at AMAZON on 05-10-2026.')
+		);
+		expect(stated).toMatchObject({ instrument: 'credit_card', directionGuessed: false });
+	});
+
+	it('keeps "transaction of ... credited" as income: the weak wording never beats a real verb', () => {
+		expect(
+			parseCapturedMessage(sms('Transaction of Rs.500 credited to your A/c XX1234'))
+		).toMatchObject({ type: 'income' });
+	});
+
+	it('does not file a credit-card bill payment on a guess', () => {
+		expect(
+			parseCapturedMessage(
+				sms(
+					'Thank you for your payment of Rs.5,000 towards your HDFC Bank Credit Card ending 1234.'
+				)
+			)
+		).toBeNull();
+	});
+
+	it('does not turn a card limit notice into spending', () => {
+		expect(
+			parseCapturedMessage(sms('Your HDFC Bank Credit Card limit is Rs.50,000.00'))
+		).toBeNull();
+		expect(
+			parseCapturedMessage(
+				sms('Your credit limit on Credit Card ending 1234 is increased to Rs.1,00,000.00')
+			)
+		).toBeNull();
+	});
+
+	it('reads the abbreviation "CC" for the card and its digits', () => {
+		const parsed = parseCapturedMessage(sms('Rs.450.00 spent on HDFC CC 1234 at SWIGGY'));
+		expect(parsed).toMatchObject({
+			instrument: 'credit_card',
+			cardTail: '1234',
+			type: 'expense',
+			merchantText: 'SWIGGY'
+		});
+	});
+
+	it('does not read a foreign-currency amount as rupees', () => {
+		expect(
+			parseCapturedMessage(sms('USD 12.00 spent on HDFC Bank Credit Card ending 1234 at OPENAI'))
+		).toBeNull();
+		expect(
+			parseCapturedMessage(
+				sms('Rs.1,000.00 (USD 12.00) spent on Credit Card ending 1234 at OPENAI')
+			)
+		).toMatchObject({ amount: 100000, type: 'expense' });
+	});
+
+	it('tells the instrument apart', () => {
+		const instrument = (body: string) => parseCapturedMessage(sms(body))?.instrument;
+		expect(instrument('Rs.500 spent on your Debit Card ending 4321 at SHOP')).toBe('debit_card');
+		expect(instrument('Rs.500 debited from A/c XX1234 to SWIGGY via UPI')).toBe('upi');
+		expect(instrument('Rs.500 debited from A/c XX1234 to RENT')).toBe('account');
+		expect(instrument('Rs.500 spent at SHOP using Card XX5678')).toBeNull();
+	});
+});
+
+describe('parseCapturedMessage — merchant names on card alerts', () => {
+	it('reads the shop after "on" or "Info:", not the date or the bank', () => {
+		expect(
+			parseCapturedMessage(
+				sms('Spent using ICICI Bank Card XX1234 on 12-Oct-26 on NETFLIX.COM. Avl Lmt INR 50,000.00')
+			)?.merchantText
+		).toBe('NETFLIX');
+		expect(
+			parseCapturedMessage(sms('Rs.399.00 debited from A/c XX1234 on 05-10-26. Info: SPOTIFY.'))
+				?.merchantText
+		).toBe('SPOTIFY');
+		expect(
+			parseCapturedMessage(sms('Rs.299.00 debited from A/c XX1234 towards AMAZON PRIME'))
+				?.merchantText
+		).toBe('AMAZON PRIME');
+	});
+
+	it('does not take a link or a time of day for a merchant', () => {
+		expect(
+			parseCapturedMessage(
+				sms(
+					'Rs.1,299.00 spent on SBI Card ending 1234 at AMAZON on 05-10-26. Report at https://sbicard.com/dispute'
+				)
+			)?.merchantText
+		).toBe('AMAZON');
+		expect(
+			parseCapturedMessage(sms('Rs.800.00 spent on Amex Card XX1001 on 05-10-26 at 12:34 PM IST'))
+				?.merchantText
+		).toBeNull();
+	});
+
+	it('keeps a merchant that merely starts like a weekday or month', () => {
+		expect(
+			parseCapturedMessage(sms('Rs.300.00 spent on Credit Card XX1234 at Sun Pharma'))?.merchantText
+		).toBe('Sun Pharma');
+	});
+});

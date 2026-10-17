@@ -462,6 +462,12 @@ export function AccountsPage() {
 									</div>
 								</div>
 							)}
+							{formType === 'credit_card' && (
+								<p className="-mt-1 text-xs text-muted-foreground">
+									Card alerts name a card by its last digits. Saving them lets MyFin file captured
+									messages under this card.
+								</p>
+							)}
 							{hasAccountNumber(formType) && (
 								<div className="grid grid-cols-2 gap-3">
 									<div className="flex flex-col gap-1.5">

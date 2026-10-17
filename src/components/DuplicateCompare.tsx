@@ -3,10 +3,12 @@ import { Button } from './ui/button';
 import type { DuplicateReason } from '../domain/transactions/duplicateCandidates';
 import type { Merchant, Transaction } from '../domain/entities';
 import { formatTransactionLabel } from '../domain/transactions/transactionLabel';
+import { describeCaptureMoment } from '../domain/capture/captureMoment';
 import { formatMoney } from '../domain/shared/money';
 
 const REASON_TEXT: Record<DuplicateReason, string> = {
 	'same-reference': 'Same bank reference number, so this is almost certainly the same payment.',
+	'same-time': 'Same amount, and the messages arrived within minutes of each other.',
 	'same-merchant': 'Same amount and merchant within a day.',
 	'same-amount': 'Same amount within a day. It could still be a separate purchase.'
 };
@@ -18,6 +20,7 @@ const REASON_TEXT: Record<DuplicateReason, string> = {
  */
 export function DuplicateCompare({
 	original,
+	duplicate,
 	reason,
 	merchants,
 	accountLabel,
@@ -26,6 +29,8 @@ export function DuplicateCompare({
 	onRemoveThis
 }: {
 	original: Transaction;
+	/** The entry that was flagged. Given so the two messages' times can be read side by side. */
+	duplicate?: Transaction;
 	reason: DuplicateReason;
 	merchants: Merchant[];
 	/** Only given when the other entry is on a different account, which is worth saying. */
@@ -57,6 +62,20 @@ export function DuplicateCompare({
 					{accountLabel ? ` · ${accountLabel}` : ''} · {waiting ? 'waiting in Review' : 'confirmed'}
 				</p>
 			</div>
+			{(original.capture || duplicate?.capture) && (
+				<div className="flex flex-col gap-0.5 rounded-md bg-background/60 p-2 text-xs text-muted-foreground">
+					{original.capture && (
+						<p data-testid="duplicate-original-message">
+							Already filed: {describeCaptureMoment(original.capture)}
+						</p>
+					)}
+					{duplicate?.capture && (
+						<p data-testid="duplicate-new-message">
+							This one: {describeCaptureMoment(duplicate.capture)}
+						</p>
+					)}
+				</div>
+			)}
 			<p className="text-xs text-muted-foreground">{REASON_TEXT[reason]}</p>
 			<div className="flex flex-wrap gap-2">
 				<Button type="button" size="sm" variant="outline" disabled={busy} onClick={onKeepBoth}>

@@ -34,7 +34,16 @@ import {
 import { findAccountMatches } from '../domain/capture/accountMatcher';
 import { detectCardPayment } from '../domain/parser/cardPaymentDetector';
 import type { TransferLocationState } from './TransferPage';
-import type { Account, Category, Merchant, Transaction, TransactionType } from '../domain/entities';
+import type {
+	Account,
+	Category,
+	Merchant,
+	Transaction,
+	TransactionPurpose,
+	TransactionType
+} from '../domain/entities';
+import { PurposeField } from '../components/PurposeField';
+import { purposeIncomplete } from '../domain/transactions/purposeEngine';
 import { formatMinorUnits, parseMoneyToMinorUnits, formatMoney } from '../domain/shared/money';
 import { isValidIsoDate, todayLocalISO } from '../domain/shared/dateMath';
 import { useUnsavedChanges } from '../lib/unsavedChanges';
@@ -76,6 +85,9 @@ export function QuickAddPage() {
 	const [categories, setCategories] = useState<Category[]>([]);
 	// null until the user picks one: then the category your rules suggest for this merchant is used.
 	const [categoryChoice, setCategoryChoice] = useState<string | null>(null);
+	// What the money was for. Stored on the entry now; it takes effect when the entry is confirmed.
+	const [purpose, setPurpose] = useState<TransactionPurpose | null>(null);
+	const [purposeError, setPurposeError] = useState<string | null>(null);
 	const [suggestedCategoryId, setSuggestedCategoryId] = useState<string | null>(null);
 	// A share from another app must not silently replace what has been typed here.
 	useUnsavedChanges(!submitting && (rawText.trim() !== '' || amountInput !== ''));
@@ -224,6 +236,13 @@ export function QuickAddPage() {
 				return;
 			}
 			const signedAmount = type === 'expense' ? -amount : amount;
+			const chosenPurpose = type === 'expense' ? purpose : null;
+			const incompletePurpose = purposeIncomplete(chosenPurpose);
+			if (incompletePurpose) {
+				setPurposeError(incompletePurpose);
+				return;
+			}
+			setPurposeError(null);
 
 			// Pasting the same bank SMS twice (or one for something already entered by hand) used to
 			// save a second copy without a word — file and bulk import both flag exactly this. The
@@ -260,7 +279,8 @@ export function QuickAddPage() {
 					notes: cardPayment ? rawText.trim().slice(0, 200) : null,
 					source: 'quick_add',
 					reviewStatus: 'unreviewed',
-					duplicateOfId
+					duplicateOfId,
+					purpose: chosenPurpose
 				},
 				// Only a category the user picked is sent: otherwise the usual rules fill it in and the
 				// entry says so in Review ("Auto: rule" / "Suggested").
@@ -428,6 +448,24 @@ export function QuickAddPage() {
 								onChange={(e) => setMerchantName(e.target.value)}
 							/>
 						</div>
+						{type === 'expense' && (
+							<div className="flex flex-col gap-1.5">
+								<PurposeField
+									idPrefix="qa-purpose"
+									value={purpose}
+									onChange={(next) => {
+										setPurpose(next);
+										setPurposeError(null);
+									}}
+									hintText={merchantName}
+								/>
+								{purposeError && (
+									<p role="alert" className="text-sm text-destructive">
+										{purposeError}
+									</p>
+								)}
+							</div>
+						)}
 						<div className="flex flex-col gap-1.5">
 							<Label htmlFor="qa-category">Category</Label>
 							<CategoryPicker

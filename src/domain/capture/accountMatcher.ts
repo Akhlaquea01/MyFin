@@ -10,7 +10,7 @@ import type { ParsedCapture } from './captureTypes';
 
 export interface CaptureAccountMatch {
 	accountId: ID;
-	how: 'tail' | 'card-tail' | 'default';
+	how: 'tail' | 'card-tail' | 'card-type' | 'default';
 	accountCheck: CaptureInfo['accountCheck'];
 	/** Digits the message mentioned that matched no account — shown to help the user pick. */
 	tailHint: string | null;
@@ -30,8 +30,29 @@ function longestOverlap(scored: { account: Account; overlap: number }[]): Accoun
 	return top === 0 ? [] : scored.filter((s) => s.overlap === top).map((s) => s.account);
 }
 
+type MatchInput = Pick<ParsedCapture, 'accountTail' | 'cardTail'> &
+	Partial<Pick<ParsedCapture, 'instrument' | 'isCardPayment'>>;
+
+/**
+ * The one credit-card account a "Credit Card" message can only be about, when the digits did not
+ * settle it. Refuses to guess when the message names a bank account, is about paying the bill
+ * (that debit belongs to the bank account), or names card digits that a differently-tagged card
+ * does not share — that is probably a card the user has not added.
+ */
+function soleCreditCard(parsed: MatchInput, active: Account[]): Account | null {
+	if (parsed.instrument !== 'credit_card' || parsed.isCardPayment) return null;
+	if (parsed.accountTail && !parsed.cardTail) return null;
+	const cards = active.filter((a) => a.type === 'credit_card');
+	if (cards.length !== 1) return null;
+	const [card] = cards;
+	if (parsed.cardTail && card.cardLast4 && tailOverlap(card.cardLast4, parsed.cardTail) === 0) {
+		return null;
+	}
+	return card;
+}
+
 export function matchCaptureAccount(
-	parsed: Pick<ParsedCapture, 'accountTail' | 'cardTail'>,
+	parsed: MatchInput,
 	accounts: Account[],
 	defaultAccountId: ID | null
 ): CaptureAccountMatch | null {
@@ -67,10 +88,25 @@ export function matchCaptureAccount(
 		return { accountId: hit.matches[0].id, how: hit.how, accountCheck: null, tailHint: null };
 	}
 
+	const mentioned = parsed.accountTail ?? parsed.cardTail;
+
+	// The digits settled nothing, but "Credit Card" plus a single credit-card account does: better
+	// there (flagged for a look) than on the default bank account, which would be debited for it.
+	if (!hit) {
+		const card = soleCreditCard(parsed, active);
+		if (card) {
+			return {
+				accountId: card.id,
+				how: 'card-type',
+				accountCheck: 'card-type-guess',
+				tailHint: mentioned
+			};
+		}
+	}
+
 	const fallback = defaultAccountId ? active.find((a) => a.id === defaultAccountId) : undefined;
 	if (!fallback) return null;
 
-	const mentioned = parsed.accountTail ?? parsed.cardTail;
 	if (hit) {
 		return {
 			accountId: fallback.id,
@@ -86,6 +122,29 @@ export function matchCaptureAccount(
 		accountCheck: mentioned ? 'unmatched-tail' : 'default-account',
 		tailHint: mentioned
 	};
+}
+
+/**
+ * After the user moves a captured entry to `account`, the digits worth offering to save on it so
+ * the next message about the same account or card files there by itself. Null when the message
+ * gave none, or the account already carries that kind of tag.
+ */
+export function suggestAccountTag(
+	messageText: string,
+	account: Account
+): { field: 'cardLast4' | 'accountLast4'; digits: string } | null {
+	const { accountTail, cardTail } = extractAccountTails(messageText);
+	if (account.type === 'credit_card') {
+		const digits = cardTail ?? accountTail;
+		return digits && digits.length === 4 && !account.cardLast4
+			? { field: 'cardLast4', digits }
+			: null;
+	}
+	if (accountTail && !account.accountLast4) return { field: 'accountLast4', digits: accountTail };
+	if (cardTail && cardTail.length === 4 && !account.cardLast4) {
+		return { field: 'cardLast4', digits: cardTail };
+	}
+	return null;
 }
 
 /**

@@ -3,6 +3,7 @@ import {
 	buildCategoryColors,
 	categoryColorOf,
 	CATEGORY_COLOR_COUNT,
+	cssColorForKey,
 	NEUTRAL_CATEGORY_COLOR
 } from '../../src/domain/categories/categoryColor';
 import type { Category } from '../../src/domain/entities';
@@ -67,5 +68,48 @@ describe('categoryColorOf', () => {
 		expect(categoryColorOf(colors, '__uncategorized__')).toBe(NEUTRAL_CATEGORY_COLOR);
 		expect(categoryColorOf(colors, undefined)).toBe(NEUTRAL_CATEGORY_COLOR);
 		expect(categoryColorOf(colors, null)).toBe(NEUTRAL_CATEGORY_COLOR);
+	});
+});
+
+describe('chosen colours', () => {
+	const withColor = (c: Category, color: string | null): Category => ({ ...c, color });
+
+	it('keeps a colour the user chose, and gives the others the slots that are left', () => {
+		const colors = buildCategoryColors([
+			withColor(cat('a', 10), 'cat-1'),
+			cat('b', 20),
+			withColor(cat('c', 30), 'cat-3'),
+			cat('d', 40)
+		]);
+		expect(colors.get('a')).toBe('var(--cat-1)');
+		expect(colors.get('c')).toBe('var(--cat-3)');
+		// "b" and "d" take the slots that are left, in order: 2 and 4.
+		expect(colors.get('b')).toBe('var(--cat-2)');
+		expect(colors.get('d')).toBe('var(--cat-4)');
+	});
+
+	it('never repeats a chosen hue on an automatic category', () => {
+		const colors = buildCategoryColors([
+			cat('first', 10),
+			withColor(cat('picked', 20), 'cat-1'),
+			cat('third', 30)
+		]);
+		expect(colors.get('picked')).toBe('var(--cat-1)');
+		expect(colors.get('first')).toBe('var(--cat-2)');
+		expect(colors.get('third')).toBe('var(--cat-3)');
+	});
+
+	it('gives a subcategory its parent’s chosen colour, and ignores one chosen on the child', () => {
+		const colors = buildCategoryColors([
+			withColor(cat('food', 10), 'cat-5'),
+			withColor(cat('groceries', 11, 'food'), 'cat-2')
+		]);
+		expect(colors.get('groceries')).toBe('var(--cat-5)');
+	});
+
+	it('treats an unknown key as automatic', () => {
+		expect(buildCategoryColors([withColor(cat('a', 1), 'purple')]).get('a')).toBe('var(--cat-1)');
+		expect(cssColorForKey('purple')).toBeNull();
+		expect(cssColorForKey('cat-8')).toBe('var(--cat-8)');
 	});
 });

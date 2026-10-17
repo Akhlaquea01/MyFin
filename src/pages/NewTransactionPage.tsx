@@ -29,7 +29,9 @@ import { TagRepository, TransactionTagRepository } from '../data/dexie/tagReposi
 import { TransactionEngine } from '../domain/transactions/transactionEngine';
 import { AttachmentRepository } from '../data/dexie/attachmentRepository';
 import { validateAttachmentFile, compressImage } from '../lib/imageAttachment';
-import type { Account, Category } from '../domain/entities';
+import type { Account, Category, TransactionPurpose } from '../domain/entities';
+import { PurposeField } from '../components/PurposeField';
+import { purposeIncomplete } from '../domain/transactions/purposeEngine';
 import { isPositiveMoney, parseMoneyOrZero, formatMoney } from '../domain/shared/money';
 import { allocatedMinor, analyzeSplits } from '../domain/transactions/splitInput';
 import { isValidIsoDate, todayLocalISO } from '../domain/shared/dateMath';
@@ -77,6 +79,9 @@ export function NewTransactionPage() {
 	const [accounts, setAccounts] = useState<Account[]>([]);
 	const [accountsLoaded, setAccountsLoaded] = useState(false);
 	const [categories, setCategories] = useState<Category[]>([]);
+	// What the money was for (debt, savings, investment, bills); only meaningful for an expense.
+	const [purpose, setPurpose] = useState<TransactionPurpose | null>(null);
+	const [purposeError, setPurposeError] = useState<string | null>(null);
 	// Why the category rows cannot be saved, shown under them after a failed save and cleared as
 	// soon as they or the total change.
 	const [splitError, setSplitError] = useState<string | null>(null);
@@ -204,6 +209,14 @@ export function NewTransactionPage() {
 			categoryId: s.categoryId,
 			amount: sign * s.amount
 		}));
+		const chosenPurpose = values.type === 'expense' ? purpose : null;
+		const incompletePurpose = purposeIncomplete(chosenPurpose);
+		if (incompletePurpose) {
+			setPurposeError(incompletePurpose);
+			return;
+		}
+		setPurposeError(null);
+		let purposeEffect: string | null = null;
 
 		let tx: Awaited<ReturnType<typeof TransactionEngine.recordTransaction>>;
 		try {
@@ -228,9 +241,11 @@ export function NewTransactionPage() {
 					type: values.type,
 					merchantId,
 					merchantAliasId,
-					notes: values.notes.trim() || null
+					notes: values.notes.trim() || null,
+					purpose: chosenPurpose
 				},
-				splitInputs
+				splitInputs,
+				{ onPurposeEffect: (message) => (purposeEffect = message) }
 			);
 		} catch (err) {
 			toast.error(err instanceof Error ? err.message : 'Could not save transaction.');
@@ -285,6 +300,8 @@ export function NewTransactionPage() {
 		} else {
 			toast.success('Transaction saved');
 		}
+		// What marking it as debt, savings or a bill did, as its own message.
+		if (purposeEffect) toast.success(purposeEffect);
 		navigate('/transactions');
 	}
 
@@ -486,6 +503,25 @@ export function NewTransactionPage() {
 								</p>
 							)}
 						</fieldset>
+
+						{form.watch('type') === 'expense' && (
+							<div className="flex flex-col gap-1.5">
+								<PurposeField
+									value={purpose}
+									onChange={(next) => {
+										setPurpose(next);
+										setPurposeError(null);
+									}}
+									disabled={form.formState.isSubmitting}
+									hintText={`${merchantNameValue} ${notesValue}`}
+								/>
+								{purposeError && (
+									<p role="alert" className="text-sm text-destructive">
+										{purposeError}
+									</p>
+								)}
+							</div>
+						)}
 
 						<div className="flex flex-col gap-1.5">
 							<Label htmlFor="merchant">Merchant</Label>

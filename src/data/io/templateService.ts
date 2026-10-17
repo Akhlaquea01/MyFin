@@ -18,7 +18,7 @@ import {
 import { SavingsGoalRepository, GoalContributionRepository } from '../dexie/savingsGoalRepository';
 import { BudgetRepository, BudgetItemRepository } from '../dexie/budgetRepository';
 import { ensureBudgetItemForPeriod } from '../../domain/budgets/budgetEngine';
-import type { InvestmentType } from '../../domain/entities';
+import type { InvestmentType, TransactionPurpose } from '../../domain/entities';
 import { RecurringRepository, ExpectedEventRepository } from '../dexie/recurringRepository';
 import { CategorizationRuleRepository, isKeywordRule } from '../dexie/categorizationRuleRepository';
 import { normalizeMatchText } from '../../domain/categorization/keywordMatching';
@@ -377,7 +377,9 @@ export async function importDataTemplate(
 				const created = await CategoryRepository.create(key, {
 					name: cat.name,
 					parentId: resolvedParentId,
-					icon: cat.icon
+					icon: cat.icon,
+					color: cat.color,
+					kind: cat.kind
 				});
 				categoryRemap.set(cat.id, created.id);
 				existingCategories.push(created);
@@ -401,7 +403,9 @@ export async function importDataTemplate(
 			const created = await CategoryRepository.create(key, {
 				name: cat.name,
 				parentId: null,
-				icon: cat.icon
+				icon: cat.icon,
+				color: cat.color,
+				kind: cat.kind
 			});
 			categoryRemap.set(cat.id, created.id);
 			existingCategories.push(created);
@@ -685,7 +689,9 @@ export async function importDataTemplate(
 				categoryId: resolvedCatId,
 				amount: rr.amount,
 				frequency: rr.frequency,
-				dayOfPeriod: rr.dayOfPeriod
+				dayOfPeriod: rr.dayOfPeriod,
+				label: rr.label,
+				isSubscription: rr.isSubscription
 			});
 			recurringRuleRemap.set(rr.id, created.id);
 			existingRules.push(created);
@@ -957,6 +963,17 @@ export async function importDataTemplate(
 			});
 		}
 
+		const importedPurpose: TransactionPurpose | null = tx.purpose
+			? {
+					kind: tx.purpose.kind,
+					targetId:
+						tx.purpose.targetId && tx.purpose.kind === 'bills'
+							? (recurringRuleRemap.get(tx.purpose.targetId) ?? null)
+							: tx.purpose.targetId && tx.purpose.kind === 'investment'
+								? (holdingRemap.get(tx.purpose.targetId) ?? null)
+								: null
+				}
+			: null;
 		const createdTx = await TransactionEngine.recordTransaction(
 			key,
 			{
@@ -968,10 +985,17 @@ export async function importDataTemplate(
 				notes: tx.notes,
 				source: tx.source ?? 'manual',
 				reviewStatus: isDuplicate ? 'unreviewed' : (tx.reviewStatus ?? 'confirmed'),
-				duplicateOfId: duplicateId
+				duplicateOfId: duplicateId,
+				// Keep where a captured entry came from, including when its message arrived and
+				// what time it states, so a restored ledger can still tell a repeat from a new payment.
+				...(tx.capture ? { capture: tx.capture } : {}),
+				// The tag comes across. Its link to a debt or goal does not: the payments and contributions
+				// those links point at are not rebuilt from the file, and keeping the link would make a later
+				// edit apply the entry a second time. Bills and investments are imported first, so they remap.
+				...(importedPurpose ? { purpose: importedPurpose } : {})
 			},
 			resolvedSplits,
-			{ deferBalance: true, skipLearning: true }
+			{ deferBalance: true, skipLearning: true, skipPurposeEffects: true }
 		);
 
 		transactionRemap.set(tx.id, createdTx.id);

@@ -3,6 +3,7 @@ import { buildCategoryLabels, topLevelAncestorId } from '../categories/categoryH
 import { TransactionRepository } from '../../data/dexie/transactionRepository';
 import { BudgetRepository, BudgetItemRepository } from '../../data/dexie/budgetRepository';
 import { NetWorthSnapshotRepository } from '../../data/dexie/wealthRepository';
+import type { PurposeKind } from '../entities';
 
 export interface CategoryBreakdownItem {
 	categoryId: string;
@@ -96,6 +97,103 @@ export async function categoryBreakdown(
 			total
 		}))
 		.sort((a, b) => b.total - a.total);
+}
+
+export interface CategoryActivityItem {
+	categoryId: string;
+	/** Money out, as a positive figure. */
+	expense: number;
+	/** Money in. */
+	income: number;
+	/** Entries with money out under this category / with money in. A split entry counts once. */
+	expenseCount: number;
+	incomeCount: number;
+}
+
+/**
+ * What was filed under each category over [dateFrom, dateTo], split into money out and money in,
+ * with how many entries made it up. Directly under each category only: callers that want a parent's
+ * total add its subcategories. Transfers are not income or spending and are left out, as in
+ * `categoryBreakdown`, which keeps its own, narrower shape on purpose (other reports assert it).
+ */
+export async function categoryActivity(
+	key: CryptoKey,
+	dateFrom: string,
+	dateTo: string
+): Promise<CategoryActivityItem[]> {
+	const transactions = await TransactionRepository.search(key, { dateFrom, dateTo });
+	const splitsByTx = await TransactionRepository.splitsByTransaction(
+		key,
+		transactions.map((t) => t.id)
+	);
+	const byCategory = new Map<
+		string,
+		{ item: CategoryActivityItem; out: Set<string>; in: Set<string> }
+	>();
+	for (const tx of transactions) {
+		if (tx.type === 'transfer') continue;
+		for (const split of splitsByTx.get(tx.id) ?? []) {
+			let entry = byCategory.get(split.categoryId);
+			if (!entry) {
+				entry = {
+					item: {
+						categoryId: split.categoryId,
+						expense: 0,
+						income: 0,
+						expenseCount: 0,
+						incomeCount: 0
+					},
+					out: new Set(),
+					in: new Set()
+				};
+				byCategory.set(split.categoryId, entry);
+			}
+			if (split.amount < 0) {
+				entry.item.expense += -split.amount;
+				entry.out.add(tx.id);
+			} else if (split.amount > 0) {
+				entry.item.income += split.amount;
+				entry.in.add(tx.id);
+			}
+		}
+	}
+	return [...byCategory.values()].map(({ item, out, in: inbound }) => ({
+		...item,
+		expenseCount: out.size,
+		incomeCount: inbound.size
+	}));
+}
+
+export interface PurposeBreakdownItem {
+	kind: PurposeKind;
+	/** Spend magnitude (positive). */
+	total: number;
+	/** How many entries make it up. */
+	count: number;
+}
+
+/**
+ * How much of the spending in [dateFrom, dateTo] was marked as debt repayment, savings, investment or
+ * bills. Kept apart from `categoryBreakdown` on purpose: a purpose cuts across categories (an EMI is
+ * "Loans" by category and "debt" by purpose), and adding it there would change figures that the
+ * dashboard, the year-in-review and the health score are built on. Only entries that carry a purpose
+ * appear; largest first.
+ */
+export async function purposeBreakdown(
+	key: CryptoKey,
+	dateFrom: string,
+	dateTo: string
+): Promise<PurposeBreakdownItem[]> {
+	const transactions = await TransactionRepository.search(key, { dateFrom, dateTo });
+	const totals = new Map<PurposeKind, PurposeBreakdownItem>();
+	for (const tx of transactions) {
+		if (!tx.purpose || tx.type !== 'expense' || tx.amount >= 0) continue;
+		const item = totals.get(tx.purpose.kind) ?? { kind: tx.purpose.kind, total: 0, count: 0 };
+		item.total += -tx.amount;
+		item.count += 1;
+		totals.set(tx.purpose.kind, item);
+	}
+	return [...totals.values()].sort((a, b) => b.total - a.total);
 }
 
 async function monthlyIncomeExpense(

@@ -1,5 +1,6 @@
 import { TransactionRepository } from '../../data/dexie/transactionRepository';
-import type { Merchant, Transaction } from '../entities';
+import { SAME_MOMENT_WINDOW_MS, isSameMoment, momentGapMs } from '../capture/captureMoment';
+import type { CaptureInfo, Merchant, Transaction } from '../entities';
 
 export interface DuplicateQuery {
 	/** `null` looks across every account, for an entry whose account was only guessed. */
@@ -10,7 +11,7 @@ export interface DuplicateQuery {
 }
 
 /** Why an existing entry looks like the same payment, strongest first. */
-export type DuplicateReason = 'same-reference' | 'same-merchant' | 'same-amount';
+export type DuplicateReason = 'same-reference' | 'same-time' | 'same-merchant' | 'same-amount';
 
 /** A reference number reaches further than the day window: the same UPI/UTR is the same payment. */
 const REFERENCE_WINDOW_DAYS = 5;
@@ -24,6 +25,7 @@ function daysApart(a: string, b: string): number {
 export function duplicateReason(original: Transaction, duplicate: Transaction): DuplicateReason {
 	const ref = duplicate.capture?.refNo;
 	if (ref && original.capture?.refNo === ref) return 'same-reference';
+	if (isSameMoment(original.capture, duplicate.capture)) return 'same-time';
 	if (duplicate.merchantId && duplicate.merchantId === original.merchantId) return 'same-merchant';
 	return 'same-amount';
 }
@@ -65,6 +67,10 @@ export async function findDuplicateCandidates(
 		merchantId?: string | null;
 		merchants?: Merchant[];
 		refNo?: string | null;
+		/** When the incoming message says it happened / arrived. Entries captured at nearly the same
+		 *  moment rank first: two alerts a minute apart are one payment, a few hours apart are more
+		 *  likely two. */
+		capture?: Pick<CaptureInfo, 'receivedAt' | 'txnAt'> | null;
 		limit?: number;
 	} = {}
 ): Promise<Transaction[]> {
@@ -89,10 +95,16 @@ export async function findDuplicateCandidates(
 		return wantedName !== '' && nameById.get(tx.merchantId) === wantedName;
 	};
 
+	// Smaller is nearer; an entry with no comparable clock sorts after any that has one.
+	const gapOf = (tx: Transaction) =>
+		momentGapMs(options.capture, tx.capture) ?? Number.POSITIVE_INFINITY;
+	const sameMoment = (tx: Transaction) => gapOf(tx) <= SAME_MOMENT_WINDOW_MS;
+
 	return matches
 		.sort(
 			(a, b) =>
 				Number(sameRef(b)) - Number(sameRef(a)) ||
+				Number(sameMoment(b)) - Number(sameMoment(a)) ||
 				Number(sameMerchant(b)) - Number(sameMerchant(a)) ||
 				Number(b.date === query.date) - Number(a.date === query.date) ||
 				b.date.localeCompare(a.date) ||

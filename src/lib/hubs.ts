@@ -34,7 +34,6 @@ export const HUBS: Hub[] = [
 			{ to: '/budgets/variance', label: 'Budget vs. Actual' },
 			{ to: '/savings-goals', label: 'Goals' },
 			{ to: '/recurring', label: 'Recurring' },
-			{ to: '/subscriptions', label: 'Subscriptions' },
 			{ to: '/forecast', label: 'Forecast' }
 		]
 	},

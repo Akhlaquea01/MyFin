@@ -1,0 +1,47 @@
+# Messages that MUST be accepted as candidate transactions, by BOTH filters:
+#   - src/domain/capture/captureFilter.ts          (classifyMessage, the authority, after unlock)
+#   - android/.../capture/CaptureFilter.java        (isCandidateSms, the coarse first pass)
+# The Java side is allowed to be more generous, never stricter: a message it rejects is never
+# stored, so a real transaction it drops is lost for good. tests/unit/captureFilter.test.ts and
+# CaptureFilterTest.java both read this file, so the two cannot drift apart unnoticed.
+#
+# Format: cases are separated by a line of four dashes. The first line of a case is
+# "sender: <id>"; the rest is the message body. Lines starting with # outside a case are comments.
+----
+sender: VM-HDFCBK
+Sent Rs.250.00 From HDFC Bank A/C *1234 To SWIGGY On 05/10/26 Ref 628123456789
+----
+sender: VM-HDFCBK
+Rs.1299.00 spent on your HDFC Bank Credit Card ending 5678 at AMAZON on 05-10-2026.
+----
+sender: VM-HDFCBK
+Your HDFC Bank Credit Card ending 1234 has been used for a transaction of INR 1,299.00 at AMAZON on 05-Oct-26.
+----
+sender: VM-ICICIB
+Txn of INR 1,234.00 done on ICICI Bank Credit Card XX1234 at NETFLIX.COM on 05-Oct-26.
+----
+sender: VM-SBICRD
+Payment of Rs 649.00 on card XX1234 to NETFLIX was successful on 05-Oct-26.
+----
+sender: VM-HDFCBK
+Your E-Mandate for NETFLIX of Rs 649.00 was successfully processed on your Credit Card ending 1234.
+----
+sender: VM-HDFCBK
+Rs.500.00 debited from A/c XX1234 on 05-Oct-26 to AMAZON. Never share OTP, CVV or PIN with anyone.
+----
+sender: VM-HDFCBK
+Spent Card no. XX5678 INR 1,299.00 05-10-26 14:22:10 AMAZON PAY Avl Lmt INR 98,701.00
+----
+sender: AX-AMEXIN
+You have swiped your Amex Card XX1001 for INR 2,499.00 at ZOMATO on 05-Oct-26.
+----
+sender: VM-HDFCBK
+USD 12.00 spent on HDFC Bank Credit Card ending 1234 at OPENAI on 05-Oct-26.
+----
+sender: AX-AXISBK-S
+INR 97.00 debited
+A/c no. XX0146
+12-10-26, 19:29:33
+UPI/P2M/548275113159/MDMAHFOOZ
+Not you? SMS BLOCKUPI Cust ID to 919951860002
+Axis Bank

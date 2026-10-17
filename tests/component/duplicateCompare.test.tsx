@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { DuplicateCompare } from '../../src/components/DuplicateCompare';
-import type { Merchant, Transaction } from '../../src/domain/entities';
+import type { CaptureInfo, Merchant, Transaction } from '../../src/domain/entities';
 
 const merchants: Merchant[] = [{ id: 'm1', name: 'Swiggy', createdAt: 0, updatedAt: 0 }];
 
@@ -54,11 +54,42 @@ describe('DuplicateCompare', () => {
 
 	it.each([
 		['same-reference', /same bank reference number/i],
+		['same-time', /within minutes of each other/i],
 		['same-merchant', /same amount and merchant/i],
 		['same-amount', /could still be a separate purchase/i]
 	] as const)('explains a %s match in plain words', (reason, text) => {
 		setup({ reason });
 		expect(screen.getByText(text)).toBeInTheDocument();
+	});
+
+	it('shows when each message arrived and who sent it, so the two can be told apart', () => {
+		const capture = (sender: string, receivedAt: number, txnAt?: number): CaptureInfo => ({
+			channel: 'sms',
+			sender,
+			receivedAt,
+			txnAt,
+			text: 'x'
+		});
+		setup({
+			original: { ...original, capture: capture('VM-HDFCBK', Date.UTC(2026, 9, 5, 13, 59, 33)) },
+			duplicate: {
+				...original,
+				id: 'd',
+				capture: capture('AX-AXISBK', Date.UTC(2026, 9, 5, 14, 1, 2), Date.UTC(2026, 9, 5, 14, 0))
+			}
+		});
+		expect(screen.getByTestId('duplicate-original-message')).toHaveTextContent(
+			/Already filed: SMS from VM-HDFCBK · received/
+		);
+		expect(screen.getByTestId('duplicate-new-message')).toHaveTextContent(
+			/This one: SMS from AX-AXISBK · received .*payment time/
+		);
+	});
+
+	it('shows no message lines for entries that were not captured', () => {
+		setup();
+		expect(screen.queryByTestId('duplicate-original-message')).toBeNull();
+		expect(screen.queryByTestId('duplicate-new-message')).toBeNull();
 	});
 
 	it('offers to keep both or to remove the new one', async () => {

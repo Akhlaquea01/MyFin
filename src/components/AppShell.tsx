@@ -21,7 +21,6 @@ import {
 	MoreHorizontal,
 	Plus,
 	PiggyBank,
-	Repeat,
 	Sparkles,
 	TrendingDown,
 	Tags,
@@ -97,7 +96,6 @@ const NAV_GROUPS: { label: string | null; items: NavItem[] }[] = [
 			{ to: '/budgets/variance', label: 'Budget vs. Actual', icon: BarChart3 },
 			{ to: '/savings-goals', label: 'Savings Goals', icon: Target },
 			{ to: '/recurring', label: 'Recurring', icon: CalendarClock },
-			{ to: '/subscriptions', label: 'Subscriptions', icon: Repeat },
 			{ to: '/forecast', label: 'Forecast', icon: TrendingDown }
 		]
 	},

@@ -14,6 +14,13 @@ import {
 } from '../categorization/resolveCategorization';
 import { addDaysISO, isValidIsoDate } from '../shared/dateMath';
 import { linkedTransactionNotice } from './linkedTransactionNotice';
+import {
+	applyPurpose,
+	clearPurpose,
+	samePurpose,
+	syncPurpose,
+	validatePurpose
+} from './purposeEngine';
 import type { Transaction } from '../../domain/entities';
 
 /**
@@ -59,6 +66,17 @@ export interface RecordOptions {
 	 * captured message whose merchant could not be parsed. Matching only; it is never stored.
 	 */
 	categorizationText?: string;
+	/**
+	 * Store `input.purpose` as a tag without touching its target. For callers that already moved
+	 * the target themselves (a liability payment made from the Liabilities page) or that replay
+	 * history whose target-side records are not being restored (a data-template import).
+	 */
+	skipPurposeEffects?: boolean;
+}
+
+/** Called with a sentence describing what marking an entry's purpose did to its target. */
+export interface PurposeEffectOptions {
+	onPurposeEffect?: (message: string | null) => void;
 }
 
 export const TransactionEngine = {
@@ -68,8 +86,19 @@ export const TransactionEngine = {
 		key: CryptoKey,
 		input: NewTransactionInput,
 		splits: SplitInput[] = [],
-		options: RecordOptions = {}
+		options: RecordOptions & PurposeEffectOptions = {}
 	): Promise<Transaction> {
+		// A purpose that moves a balance, a goal or a bill is refused up front, before the entry exists,
+		// so a refusal leaves nothing behind. An entry still waiting in Review applies it on confirm.
+		const purposeTakesEffect =
+			!!input.purpose &&
+			!options.skipPurposeEffects &&
+			(input.reviewStatus ?? 'confirmed') === 'confirmed';
+		if (purposeTakesEffect && input.purpose) {
+			const problem = await validatePurpose(key, input, input.purpose);
+			if (problem) throw new Error(problem);
+		}
+
 		// Auto-categorization pre-fill (spec 006, FR-002): only when the caller hasn't
 		// already specified a category — today that's every source but Quick Add/bulk/file
 		// import, which never pass splits of their own.
@@ -128,6 +157,19 @@ export const TransactionEngine = {
 			if (matched) break;
 		}
 
+		// After the automatic matching, so a bill the user named is the one that ends up marked paid.
+		if (purposeTakesEffect) {
+			try {
+				// Awaited on its own: `callback?.(await x)` never evaluates `x` when there is no callback.
+				const effect = await applyPurpose(key, tx);
+				options.onPurposeEffect?.(effect);
+			} catch (err) {
+				// Never leave an entry that says it paid something it did not.
+				await TransactionEngine.deleteTransaction(key, tx.id).catch(() => undefined);
+				throw err;
+			}
+		}
+
 		return tx;
 	},
 
@@ -157,9 +199,28 @@ export const TransactionEngine = {
 		key: CryptoKey,
 		id: string,
 		changes: Partial<Transaction>,
-		splits?: SplitInput[]
+		splits?: SplitInput[],
+		options: PurposeEffectOptions = {}
 	): Promise<Transaction> {
 		const before = await TransactionRepository.getById(key, id);
+		if (before) {
+			const candidate = { ...before, ...changes };
+			// Income and transfers have no purpose; changing an entry to one drops the tag.
+			if (candidate.purpose && candidate.type !== 'expense')
+				changes = { ...changes, purpose: null };
+			else if (
+				candidate.purpose &&
+				candidate.reviewStatus === 'confirmed' &&
+				(!samePurpose(before.purpose, candidate.purpose) ||
+					candidate.amount !== before.amount ||
+					candidate.date !== before.date ||
+					candidate.accountId !== before.accountId ||
+					before.reviewStatus !== 'confirmed')
+			) {
+				const problem = await validatePurpose(key, candidate, candidate.purpose);
+				if (problem) throw new Error(problem);
+			}
+		}
 		// Choosing the account settles the "we guessed this one" flag a captured entry carries.
 		const accountChosen =
 			before?.capture?.accountCheck &&
@@ -177,6 +238,10 @@ export const TransactionEngine = {
 		await recalculateAccountBalance(key, updated.accountId);
 		if (before && before.accountId !== updated.accountId) {
 			await recalculateAccountBalance(key, before.accountId);
+		}
+		if (before) {
+			const effect = await syncPurpose(key, before, updated);
+			options.onPurposeEffect?.(effect);
 		}
 		// A changed amount, date, account or category can make it match a different expected
 		// payment — or stop matching the one it had.
@@ -196,6 +261,8 @@ export const TransactionEngine = {
 		const pair = tx.transferPairId
 			? await TransactionRepository.getById(key, tx.transferPairId)
 			: null;
+		// What the entry did to its target (a balance owed, a goal, a bill) goes with it.
+		if (tx.purpose) await clearPurpose(key, tx, tx.purpose).catch(() => undefined);
 		await TransactionRepository.remove(pair ? [tx.id, pair.id] : [tx.id]);
 		if (pair) await recalculateAccountBalance(key, pair.accountId);
 		await recalculateAccountBalance(key, tx.accountId);
@@ -312,8 +379,11 @@ export const TransactionEngine = {
 			};
 		}
 
+		// A transfer is not spending, so it has no purpose to keep.
+		if (tx.purpose) await clearPurpose(key, tx, tx.purpose);
 		const converted: Transaction = {
 			...tx,
+			purpose: null,
 			type: 'transfer',
 			transferPairId: counterpart.id,
 			reviewStatus: 'confirmed',
@@ -396,8 +466,15 @@ export const TransactionEngine = {
 		key: CryptoKey,
 		id: string,
 		splits?: SplitInput[],
-		tagIds?: string[]
+		tagIds?: string[],
+		options: PurposeEffectOptions = {}
 	): Promise<Transaction> {
+		// Refused before the entry leaves Review, so it stays there for the user to fix.
+		const current = await TransactionRepository.getById(key, id);
+		if (current?.purpose) {
+			const problem = await validatePurpose(key, current, current.purpose);
+			if (problem) throw new Error(problem);
+		}
 		const updated = await TransactionRepository.update(
 			key,
 			id,
@@ -421,6 +498,12 @@ export const TransactionEngine = {
 			if (firstSplit && firstSplit.categoryId !== UNCATEGORIZED_CATEGORY_ID) {
 				await recordConfirmation(key, updated.merchantId, firstSplit.categoryId);
 			}
+		}
+
+		// Now that it is confirmed, its purpose takes effect on the debt, goal or bill it names.
+		if (updated.purpose) {
+			const effect = await applyPurpose(key, updated);
+			options.onPurposeEffect?.(effect);
 		}
 
 		// The category chosen in Review is what finally lets a bill that arrived uncategorized (a bank

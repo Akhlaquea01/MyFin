@@ -1,8 +1,15 @@
-import { TransactionRepository } from '../../data/dexie/transactionRepository';
+import {
+	TransactionRepository,
+	UNCATEGORIZED_CATEGORY_ID
+} from '../../data/dexie/transactionRepository';
+import type { NewRecurringRule } from '../../data/dexie/recurringRepository';
 import { MerchantRepository } from '../../data/dexie/merchantRepository';
 import { normalizeMerchantText } from '../parser/merchantResolver';
 import { looksLikeCardPayment } from '../parser/cardPaymentDetector';
-import type { Transaction } from '../entities';
+import { parseCapturedMessage } from '../capture/captureParser';
+import { originalMessageOf } from '../capture/originalMessage';
+import { defaultDayFor } from './recurringDay';
+import type { RecurringFrequency, RecurringRule, Transaction } from '../entities';
 import { todayLocalISO } from '../shared/dateMath';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -28,6 +35,13 @@ export interface DetectedSubscription {
 	merchantName: string;
 	cadence: SubscriptionCadence;
 	averageAmountMinor: number;
+	/** The most recent charge, exactly: what a tracked rule is created with, so that next month's
+	 *  charge matches it to the paisa. */
+	lastAmountMinor: number;
+	/** Where, and under which category, the latest charge was filed — what Track creates the rule on. */
+	accountId: string;
+	categoryId: string;
+	lastTransactionId: string;
 	monthlyCostMinor: number;
 	lastChargedDate: string;
 	chargeCount: number;
@@ -55,8 +69,8 @@ function classifyCadence(medianDeltaDays: number): SubscriptionCadence | null {
 	return null;
 }
 
-/** Normalizes any cadence's average charge to a monthly-equivalent figure. */
-function toMonthlyCost(averageAmountMinor: number, cadence: SubscriptionCadence): number {
+/** Normalizes any cadence's charge to a monthly-equivalent figure. */
+export function toMonthlyCost(averageAmountMinor: number, cadence: SubscriptionCadence): number {
 	switch (cadence) {
 		case 'weekly':
 			return Math.round((averageAmountMinor * 52) / 12);
@@ -72,7 +86,21 @@ function toMonthlyCost(averageAmountMinor: number, cadence: SubscriptionCadence)
 function groupKey(tx: Transaction): string | null {
 	if (tx.merchantId) return tx.merchantId;
 	const normalized = tx.notes ? normalizeMerchantText(tx.notes) : null;
-	return normalized ? `text:${normalized}` : null;
+	if (normalized) return `text:${normalized}`;
+	// An entry the Android app captured keeps its message in `capture.text` and no notes. When no
+	// merchant was resolved at the time (the parser has improved since, or it simply missed), read
+	// the name out of the message now rather than leaving every card charge ungrouped.
+	if (tx.capture) {
+		const merchantText = parseCapturedMessage({
+			channel: tx.capture.channel,
+			sender: tx.capture.sender,
+			body: tx.capture.text,
+			receivedAt: tx.capture.receivedAt
+		})?.merchantText;
+		const fromMessage = merchantText ? normalizeMerchantText(merchantText) : null;
+		if (fromMessage) return `text:${fromMessage}`;
+	}
+	return null;
 }
 
 /**
@@ -104,7 +132,8 @@ export async function detectSubscriptions(
 		// Paying a credit card bill is a movement between the user's own accounts, not a service they
 		// subscribe to. When one is still recorded as a plain expense (an imported "CREDIT CARD
 		// PAYMENT" line, an SMS), its monthly rhythm made the card bill the biggest "subscription".
-		if (looksLikeCardPayment(tx.notes)) continue;
+		// (originalMessageOf also reads a captured entry's message, which has no notes.)
+		if (looksLikeCardPayment(originalMessageOf(tx))) continue;
 		const merchantName = tx.merchantId ? merchantById.get(tx.merchantId)?.name : undefined;
 		if (looksLikeCardPayment(merchantName)) continue;
 		const gKey = groupKey(tx);
@@ -115,6 +144,7 @@ export async function detectSubscriptions(
 	}
 
 	const results: DetectedSubscription[] = [];
+	const pending: { group: Transaction[]; result: DetectedSubscription }[] = [];
 	for (const [groupId, group] of groups) {
 		if (group.length < 2) continue;
 
@@ -141,18 +171,82 @@ export async function detectSubscriptions(
 		const isLapsed = daysBetween(lastChargedDate, todayLocalISO(asOf)) > maxWindow;
 		const averageAmountMinor = Math.round(meanAmount);
 
-		results.push({
-			merchantId: groupId,
-			merchantName: merchant?.name ?? groupId.replace(/^text:/, ''),
-			cadence,
-			averageAmountMinor,
-			monthlyCostMinor: toMonthlyCost(averageAmountMinor, cadence),
-			lastChargedDate,
-			chargeCount: sorted.length,
-			isLapsed,
-			dismissed: false
+		const last = sorted[sorted.length - 1];
+		pending.push({
+			group: sorted,
+			result: {
+				merchantId: groupId,
+				merchantName: merchant?.name ?? groupId.replace(/^text:/, ''),
+				cadence,
+				averageAmountMinor,
+				lastAmountMinor: Math.abs(last.amount),
+				accountId: last.accountId,
+				categoryId: UNCATEGORIZED_CATEGORY_ID,
+				lastTransactionId: last.id,
+				monthlyCostMinor: toMonthlyCost(averageAmountMinor, cadence),
+				lastChargedDate,
+				chargeCount: sorted.length,
+				isLapsed,
+				dismissed: false
+			}
 		});
 	}
 
+	// The category of each latest charge, read for the few groups that qualified.
+	const splitsByTx =
+		pending.length > 0
+			? await TransactionRepository.splitsByTransaction(
+					key,
+					pending.map((p) => p.result.lastTransactionId)
+				)
+			: new Map();
+	for (const { result } of pending) {
+		const category = splitsByTx.get(result.lastTransactionId)?.[0]?.categoryId;
+		if (category) result.categoryId = category;
+		results.push(result);
+	}
+
 	return results.sort((a, b) => b.monthlyCostMinor - a.monthlyCostMinor);
+}
+
+/** A rule the user already tracks stands for the detected charge: same account, same rhythm, an
+ *  amount within the detection tolerance. Quarterly charges can never be tracked (a rule recurs
+ *  weekly, monthly or yearly), so they are never hidden by one. */
+function isTrackedBy(rule: RecurringRule, subscription: DetectedSubscription): boolean {
+	if (rule.amount >= 0 || rule.accountId !== subscription.accountId) return false;
+	if (subscription.cadence === 'quarterly' || rule.frequency !== subscription.cadence) return false;
+	return (
+		Math.abs(Math.abs(rule.amount) - subscription.averageAmountMinor) <=
+		subscription.averageAmountMinor * DEFAULT_TOLERANCE_RATIO
+	);
+}
+
+/** What is left to offer once the charges the user already tracks as recurring rules are removed. */
+export function excludeTracked(
+	detected: DetectedSubscription[],
+	rules: RecurringRule[]
+): DetectedSubscription[] {
+	return detected.filter((subscription) => !rules.some((rule) => isTrackedBy(rule, subscription)));
+}
+
+/** Whether a detected charge can become a recurring rule: rules recur weekly, monthly or yearly. */
+export function canTrack(
+	subscription: DetectedSubscription
+): subscription is DetectedSubscription & { cadence: RecurringFrequency } {
+	return subscription.cadence !== 'quarterly';
+}
+
+/** The rule that tracks a detected subscription: its latest charge, due on the same day it fell. */
+export function ruleFromDetected(
+	subscription: DetectedSubscription & { cadence: RecurringFrequency }
+): NewRecurringRule {
+	return {
+		accountId: subscription.accountId,
+		categoryId: subscription.categoryId,
+		amount: -subscription.lastAmountMinor,
+		frequency: subscription.cadence,
+		dayOfPeriod: defaultDayFor(subscription.cadence, subscription.lastChargedDate),
+		label: subscription.merchantName,
+		isSubscription: true
+	};
 }

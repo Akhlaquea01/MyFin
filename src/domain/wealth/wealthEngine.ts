@@ -324,10 +324,14 @@ export async function recordLiabilityPayment(
 			amount: -input.amount,
 			type: 'expense',
 			notes: `Payment to ${liability.name}`,
+			// Tagged as a debt payment like one marked that way on any other form. The balance is
+			// moved just below, so the tag must not move it a second time.
+			purpose: { kind: 'debt', targetId: liability.id },
 			source: 'manual',
 			reviewStatus: 'confirmed'
 		},
-		input.categoryId ? [{ categoryId: input.categoryId, amount: -input.amount }] : []
+		input.categoryId ? [{ categoryId: input.categoryId, amount: -input.amount }] : [],
+		{ skipPurposeEffects: true }
 	);
 
 	const payment: LiabilityPayment = {

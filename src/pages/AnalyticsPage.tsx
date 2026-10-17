@@ -16,17 +16,21 @@ import { toast } from 'sonner';
 import { Badge } from '../components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { ChartCanvas } from '../components/ChartCanvas';
+import { BarList } from '../components/charts/BarList';
+import { PURPOSE_LABELS } from '../domain/transactions/purposeEngine';
 import { CategoryRepository } from '../data/dexie/categoryRepository';
 import { DateRangeSelector, type DateRange } from '../components/DateRangeSelector';
 import { useSession } from '../context/SessionContext';
 import { getChartPalette, getAxisColor, getGridColor, withAlpha } from '../lib/chartColors';
 import {
 	categoryBreakdown,
+	purposeBreakdown,
 	incomeExpenseTrend,
 	cashFlowTrend,
 	budgetPerformance,
 	netWorthTrend,
 	type CategoryBreakdownItem,
+	type PurposeBreakdownItem,
 	type MonthlyTrendPoint,
 	type CashFlowPoint,
 	type BudgetPerformanceItem,
@@ -74,6 +78,7 @@ export function AnalyticsPage() {
 	const [range, setRange] = useState<DateRange>(defaultRange);
 	const [loading, setLoading] = useState(true);
 	const [categories, setCategories] = useState<CategoryBreakdownItem[]>([]);
+	const [purposes, setPurposes] = useState<PurposeBreakdownItem[]>([]);
 	// Offered only when there is a hierarchy to group by. Off by default: each category on its own,
 	// labelled with its full path, is what this chart has always shown.
 	const [hasSubcategories, setHasSubcategories] = useState(false);
@@ -88,14 +93,16 @@ export function AnalyticsPage() {
 		setLoading(true);
 		void Promise.all([
 			categoryBreakdown(key, range.from, range.to, { rollUp }),
+			purposeBreakdown(key, range.from, range.to),
 			incomeExpenseTrend(key, range.from, range.to),
 			cashFlowTrend(key, range.from, range.to),
 			budgetPerformance(key, range.from, range.to),
 			netWorthTrend(key, range.from, range.to)
 		])
-			.then(([cat, inc, flow, perf, nw]) => {
+			.then(([cat, purpose, inc, flow, perf, nw]) => {
 				if (cancelled) return;
 				setCategories(cat);
+				setPurposes(purpose);
 				setTrend(inc);
 				setCashFlow(flow);
 				setBudgets(perf);
@@ -179,6 +186,27 @@ export function AnalyticsPage() {
 						</CardContent>
 					</Card>
 
+					{purposes.length > 0 && (
+						<Card>
+							<CardHeader>
+								<CardTitle className="flex items-center gap-2 text-base">
+									<Target className="size-4 text-primary" /> Spending by purpose
+								</CardTitle>
+							</CardHeader>
+							<CardContent>
+								<BarList
+									items={purposes.map((p, i) => ({
+										id: p.kind,
+										label: PURPOSE_LABELS[p.kind],
+										value: p.total,
+										color: `var(--cat-${(i % 8) + 1})`,
+										note: `${p.count} ${p.count === 1 ? 'entry' : 'entries'}`
+									}))}
+									format={formatMoney}
+								/>
+							</CardContent>
+						</Card>
+					)}
 					<Card>
 						<CardHeader>
 							<CardTitle className="flex items-center gap-2 text-base">

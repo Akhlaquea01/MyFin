@@ -25,9 +25,21 @@ public final class CaptureFilter {
             "\\botp\\b|one[- ]?time|verification code|\\bcvv\\b|\\bpasscode\\b",
             Pattern.CASE_INSENSITIVE);
 
+    // Real debit and card alerts end with a fraud warning ("Never share OTP/CVV/PIN with anyone.").
+    // That sentence is cut out before the OTP test so the alert is not mistaken for a code message.
+    // Mirrors withoutWarnings in captureFilter.ts.
+    private static final Pattern WARNING_SENTENCE = Pattern.compile(
+            "[^.!?\\n]*\\b(?:do not|don'?t|never|please do not|kindly do not)\\s+(?:to\\s+)?"
+                    + "(?:share|disclose|reveal|give)\\b[^.!?\\n]*[.!?]?",
+            Pattern.CASE_INSENSITIVE);
+
+    // Keep in step with TRANSACTION_VERB in captureFilter.ts: anything the web filter accepts must
+    // get past this one, which is only ever allowed to be more generous. The shared cases in
+    // tests/fixtures/captureAcceptCases.txt are checked on both sides.
     private static final Pattern TRANSACTION_VERB = Pattern.compile(
             "\\b(?:debited|credited|spent|paid|received|withdrawn|deposited|sent|purchase[d]?"
-                    + "|transferred|refund(?:ed)?|reversed|reversal|deducted|charged|debit|credit)\\b",
+                    + "|transferred|refund(?:ed)?|reversed|reversal|deducted|charged|payment of"
+                    + "|txn of|transaction of|swiped|used (?:for|at)|debit|credit)\\b",
             Pattern.CASE_INSENSITIVE);
 
     private static final Pattern DIGIT = Pattern.compile("\\d");
@@ -105,7 +117,7 @@ public final class CaptureFilter {
         String trimmed = text.trim();
         if (trimmed.isEmpty() || trimmed.length() > MAX_LENGTH) return false;
         String lower = trimmed.toLowerCase(Locale.ROOT);
-        if (OTP.matcher(lower).find()) return false;
+        if (OTP.matcher(WARNING_SENTENCE.matcher(lower).replaceAll(" ")).find()) return false;
         return TRANSACTION_VERB.matcher(lower).find() && DIGIT.matcher(lower).find();
     }
 

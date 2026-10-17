@@ -28,6 +28,14 @@ export interface ExportRow {
 	/** For a transfer: the account on its other side — "to" for the leg that left this account,
 	 *  "from" for the one that arrived. Empty for everything else. */
 	counterpart: string;
+	/** For an entry the Android app captured from a message: when the phone received it, as an
+	 *  ISO-8601 UTC timestamp. Empty for everything else. */
+	captured_at: string;
+	/** For a captured entry whose message states a time: when the payment says it happened (ISO-8601
+	 *  UTC). Empty otherwise. */
+	payment_at: string;
+	/** 'debt', 'savings', 'investment' or 'bills' when the entry was marked as one; empty otherwise. */
+	purpose: string;
 }
 
 /** Flattens the ledger into export-ready rows (FR-039): amounts in rupees, human-readable names. */
@@ -71,7 +79,11 @@ export async function buildExportRows(key: CryptoKey): Promise<ExportRow[]> {
 				.filter((name): name is string => Boolean(name))
 				.join('; '),
 			status: tx.reviewStatus,
-			counterpart: partner ? (accountNameById.get(partner.accountId) ?? '') : ''
+			counterpart: partner ? (accountNameById.get(partner.accountId) ?? '') : '',
+			captured_at: tx.capture ? new Date(tx.capture.receivedAt).toISOString() : '',
+			payment_at:
+				typeof tx.capture?.txnAt === 'number' ? new Date(tx.capture.txnAt).toISOString() : '',
+			purpose: tx.purpose?.kind ?? ''
 		});
 	}
 	return rows;
@@ -97,7 +109,7 @@ function neutralizeFormula(value: string): string {
 	return FORMULA_TRIGGER.test(value) ? `\t${value}` : value;
 }
 
-/** `date`, `amount`, `type` and `status` are generated, not user text, and `amount` legitimately
+/** `date`, `amount`, `type`, `status` and the two timestamps are generated, not user text, and `amount` legitimately
  *  starts with `-` — prefixing it would break numeric parsing in the spreadsheet. */
 function sanitizeRow(row: ExportRow): ExportRow {
 	return {
@@ -129,7 +141,10 @@ export async function exportToXlsxBlob(rows: ExportRow[]): Promise<Blob> {
 		{ header: 'Merchant', key: 'merchant' },
 		{ header: 'Tags', key: 'tags' },
 		{ header: 'Status', key: 'status' },
-		{ header: 'Transfer account', key: 'counterpart' }
+		{ header: 'Transfer account', key: 'counterpart' },
+		{ header: 'Captured at', key: 'captured_at' },
+		{ header: 'Payment time', key: 'payment_at' },
+		{ header: 'Purpose', key: 'purpose' }
 	];
 	sheet.addRows(rows.map(sanitizeRow));
 	const buffer = await workbook.xlsx.writeBuffer();

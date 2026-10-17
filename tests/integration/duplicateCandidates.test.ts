@@ -183,6 +183,68 @@ describe('findDuplicateCandidates across accounts and references', () => {
 	});
 });
 
+describe('findDuplicateCandidates — capture times', () => {
+	let key: CryptoKey;
+	let checking: string;
+
+	beforeEach(async () => {
+		await db.delete();
+		await db.open();
+		key = await deriveEncryptionKey('4040', randomSaltBase64());
+		checking = (
+			await AccountRepository.create(key, {
+				name: 'Checking',
+				type: 'bank',
+				openingBalance: 0,
+				creditLimit: null,
+				billingCycleDay: null
+			})
+		).id;
+	});
+
+	const T0 = Date.UTC(2026, 2, 10, 9, 0, 0);
+	const MINUTE = 60 * 1000;
+	const at = (receivedAt: number): CaptureInfo => ({
+		channel: 'sms',
+		sender: 'VM-HDFCBK',
+		receivedAt,
+		text: 'x'
+	});
+	const record = (capture: CaptureInfo | null, date = '2026-03-10') =>
+		TransactionEngine.recordTransaction(key, {
+			accountId: checking,
+			date,
+			amount: -25_000,
+			type: 'expense',
+			...(capture ? { capture } : {})
+		});
+
+	it('puts the entry captured at nearly the same moment first, ahead of a later or an older one', async () => {
+		const hoursLater = await record(at(T0 + 5 * 60 * MINUTE));
+		const sameMoment = await record(at(T0 + 2 * MINUTE));
+		const byHand = await record(null);
+		const found = await findDuplicateCandidates(
+			key,
+			{ accountId: checking, amount: -25_000, date: '2026-03-10' },
+			{ capture: { receivedAt: T0 } }
+		);
+		expect(found[0].id).toBe(sameMoment.id);
+		expect(found.map((t) => t.id).sort()).toEqual([hoursLater.id, sameMoment.id, byHand.id].sort());
+	});
+
+	it('compares the stated payment times when both messages state one', async () => {
+		// Received hours apart (a delayed copy), but both say the payment was at 09:00.
+		const delayed = await record({ ...at(T0 + 6 * 60 * MINUTE), txnAt: T0 });
+		const unrelated = await record({ ...at(T0 + MINUTE), txnAt: T0 + 7 * 60 * MINUTE });
+		const found = await findDuplicateCandidates(
+			key,
+			{ accountId: checking, amount: -25_000, date: '2026-03-10' },
+			{ capture: { receivedAt: T0 + 6 * 60 * MINUTE + MINUTE, txnAt: T0 } }
+		);
+		expect(found.map((t) => t.id)).toEqual([delayed.id, unrelated.id]);
+	});
+});
+
 describe('duplicateReason', () => {
 	const tx = (overrides: Partial<Transaction>) =>
 		({ merchantId: null, ...overrides }) as Transaction;
@@ -199,5 +261,30 @@ describe('duplicateReason', () => {
 		expect(duplicateReason(tx({ merchantId: 'm' }), tx({ merchantId: 'm' }))).toBe('same-merchant');
 		expect(duplicateReason(tx({ merchantId: 'm' }), tx({ merchantId: 'n' }))).toBe('same-amount');
 		expect(duplicateReason(tx({}), tx({}))).toBe('same-amount');
+	});
+
+	it('calls two alerts a few minutes apart the same time, ahead of a shared merchant', () => {
+		const MINUTE = 60 * 1000;
+		const at = (receivedAt: number) =>
+			({ channel: 'sms', sender: 's', receivedAt, text: 'x' }) as CaptureInfo;
+		expect(
+			duplicateReason(
+				tx({ capture: at(0), merchantId: 'm' }),
+				tx({ capture: at(5 * MINUTE), merchantId: 'm' })
+			)
+		).toBe('same-time');
+		expect(
+			duplicateReason(
+				tx({ capture: at(0), merchantId: 'm' }),
+				tx({ capture: at(5 * 60 * MINUTE), merchantId: 'm' })
+			)
+		).toBe('same-merchant');
+		// A reference number still outranks the clock.
+		expect(
+			duplicateReason(
+				tx({ capture: { ...at(0), refNo: 'R1' } }),
+				tx({ capture: { ...at(MINUTE), refNo: 'R1' } })
+			)
+		).toBe('same-reference');
 	});
 });

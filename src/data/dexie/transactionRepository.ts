@@ -24,7 +24,8 @@ import type {
 	PersonLoan,
 	LoanRepayment,
 	Liability,
-	InvestmentHolding
+	InvestmentHolding,
+	TransactionPurpose
 } from '../../domain/entities';
 
 /** What a linked ledger entry belongs to; `getLoanLink` returns null for an ordinary entry. */
@@ -51,6 +52,9 @@ export interface NewTransactionInput {
 	duplicateOfId?: string | null;
 	/** Where an automatically captured entry came from; absent for everything else. */
 	capture?: CaptureInfo | null;
+	/** What the entry was for. Stored as given; its effect on the target is applied by
+	 *  `TransactionEngine`, not here. */
+	purpose?: TransactionPurpose | null;
 }
 
 export interface SplitInput {
@@ -130,6 +134,7 @@ export const TransactionRepository = {
 			// Only written when there is something to write, so every entry that is not a capture
 			// keeps exactly the shape it always had.
 			...(input.capture ? { capture: input.capture } : {}),
+			...(input.purpose ? { purpose: input.purpose } : {}),
 			createdAt: now,
 			updatedAt: now
 		};

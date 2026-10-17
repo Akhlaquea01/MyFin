@@ -42,3 +42,23 @@ export function parseDateFromText(text: string): ISODateString | null {
 	}
 	return null;
 }
+
+// "19:29:33", "14:22", "12:34 PM", "7:05pm", "14:22 hrs". Two-digit minutes are required, which is
+// what keeps a ratio ("1:1") or an amount from being read as a time.
+const TIME_OF_DAY =
+	/(?<![\d:.])([01]?\d|2[0-3]):([0-5]\d)(?::[0-5]\d)?(?!\d)(?:\s*(am|pm)(?![a-z]))?/i;
+
+/** The first time of day `text` states, as 24-hour "HH:mm", or null if it states none. */
+export function parseTimeFromText(text: string): string | null {
+	const found = TIME_OF_DAY.exec(text);
+	if (!found) return null;
+	let hour = Number(found[1]);
+	const minute = found[2];
+	const meridiem = found[3]?.toLowerCase();
+	if (meridiem) {
+		if (hour < 1 || hour > 12) return null;
+		if (meridiem === 'pm' && hour < 12) hour += 12;
+		if (meridiem === 'am' && hour === 12) hour = 0;
+	}
+	return `${String(hour).padStart(2, '0')}:${minute}`;
+}
