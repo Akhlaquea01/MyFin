@@ -4,7 +4,7 @@ export default defineConfig({
 	// One worker. Each spec drives a full onboard-and-populate flow against a single
 	// preview server, and running them in parallel made different specs fail on each run
 	// purely from 5s expect timeouts under CPU contention — flaky in a way that hides real
-	// regressions. The whole suite still finishes in well under two minutes serially.
+	// regressions. The whole suite takes roughly ten minutes serially, build included.
 	workers: 1,
 	// Playwright's 5s default is tight for this app: every spec onboards or unlocks, and each
 	// of those runs a 210,000-iteration PBKDF2 derivation on the main thread before the UI

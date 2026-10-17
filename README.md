@@ -59,7 +59,7 @@ MyFin follows a strict **zero-knowledge architecture**:
 - **Symmetric Cipher**: **AES-256-GCM** with a cryptographically secure, unique 96-bit Initialization Vector (IV) per record.
 - **Key Derivation**: **PBKDF2-HMAC-SHA256** derived from the user's master PIN: **210,000 iterations** for the on-device key (it runs on every unlock, and is backed by an attempt lockout) and **600,000 iterations** for backup files, which leave the device and can be attacked offline.
 - **Biometric Authentication**: Hardware-backed **WebAuthn PRF (Pseudo-Random Function)** extension in the browser; in the Android app, Android's **BiometricPrompt** with a Keystore key that only a fresh strong-biometric check can use. In both, biometrics only recover the PIN — they never replace it.
-- **Searchable Encryption**: **HMAC-SHA256 Blind Indexing** with per-column salts enables indexed search on encrypted fields without leaking plaintexts.
+- **Searchable Encryption**: **Salted SHA-256 blind indexing** (per-installation salt) lets merchant aliases and tag names be looked up by exact match without their plaintext sitting in an IndexedDB index.
 - **Concurrency Isolation**: **Web Locks API** single-instance coordinator prevents concurrent tab write conflicts.
 
 For a detailed technical breakdown, read the **[Architecture & Security Documentation](docs/architecture.md)**.
@@ -70,7 +70,7 @@ For a detailed technical breakdown, read the **[Architecture & Security Document
 
 ### Prerequisites
 
-- [Node.js](https://nodejs.org/) (`v20.x` or `v22.x` LTS recommended)
+- [Node.js](https://nodejs.org/) `v22.22.2` or later, or `v24.15` or later (the repo sets `engine-strict=true`, so Node 20 and older 22/24 releases refuse to install its dependencies)
 - [npm](https://www.npmjs.com/) (`v10.x` or higher)
 - [Git](https://git-scm.com/)
 
@@ -118,6 +118,9 @@ npm run lint
 npm run build
 ```
 
+Lint, the type check, the unit/integration suite and the Playwright suite also run on every pull request
+and on pushes to `master` ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)).
+
 ---
 
 ## 📚 Documentation
@@ -126,7 +129,7 @@ Detailed documentation is available in the [`docs/`](docs/) directory:
 
 - 📖 **[Documentation Hub](docs/README.md)**: Navigation and documentation index.
 - 🏛️ **[System Architecture](docs/architecture.md)**: Deep dive into system layers, security model, storage engine, and data flows.
-- 📋 **[Feature Catalog](docs/features.md)**: Complete specifications and domain engine logic for all 15 features.
+- 📋 **[Feature Catalog](docs/features.md)**: Complete specifications and domain engine logic for every feature.
 
 ---
 

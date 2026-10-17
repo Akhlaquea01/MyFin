@@ -39,7 +39,7 @@ graph TD
         Repos["Dexie Repositories"]
         EncTable["EncryptedTable Abstraction"]
         CryptoService["CryptoService (AES-256-GCM + PBKDF2)"]
-        BlindIndex["Blind Index Engine (HMAC-SHA256 Salts)"]
+        BlindIndex["Blind Index (salted SHA-256)"]
         IndexedDB[("Browser IndexedDB (Dexie v4)")]
     end
 
@@ -109,21 +109,21 @@ graph TD
 
 ### 3.3 Cryptography & Security Model (`src/data/crypto/cryptoService.ts`)
 
-| Primitive                   | Implementation                                                              | Specification / Purpose                                                                                                                    |
-| :-------------------------- | :-------------------------------------------------------------------------- | :----------------------------------------------------------------------------------------------------------------------------------------- |
-| **Cipher**                  | AES-256-GCM                                                                 | Authenticated encryption with 96-bit unique IV per record                                                                                  |
-| **Key Derivation**          | PBKDF2-HMAC-SHA256                                                          | 210,000 iterations on-device (interactive unlock, with attempt lockout); 600,000 for backup files                                          |
-| **Biometrics**              | WebAuthn PRF Extension (browser) · Android BiometricPrompt + Keystore (APK) | Hardware-backed release of a secret that unwraps the PIN; never a replacement for the PIN                                                  |
-| **Captured messages (APK)** | RSA-2048 OAEP (SHA-1) wrapping a per-message AES-256-GCM key                | Native receivers can only lock messages away; the private key is stored encrypted with the PIN-derived key, so they open only after unlock |
-| **Searchable Encryption**   | Blind Indexing (HMAC-SHA256)                                                | Unique per-column salt to allow indexed exact-match queries on encrypted fields without leaking plaintexts                                 |
-| **Integrity Check**         | SHA-256 Checksums                                                           | Verified during full backup restore and data template ingestion                                                                            |
+| Primitive                   | Implementation                                                              | Specification / Purpose                                                                                                                                                                                                                                                                         |
+| :-------------------------- | :-------------------------------------------------------------------------- | :---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Cipher**                  | AES-256-GCM                                                                 | Authenticated encryption with 96-bit unique IV per record                                                                                                                                                                                                                                       |
+| **Key Derivation**          | PBKDF2-HMAC-SHA256                                                          | 210,000 iterations on-device (interactive unlock, with attempt lockout); 600,000 for backup files                                                                                                                                                                                               |
+| **Biometrics**              | WebAuthn PRF Extension (browser) · Android BiometricPrompt + Keystore (APK) | Hardware-backed release of a secret that unwraps the PIN; never a replacement for the PIN                                                                                                                                                                                                       |
+| **Captured messages (APK)** | RSA-2048 OAEP (SHA-1) wrapping a per-message AES-256-GCM key                | Native receivers can only lock messages away; the private key is stored encrypted with the PIN-derived key, so they open only after unlock                                                                                                                                                      |
+| **Searchable Encryption**   | Blind Indexing (salted SHA-256)                                             | Merchant-alias text and tag names are indexed by SHA-256 of the installation salt plus the lowercased text, so exact-match lookups work without readable text in an IndexedDB index. A per-installation salt, not a keyed MAC: it removes bulk readability, not confirmation of a guessed value |
+| **Integrity Check**         | SHA-256 Checksums                                                           | Verified during full backup restore and data template ingestion                                                                                                                                                                                                                                 |
 
 ### 3.4 Storage & Persistence Layer (`src/data/dexie/`)
 
 - **Dexie.js v4**: IndexedDB wrapper providing type-safe table schemas and indices.
-- **EncryptedTable Pattern**: Intercepts writes to encrypt payloads into `ciphertext` + `iv` and decrypts on reads.
+- **EncryptedTable Pattern**: Encrypts each entity into one `encryptedData: { iv, ciphertext }` blob beside the plaintext structural columns that stay indexed (account id, date, review status…), and decrypts on reads.
 - **Blind Index Maintenance**: Background migration (`blindIndexMaintenance.ts`) calculates search digests after schema upgrades when the interactive key becomes available.
-- **Data Migrations**: Versioned migration chains (`src/data/io/migrations/v1.ts` to `v1_4.ts`) safely transition data structures across releases.
+- **Data Migrations**: Versioned migration chains (`src/data/io/migrations/v1.ts` to `v1_5.ts`, with `dropTrashed.ts` for backups made before deletes became permanent) safely transition data structures across releases.
 
 ### 3.5 Interoperability & Data I/O (`src/data/io/`)
 
@@ -189,10 +189,10 @@ sequenceDiagram
     Form->>Repo: create(transactionData, key)
     Repo->>Enc: encryptAndPut(transaction, key)
     Enc->>Crypto: Generate random 96-bit IV
-    Enc->>Crypto: Compute HMAC blind indexes for searchable fields (date, accountId)
+    Enc->>Enc: Copy the plaintext structural columns (accountId, date, review status)
     Enc->>Crypto: AES-256-GCM encrypt(plaintextBytes, key, IV)
-    Crypto-->>Enc: { ciphertext, iv, blindIndexes }
-    Enc->>DB: dexie.transactions.put({ id, ciphertext, iv, ...blindIndexes })
+    Crypto-->>Enc: { iv, ciphertext }
+    Enc->>DB: dexie.transactions.put({ id, encryptedData, accountId, date, ... })
     DB-->>Repo: Stored
     Repo-->>Form: Transaction saved
     Form->>User: Toast notification & navigate to Transactions

@@ -31,8 +31,8 @@ We will acknowledge receipt of your report within 48 hours and provide a timelin
 MyFin operates entirely client-side with a zero-knowledge threat model:
 
 - Financial records are encrypted using **AES-256-GCM** before being saved to IndexedDB.
-- Master keys are derived in volatile memory using **PBKDF2-HMAC-SHA256** with 600,000 rounds.
-- Searchable fields utilize HMAC blind indexing with distinct per-column salts.
+- Master keys are derived in volatile memory using **PBKDF2-HMAC-SHA256**: 210,000 rounds for the on-device key (backed by an attempt lockout) and 600,000 rounds for backup files, which leave the device.
+- Searchable text (merchant aliases and tag names) is indexed by a salted SHA-256 digest, with a per-installation salt, instead of the text itself.
 - Volatile keys are purged from memory upon session lock or inactivity timeout.
 - Unencrypted data is never sent to external servers or third-party analytics.
 

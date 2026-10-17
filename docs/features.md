@@ -1,6 +1,6 @@
 # MyFin — Feature Documentation
 
-This document provides a comprehensive reference of all 25 features built into the MyFin application, detailing user workflows, business logic, domain engines, data models, and UI surfaces.
+This document provides a comprehensive reference of the features built into the MyFin application, detailing user workflows, business logic, domain engines, data models, and UI surfaces.
 
 ---
 
@@ -24,8 +24,12 @@ This document provides a comprehensive reference of all 25 features built into t
 16. [Feature 016: Core Workflow Improvements](#feature-016-core-workflow-improvements)
 17. [Feature 017: Financial Visibility & Control Enhancements](#feature-017-financial-visibility--control-enhancements)
 18. [Feature 018: Financial Planning & Productivity Enhancements](#feature-018-financial-planning--productivity-enhancements)
-19. [Feature 024: Purpose Tags, Card Capture, One Recurring Page & a Categories Revamp](#feature-024-purpose-tags-card-capture-one-recurring-page--a-categories-revamp)
-20. [Feature 025: A Shorter Sidebar — Data, Automation & Settings](#feature-025-a-shorter-sidebar--data-automation--settings)
+19. [Feature 020: Android Fingerprint Unlock, Editable Review & Auto-capture](#feature-020-android-fingerprint-unlock-editable-review--auto-capture)
+20. [Feature 021: QA Hardening — Recovery, Durability & Everyday Flow](#feature-021-qa-hardening--recovery-durability--everyday-flow)
+21. [Feature 022: Clearer Review, Search-as-you-type Categories & a Charted Dashboard](#feature-022-clearer-review-search-as-you-type-categories--a-charted-dashboard)
+22. [Feature 023: Audit Hardening — Imports, Integrity & Start-up](#feature-023-audit-hardening--imports-integrity--start-up)
+23. [Feature 024: Purpose Tags, Card Capture, One Recurring Page & a Categories Revamp](#feature-024-purpose-tags-card-capture-one-recurring-page--a-categories-revamp)
+24. [Feature 025: A Shorter Sidebar — Data, Automation & Settings](#feature-025-a-shorter-sidebar--data-automation--settings)
 
 ---
 

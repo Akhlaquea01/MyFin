@@ -14,7 +14,7 @@ All contributors and participants agree to abide by our [Code of Conduct](CODE_O
 
 ### Prerequisites
 
-- **Node.js**: `v20.x` or `v22.x` (LTS recommended)
+- **Node.js**: `v22.22.2` or later, or `v24.15` or later (`.npmrc` sets `engine-strict=true`, so Node 20 and older 22/24 releases refuse to install the dependencies)
 - **npm**: `v10.x` or higher
 - **Git**
 
@@ -85,7 +85,7 @@ When contributing code, adhere to these fundamental architectural rules:
 2. **Zero-Knowledge Data Storage**:
    - Financial data must never be saved unencrypted in IndexedDB, LocalStorage, or session storage.
    - All persistent user data must flow through `EncryptedTable` with AES-256-GCM encryption.
-   - Searchable fields must utilize HMAC blind indexes with per-column salts.
+   - Searchable text (merchant aliases, tag names) must be indexed by a salted blind-index digest (`blindIndex` in `cryptoService.ts`), never by its plaintext.
 
 3. **Single-Instance Safety**:
    - Do not bypass the single-instance coordinator (`src/lib/singleInstance.ts`). Only one active tab is allowed write access to prevent database conflicts.
@@ -115,6 +115,12 @@ npm run test:e2e
 # Verify production bundle builds cleanly
 npm run build
 ```
+
+The same checks run automatically on every pull request and on pushes to `master`
+(`.github/workflows/ci.yml`): formatting and lint, the type check and the unit/integration suite in one
+job, and the Playwright suite in another. A pull request should be green before it is merged. CI checks
+out with Unix line endings; on Windows `npm run lint` can report formatting problems on files you did not
+change when Git has converted them to CRLF, so judge it by the files you touched.
 
 ---
 

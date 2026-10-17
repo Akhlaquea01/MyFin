@@ -11,7 +11,7 @@ Welcome to the documentation for **MyFin**, an offline-first, zero-knowledge per
   - Data flows for cold-start unlocks and encrypted transaction persistence.
 
 - **[Feature Specifications & Catalog (`features.md`)](./features.md)**
-  - Detailed catalog of all 17 implemented features:
+  - Detailed catalog of the implemented features:
     1. Core Personal Finance Manager & Encrypted Ledger
     2. Debt Payoff Planner (Snowball & Avalanche)
     3. Savings Goals Tracker
@@ -29,6 +29,13 @@ Welcome to the documentation for **MyFin**, an offline-first, zero-knowledge per
     15. Starter Setup Template Export & Import
     16. Core Workflow Improvements
     17. Financial Visibility & Control Enhancements (Credit Cards, Net Worth, Budgets, Investments, Import Matching)
+    18. Financial Planning & Productivity Enhancements (Subscriptions, Forecasting, Variance Report, Envelope Rollover, Command Palette, Custom Dashboard, Scheduled Backups)
+    19. Android Fingerprint Unlock, Editable Review & Auto-capture
+    20. QA Hardening — Recovery, Durability & Everyday Flow
+    21. Clearer Review, Search-as-you-type Categories & a Charted Dashboard
+    22. Audit Hardening — Imports, Integrity & Start-up
+    23. Purpose Tags, Card Capture, One Recurring Page & a Categories Revamp
+    24. A Shorter Sidebar — Data, Automation & Settings
 
 ---
 
@@ -38,6 +45,6 @@ Welcome to the documentation for **MyFin**, an offline-first, zero-knowledge per
 - **Language**: TypeScript 6 (strict mode)
 - **Styling**: Tailwind CSS v4, Lucide Icons, Shadcn / Radix UI
 - **Database**: IndexedDB via Dexie.js v4
-- **Cryptography**: Web Crypto API (SubtleCrypto: AES-GCM, PBKDF2, HMAC-SHA256)
+- **Cryptography**: Web Crypto API (SubtleCrypto: AES-GCM, PBKDF2, SHA-256, RSA-OAEP)
 - **Offline / PWA**: Vite Plugin PWA, Workbox, Web Share Target API
 - **Testing**: Vitest, React Testing Library, Playwright (E2E)
