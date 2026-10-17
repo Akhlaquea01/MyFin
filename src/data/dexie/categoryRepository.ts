@@ -109,10 +109,5 @@ export const CategoryRepository = {
 	async list(key: CryptoKey): Promise<Category[]> {
 		const rows = await db.categories.toArray();
 		return decryptRows<CategoryRow, Category>(key, rows);
-	},
-
-	async listChildren(key: CryptoKey, parentId: string | null): Promise<Category[]> {
-		const rows = await db.categories.where('parentId').equals(nullableIdIndex(parentId)).toArray();
-		return decryptRows<CategoryRow, Category>(key, rows);
 	}
 };

@@ -511,13 +511,6 @@ export interface LoanRepayment extends Timestamped {
 	transactionId: ID;
 }
 
-export interface BackupRecord extends Timestamped {
-	id: ID;
-	schemaVersion: string;
-	sizeBytes: number;
-	checksum: string;
-}
-
 export interface UserProfile {
 	id: 'local-user';
 	pinVerifierHash: string;

@@ -26,14 +26,6 @@ export const MerchantRepository = {
 		return decryptRows<MerchantRow, Merchant>(key, rows);
 	},
 
-	async rename(key: CryptoKey, id: string, name: string): Promise<Merchant> {
-		const existing = await this.getById(key, id);
-		if (!existing) throw new Error(`Merchant ${id} not found`);
-		const updated: Merchant = { ...existing, name, updatedAt: Date.now() };
-		await putEncrypted(db.merchants, key, updated, {});
-		return updated;
-	},
-
 	/** Dismisses/undismisses this merchant from the auto-detected Subscriptions view (spec 019,
 	 *  FR-005) — a non-destructive preference flag, never touches the merchant's transactions. */
 	async setSubscriptionDismissed(
