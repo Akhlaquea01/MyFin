@@ -4,6 +4,7 @@ import { Badge } from '../components/ui/badge';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Card, CardContent } from '../components/ui/card';
+import { ShowMoreButton } from '../components/ShowMoreButton';
 import {
 	Table,
 	TableHeader,
@@ -13,6 +14,7 @@ import {
 	TableCell
 } from '../components/ui/table';
 import { useSession } from '../context/SessionContext';
+import { useShowMore } from '../hooks/useShowMore';
 import { CategoryRepository } from '../data/dexie/categoryRepository';
 import {
 	computeVarianceReport,
@@ -37,6 +39,9 @@ const STATUS_VARIANTS: Record<VarianceStatus, 'default' | 'secondary' | 'destruc
 	'on-track': 'default',
 	over: 'destructive'
 };
+
+// One row per category per month, up to five years of months.
+const ROWS_PAGE_SIZE = 50;
 
 function currentMonth(): string {
 	return todayLocalISO().slice(0, 7);
@@ -96,6 +101,7 @@ export function BudgetVarianceReportPage() {
 		const nameB = categoryNameById.get(b.categoryId) ?? '';
 		return nameA.localeCompare(nameB) || a.month.localeCompare(b.month);
 	});
+	const rowPaging = useShowMore(sortedRows.length, ROWS_PAGE_SIZE);
 
 	return (
 		<div className="mx-auto max-w-4xl px-4 py-8 sm:px-6">
@@ -148,7 +154,7 @@ export function BudgetVarianceReportPage() {
 								</TableRow>
 							</TableHeader>
 							<TableBody>
-								{sortedRows.map((row) => (
+								{sortedRows.slice(0, rowPaging.visible).map((row) => (
 									<TableRow key={`${row.categoryId}-${row.month}`}>
 										<TableCell>{categoryNameById.get(row.categoryId) ?? 'Unknown'}</TableCell>
 										<TableCell>{row.month}</TableCell>
@@ -170,6 +176,13 @@ export function BudgetVarianceReportPage() {
 								))}
 							</TableBody>
 						</Table>
+						<div className="mt-3 flex justify-center">
+							<ShowMoreButton
+								hidden={rowPaging.hidden}
+								step={ROWS_PAGE_SIZE}
+								onClick={rowPaging.showMore}
+							/>
+						</div>
 					</CardContent>
 				</Card>
 			)}

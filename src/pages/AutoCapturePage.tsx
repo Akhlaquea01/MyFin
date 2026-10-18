@@ -16,6 +16,8 @@ import {
 import { Switch } from '../components/ui/switch';
 import { useSession } from '../context/SessionContext';
 import { useAppActive } from '../hooks/useAppActive';
+import { useShowMore } from '../hooks/useShowMore';
+import { ShowMoreButton } from '../components/ShowMoreButton';
 import { AccountRepository } from '../data/dexie/accountRepository';
 import { UnreadableCaptureRepository } from '../data/dexie/unreadableCaptureRepository';
 import { UserProfileRepository } from '../data/dexie/userProfileRepository';
@@ -28,6 +30,9 @@ import {
 	type PermissionState
 } from '../lib/native/transactionCapture';
 import type { Account, CaptureSettings, UnreadableCapture } from '../domain/entities';
+
+// Up to UNREADABLE_CAPTURE_LIMIT messages are kept, each a card with its full text.
+const MESSAGES_PAGE_SIZE = 10;
 
 /** Android 13 added the runtime permission for an app's own notifications. */
 const POST_NOTIFICATIONS_API = 33;
@@ -124,6 +129,12 @@ export function AutoCapturePage() {
 		void refresh();
 	}, [refresh, activationCount]);
 
+	// Kept for two different reasons: read fine but nowhere to file them, or not understood.
+	const unfiled = unreadable.filter((item) => item.reason === 'no-account');
+	const unread = unreadable.filter((item) => item.reason !== 'no-account');
+	const unfiledPaging = useShowMore(unfiled.length, MESSAGES_PAGE_SIZE);
+	const unreadPaging = useShowMore(unread.length, MESSAGES_PAGE_SIZE);
+
 	if (!available) {
 		return (
 			<div className="mx-auto max-w-2xl px-4 py-8 sm:px-6">
@@ -143,9 +154,6 @@ export function AutoCapturePage() {
 	// Any account can be the default: messages that name an account or card by its digits are filed
 	// there regardless, and a card-only user has nothing else to pick.
 	const eligibleAccounts = accounts;
-	// Kept for two different reasons: read fine but nowhere to file them, or not understood.
-	const unfiled = unreadable.filter((item) => item.reason === 'no-account');
-	const unread = unreadable.filter((item) => item.reason !== 'no-account');
 	const enabled = !!settings?.enabled;
 	const ignoredTotal = Object.values(settings?.ignoredCounts ?? {}).reduce((a, b) => a + b, 0);
 	const sdk = status?.sdkInt ?? 0;
@@ -515,7 +523,7 @@ export function AutoCapturePage() {
 						</CardDescription>
 					</CardHeader>
 					<CardContent className="flex flex-col gap-3">
-						{unfiled.map((item) => (
+						{unfiled.slice(0, unfiledPaging.visible).map((item) => (
 							<div key={item.id} className="flex flex-col gap-2 rounded-md border p-3 text-sm">
 								<p className="text-xs text-muted-foreground">
 									{item.sender} · {new Date(item.receivedAt).toLocaleString()}
@@ -528,6 +536,11 @@ export function AutoCapturePage() {
 								</div>
 							</div>
 						))}
+						<ShowMoreButton
+							hidden={unfiledPaging.hidden}
+							step={MESSAGES_PAGE_SIZE}
+							onClick={unfiledPaging.showMore}
+						/>
 						<div>
 							<Button
 								size="sm"
@@ -553,7 +566,7 @@ export function AutoCapturePage() {
 						</CardDescription>
 					</CardHeader>
 					<CardContent className="flex flex-col gap-3">
-						{unread.map((item) => (
+						{unread.slice(0, unreadPaging.visible).map((item) => (
 							<div key={item.id} className="flex flex-col gap-2 rounded-md border p-3 text-sm">
 								<p className="text-xs text-muted-foreground">
 									{item.sender} · {new Date(item.receivedAt).toLocaleString()}
@@ -573,6 +586,11 @@ export function AutoCapturePage() {
 								</div>
 							</div>
 						))}
+						<ShowMoreButton
+							hidden={unreadPaging.hidden}
+							step={MESSAGES_PAGE_SIZE}
+							onClick={unreadPaging.showMore}
+						/>
 						<div>
 							<Button size="sm" variant="ghost" onClick={() => void dismissAllUnreadable()}>
 								Dismiss all

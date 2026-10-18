@@ -15,7 +15,10 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../co
 import { Sparkline } from '../components/Sparkline';
 import { SegmentedBar } from '../components/charts/SegmentedBar';
 import { ChartCanvas } from '../components/ChartCanvas';
+import { ShowMoreButton } from '../components/ShowMoreButton';
 import { useSession } from '../context/SessionContext';
+import { useShowMore } from '../hooks/useShowMore';
+import { describeNetWorthSeries } from '../lib/netWorthSeriesLabel';
 import { getChartPalette, getAxisColor, getGridColor, withAlpha } from '../lib/chartColors';
 import {
 	computeNetWorth,
@@ -48,6 +51,9 @@ const CATEGORY_ORDER = Object.keys(CATEGORY_LABELS) as (keyof typeof CATEGORY_LA
 
 Chart.register(LineController, LineElement, PointElement, LinearScale, CategoryScale, Tooltip);
 
+// One snapshot is recorded per day, so the list grows for as long as the app is used.
+const HISTORY_PAGE_SIZE = 30;
+
 // User Story 7 (P7): net worth = assets - liabilities, with a recorded history (FR-034).
 export function NetWorthPage() {
 	const { getEncryptionKey } = useSession();
@@ -61,6 +67,7 @@ export function NetWorthPage() {
 	const [history, setHistory] = useState<NetWorthSnapshot[]>([]);
 	const [loadError, setLoadError] = useState(false);
 	const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set());
+	const historyPaging = useShowMore(history.length, HISTORY_PAGE_SIZE);
 
 	function toggleCategory(key: string) {
 		setExpandedCategories((prev) => {
@@ -113,6 +120,8 @@ export function NetWorthPage() {
 		);
 	}
 	if (!breakdown) return <div className="mx-auto max-w-2xl px-4 py-8 sm:px-6">Loading…</div>;
+
+	const newestFirst = [...history].reverse();
 
 	return (
 		<div className="mx-auto max-w-2xl px-4 py-8 sm:px-6">
@@ -221,9 +230,7 @@ export function NetWorthPage() {
 						<>
 							{history.length > 1 && (
 								<ChartCanvas
-									label={`Line chart of net worth history: ${history
-										.map((s) => `${s.date} ${formatMoney(s.netWorth)}`)
-										.join(', ')}`}
+									label={`Line chart of net worth history: ${describeNetWorthSeries(history)}`}
 									config={{
 										type: 'line',
 										data: {
@@ -252,27 +259,29 @@ export function NetWorthPage() {
 								/>
 							)}
 							<ul className="flex flex-col gap-2">
-								{history
-									.slice()
-									.reverse()
-									.map((snapshot, i, reversed) => {
-										const previous = reversed[i + 1];
-										const TrendIcon =
-											previous === undefined || snapshot.netWorth === previous.netWorth
-												? Minus
-												: snapshot.netWorth > previous.netWorth
-													? TrendingUp
-													: TrendingDown;
-										return (
-											<li key={snapshot.id} className="flex items-center justify-between text-sm">
-												<span className="flex items-center gap-2 text-muted-foreground">
-													<TrendIcon className="size-3.5" /> {snapshot.date}
-												</span>
-												<span className="font-mono">{formatMoney(snapshot.netWorth)}</span>
-											</li>
-										);
-									})}
+								{newestFirst.slice(0, historyPaging.visible).map((snapshot, i) => {
+									const previous = newestFirst[i + 1];
+									const TrendIcon =
+										previous === undefined || snapshot.netWorth === previous.netWorth
+											? Minus
+											: snapshot.netWorth > previous.netWorth
+												? TrendingUp
+												: TrendingDown;
+									return (
+										<li key={snapshot.id} className="flex items-center justify-between text-sm">
+											<span className="flex items-center gap-2 text-muted-foreground">
+												<TrendIcon className="size-3.5" /> {snapshot.date}
+											</span>
+											<span className="font-mono">{formatMoney(snapshot.netWorth)}</span>
+										</li>
+									);
+								})}
 							</ul>
+							<ShowMoreButton
+								hidden={historyPaging.hidden}
+								step={HISTORY_PAGE_SIZE}
+								onClick={historyPaging.showMore}
+							/>
 						</>
 					)}
 				</CardContent>
