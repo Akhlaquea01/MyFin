@@ -76,6 +76,55 @@ describe('getDashboardInsights', () => {
 		expect(insights.spendingTotal).toBe(40_000);
 	});
 
+	it('takes money that came back into a category off money out, so it matches "Where it went"', async () => {
+		await record('2026-10-02', 500_000); // salary
+		await record('2026-10-03', -90_000, 'Food');
+		await record('2026-10-04', 40_000, 'Food'); // a friend pays back
+		await record('2026-10-05', -10_000, 'Travel');
+		await record('2026-08-11', -50_000, 'Rent');
+		await record('2026-08-12', 20_000, 'Rent'); // a deposit refund, in an earlier month
+
+		const insights = await getDashboardInsights(key, TODAY);
+
+		expect(insights.spendingTotal).toBe(60_000);
+		expect(insights.expense).toBe(insights.spendingTotal);
+		expect(insights.income).toBe(500_000);
+		// Net flow is what it always was: 540,000 in, 100,000 out.
+		expect(insights.income - insights.expense).toBe(440_000);
+		expect(insights.trend.find((p) => p.month === '2026-08')).toMatchObject({
+			income: 0,
+			expense: 30_000
+		});
+	});
+
+	it('nets a refund in one subcategory against spending in its sibling, as the roll-up does', async () => {
+		cats.Groceries = (
+			await CategoryRepository.create(key, { name: 'Groceries', parentId: cats.Food })
+		).id;
+		cats.Dining = (
+			await CategoryRepository.create(key, { name: 'Dining', parentId: cats.Food })
+		).id;
+		await record('2026-10-03', -30_000, 'Groceries');
+		await record('2026-10-04', 10_000, 'Dining');
+
+		const insights = await getDashboardInsights(key, TODAY);
+
+		expect(insights.spendingTotal).toBe(20_000);
+		expect(insights.expense).toBe(20_000);
+		expect(insights.income).toBe(0);
+	});
+
+	it('keeps unlabelled money in as income, so a salary never hides spending', async () => {
+		await record('2026-10-01', 100_000);
+		await record('2026-10-02', -30_000);
+
+		const insights = await getDashboardInsights(key, TODAY);
+
+		expect(insights.income).toBe(100_000);
+		expect(insights.expense).toBe(30_000);
+		expect(insights.spendingTotal).toBe(30_000);
+	});
+
 	it('folds spending past the top five into one "Other" that still adds up', async () => {
 		const names = ['Food', 'Travel', 'Fun', 'Rent', 'Bills', 'Gifts', 'Health'];
 		for (const [i, name] of names.entries())

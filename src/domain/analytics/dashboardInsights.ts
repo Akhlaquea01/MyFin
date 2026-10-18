@@ -36,7 +36,9 @@ export interface BudgetStatus {
 export interface DashboardInsights {
 	/** `YYYY-MM` of the month being shown. */
 	month: string;
+	/** Money in, without what came back into a spending category (a refund, a repayment). */
 	income: number;
+	/** Money out after that money back: equals `spendingTotal`. */
 	expense: number;
 	/** The last `TREND_MONTHS` months, oldest first, with empty months present as zeros. */
 	trend: MonthlyTrendPoint[];
@@ -98,7 +100,9 @@ export async function getDashboardInsights(
 	const month = months[months.length - 1];
 	const monthStart = `${month}-01`;
 	const [trendPoints, spendingRaw, budgetItems, categories] = await Promise.all([
-		incomeExpenseTrend(key, `${months[0]}-01`, monthEnd(month)),
+		// Netted the same way as the spending breakdown below, so "Money out" is what "Where it went"
+		// adds up to instead of a larger gross figure beside it.
+		incomeExpenseTrend(key, `${months[0]}-01`, monthEnd(month), { netRefunds: true, rollUp: true }),
 		categoryBreakdown(key, monthStart, monthEnd(month), { rollUp: true }),
 		budgetPerformance(key, monthStart, monthEnd(month)),
 		CategoryRepository.list(key)
