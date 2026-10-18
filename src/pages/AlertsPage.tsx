@@ -5,11 +5,16 @@ import { toast } from 'sonner';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
 import { Card, CardContent } from '../components/ui/card';
+import { ShowMoreButton } from '../components/ShowMoreButton';
 import { useSession } from '../context/SessionContext';
+import { useShowMore } from '../hooks/useShowMore';
 import { NotificationInboxRepository } from '../data/dexie/notificationInboxRepository';
 import { ALERTS_CHANGED_EVENT, announceAlertsChanged } from '../lib/alertsEvent';
 import { useConfirm } from '../lib/confirm';
 import type { InboxNotification, InboxNotificationKind } from '../domain/entities';
+
+// The inbox keeps up to INBOX_LIMIT entries; a hundred cards at once is a very long page.
+const ALERTS_PAGE_SIZE = 20;
 
 const KIND_ICON: Record<InboxNotificationKind, typeof BellRing> = {
 	recurring: CalendarClock,
@@ -36,6 +41,7 @@ export function AlertsPage() {
 	const confirm = useConfirm();
 
 	const [items, setItems] = useState<InboxNotification[] | null>(null);
+	const paging = useShowMore(items?.length ?? 0, ALERTS_PAGE_SIZE);
 
 	const load = useCallback(async () => {
 		try {
@@ -140,43 +146,50 @@ export function AlertsPage() {
 					</CardContent>
 				</Card>
 			) : (
-				<ul className="flex flex-col gap-2">
-					{items.map((item) => {
-						const Icon = KIND_ICON[item.kind] ?? BellRing;
-						const isUnread = item.readAt === null;
-						return (
-							<li key={item.id}>
-								<Card className={isUnread ? 'border-primary/40' : undefined}>
-									<CardContent className="flex items-start gap-3 py-3">
-										<Icon className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
-										<button
-											type="button"
-											className="min-w-0 flex-1 text-left"
-											onClick={() => void open(item)}
-										>
-											<span className="flex flex-wrap items-center gap-2 text-sm font-medium">
-												{item.title}
-												{isUnread && <Badge variant="secondary">New</Badge>}
-											</span>
-											<span className="block text-sm text-muted-foreground">{item.body}</span>
-											<span className="block text-xs text-muted-foreground">
-												{formatWhen(item.createdAt)}
-											</span>
-										</button>
-										<Button
-											variant="ghost"
-											size="icon-sm"
-											aria-label={`Dismiss ${item.title}`}
-											onClick={() => void dismiss(item)}
-										>
-											<X />
-										</Button>
-									</CardContent>
-								</Card>
-							</li>
-						);
-					})}
-				</ul>
+				<div className="flex flex-col gap-3">
+					<ul className="flex flex-col gap-2">
+						{items.slice(0, paging.visible).map((item) => {
+							const Icon = KIND_ICON[item.kind] ?? BellRing;
+							const isUnread = item.readAt === null;
+							return (
+								<li key={item.id}>
+									<Card className={isUnread ? 'border-primary/40' : undefined}>
+										<CardContent className="flex items-start gap-3 py-3">
+											<Icon className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+											<button
+												type="button"
+												className="min-w-0 flex-1 text-left"
+												onClick={() => void open(item)}
+											>
+												<span className="flex flex-wrap items-center gap-2 text-sm font-medium">
+													{item.title}
+													{isUnread && <Badge variant="secondary">New</Badge>}
+												</span>
+												<span className="block text-sm text-muted-foreground">{item.body}</span>
+												<span className="block text-xs text-muted-foreground">
+													{formatWhen(item.createdAt)}
+												</span>
+											</button>
+											<Button
+												variant="ghost"
+												size="icon-sm"
+												aria-label={`Dismiss ${item.title}`}
+												onClick={() => void dismiss(item)}
+											>
+												<X />
+											</Button>
+										</CardContent>
+									</Card>
+								</li>
+							);
+						})}
+					</ul>
+					<ShowMoreButton
+						hidden={paging.hidden}
+						step={ALERTS_PAGE_SIZE}
+						onClick={paging.showMore}
+					/>
+				</div>
 			)}
 		</div>
 	);

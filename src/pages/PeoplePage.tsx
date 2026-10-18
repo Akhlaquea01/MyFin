@@ -24,7 +24,9 @@ import {
 	DialogTitle,
 	DialogTrigger
 } from '../components/ui/dialog';
+import { ShowMoreButton } from '../components/ShowMoreButton';
 import { useSession } from '../context/SessionContext';
+import { useShowMore } from '../hooks/useShowMore';
 import { AccountRepository } from '../data/dexie/accountRepository';
 import {
 	PersonRepository,
@@ -46,6 +48,9 @@ import {
 } from '../domain/shared/money';
 import { todayLocalISO } from '../domain/shared/dateMath';
 import { useConfirm } from '../lib/confirm';
+
+// A long-running loan collects an instalment every month.
+const REPAYMENTS_PAGE_SIZE = 10;
 
 function todayISO(): string {
 	return todayLocalISO();
@@ -438,6 +443,7 @@ function LoanRow({
 	const [settleDate, setSettleDate] = useState(todayISO());
 	const [editDueDate, setEditDueDate] = useState(loan.dueDate ?? '');
 	const [editNotes, setEditNotes] = useState(loan.notes ?? '');
+	const repaymentPaging = useShowMore(repayments.length, REPAYMENTS_PAGE_SIZE);
 
 	const pendingBalance = computePendingBalance({
 		principalAmount: loan.principalAmount,
@@ -642,29 +648,37 @@ function LoanRow({
 			{loan.notes && <p className="text-xs text-muted-foreground">{loan.notes}</p>}
 
 			{repayments.length > 0 && (
-				<ul className="flex flex-col gap-1">
-					{repayments
-						.slice()
-						.sort((a, b) => (a.date < b.date ? 1 : -1))
-						.map((r) => (
-							<li
-								key={r.id}
-								className="flex items-center justify-between text-xs text-muted-foreground"
-							>
-								<span>
-									{r.date} · {formatMoney(r.amount)} {isLent ? 'received' : 'paid back'}
-								</span>
-								<Button
-									variant="link"
-									size="sm"
-									className="h-auto p-0 text-xs"
-									onClick={() => void onUndoRepayment(r.id)}
+				<div className="flex flex-col gap-2">
+					<ul className="flex flex-col gap-1">
+						{repayments
+							.slice()
+							.sort((a, b) => (a.date < b.date ? 1 : -1))
+							.slice(0, repaymentPaging.visible)
+							.map((r) => (
+								<li
+									key={r.id}
+									className="flex items-center justify-between text-xs text-muted-foreground"
 								>
-									Undo
-								</Button>
-							</li>
-						))}
-				</ul>
+									<span>
+										{r.date} · {formatMoney(r.amount)} {isLent ? 'received' : 'paid back'}
+									</span>
+									<Button
+										variant="link"
+										size="sm"
+										className="h-auto p-0 text-xs"
+										onClick={() => void onUndoRepayment(r.id)}
+									>
+										Undo
+									</Button>
+								</li>
+							))}
+					</ul>
+					<ShowMoreButton
+						hidden={repaymentPaging.hidden}
+						step={REPAYMENTS_PAGE_SIZE}
+						onClick={repaymentPaging.showMore}
+					/>
+				</div>
 			)}
 
 			{status === 'open' && (

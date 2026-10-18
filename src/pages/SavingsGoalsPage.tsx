@@ -20,7 +20,9 @@ import {
 	DialogTitle,
 	DialogTrigger
 } from '../components/ui/dialog';
+import { ShowMoreButton } from '../components/ShowMoreButton';
 import { useSession } from '../context/SessionContext';
+import { useShowMore } from '../hooks/useShowMore';
 import { detachPurposeTarget } from '../domain/transactions/purposeEngine';
 import {
 	SavingsGoalRepository,
@@ -36,6 +38,9 @@ import {
 } from '../domain/shared/money';
 import { isoDateToLocalDate, localDateAsUtc, todayLocalISO } from '../domain/shared/dateMath';
 import { useConfirm } from '../lib/confirm';
+
+// A goal can collect a contribution every month for years.
+const CONTRIBUTIONS_PAGE_SIZE = 10;
 
 const goalSchema = z.object({
 	name: z.string().trim().min(1, 'Name is required.'),
@@ -245,6 +250,7 @@ function GoalCard({
 	const key = getEncryptionKey();
 	const confirm = useConfirm();
 	const [contribDialogOpen, setContribDialogOpen] = useState(false);
+	const paging = useShowMore(contributions.length, CONTRIBUTIONS_PAGE_SIZE);
 
 	const contribForm = useForm<ContributionFormValues>({
 		resolver: zodResolver(contributionSchema),
@@ -383,29 +389,37 @@ function GoalCard({
 				</Dialog>
 
 				{contributions.length > 0 && (
-					<ul className="mt-3 flex flex-col gap-1">
-						{contributions
-							.slice()
-							.sort((a, b) => (a.date < b.date ? 1 : -1))
-							.map((c) => (
-								<li
-									key={c.id}
-									className="flex items-center justify-between text-sm text-muted-foreground"
-								>
-									<span>
-										{c.date} · {formatMoney(c.amount)}
-									</span>
-									<Button
-										variant="link"
-										size="sm"
-										className="h-auto p-0"
-										onClick={() => removeContribution(c.id)}
+					<div className="mt-3 flex flex-col gap-2">
+						<ul className="flex flex-col gap-1">
+							{contributions
+								.slice()
+								.sort((a, b) => (a.date < b.date ? 1 : -1))
+								.slice(0, paging.visible)
+								.map((c) => (
+									<li
+										key={c.id}
+										className="flex items-center justify-between text-sm text-muted-foreground"
 									>
-										Remove
-									</Button>
-								</li>
-							))}
-					</ul>
+										<span>
+											{c.date} · {formatMoney(c.amount)}
+										</span>
+										<Button
+											variant="link"
+											size="sm"
+											className="h-auto p-0"
+											onClick={() => removeContribution(c.id)}
+										>
+											Remove
+										</Button>
+									</li>
+								))}
+						</ul>
+						<ShowMoreButton
+							hidden={paging.hidden}
+							step={CONTRIBUTIONS_PAGE_SIZE}
+							onClick={paging.showMore}
+						/>
+					</div>
 				)}
 			</CardContent>
 		</Card>

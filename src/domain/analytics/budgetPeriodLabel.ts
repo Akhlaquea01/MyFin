@@ -40,6 +40,28 @@ export function budgetPeriodLabel(periodStart: string, periodEnd: string): strin
 	return `${from} – ${to}`;
 }
 
+/** Years to offer in a year picker: every year a budget period touches, plus the current one. Newest first. */
+export function budgetYears(items: BudgetPerformanceItem[], currentYear: number): number[] {
+	const years = new Set([currentYear]);
+	for (const item of items) {
+		years.add(Number(item.periodStart.slice(0, 4)));
+		years.add(Number(item.periodEnd.slice(0, 4)));
+	}
+	return [...years].filter(Number.isFinite).sort((a, b) => b - a);
+}
+
+/** Rows whose period overlaps the calendar month (1-12): a yearly budget shows in each of its months. */
+export function budgetPerformanceInMonth(
+	items: BudgetPerformanceItem[],
+	year: number,
+	month: number
+): BudgetPerformanceItem[] {
+	const prefix = `${year}-${String(month).padStart(2, '0')}`;
+	const start = `${prefix}-01`;
+	const end = `${prefix}-${String(lastDayOfMonth(year, month)).padStart(2, '0')}`;
+	return items.filter((item) => item.periodEnd >= start && item.periodStart <= end);
+}
+
 /** Budget rows grouped under their period, in the order the periods first appear. */
 export function groupBudgetPerformance(items: BudgetPerformanceItem[]): BudgetPeriodGroup[] {
 	const groups = new Map<string, BudgetPeriodGroup>();
