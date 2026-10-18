@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { configure, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 
@@ -27,7 +27,16 @@ async function seedAlerts(count: number) {
 	}
 }
 
+// Findable UI is waited for up to 5 s, not Testing Library's 1 s: with the rest of the suite running
+// beside this file, decrypting the seeded list can take longer than that.
+configure({ asyncUtilTimeout: 5_000 });
+
 describe('AlertsPage with many alerts', () => {
+	// Seeding 45 alerts is 45 encrypted writes: about a second alone, 3-6 s while the full suite runs in
+	// parallel, which is past Vitest's 5 s default. 45 is needed to show both "Show 20 more" and
+	// "Show 5 more", so the test gets room instead of being shrunk.
+	vi.setConfig({ testTimeout: 30_000 });
+
 	beforeEach(async () => {
 		await db.delete();
 		await db.open();

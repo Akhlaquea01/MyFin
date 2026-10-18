@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { configure, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { BudgetPerformanceItem } from '../../src/domain/analytics/analyticsEngine';
 
@@ -53,7 +53,14 @@ async function pick(user: ReturnType<typeof userEvent.setup>, picker: string, op
 	await user.click(await screen.findByRole('option', { name: option }));
 }
 
+// Each screen loads in two chained steps (the budgets, then the chosen month's live figures) and the
+// pickers are Radix Selects. Alone that settles in well under a second; with the full suite running in
+// parallel it has taken 2+ s, so wait up to 5 s for it (Testing Library's default is 1 s).
+configure({ asyncUtilTimeout: 5_000 });
+
 describe('BudgetPerformanceCard', () => {
+	vi.setConfig({ testTimeout: 30_000 });
+
 	beforeEach(() => {
 		// Only the clock's date is faked, so user-event's timers still run.
 		vi.useFakeTimers({ toFake: ['Date'] });
@@ -161,7 +168,9 @@ describe('BudgetPerformanceCard', () => {
 		mocks.budgetPerformance.mockRejectedValue(new Error('boom'));
 		render(<BudgetPerformanceCard />);
 
-		await waitFor(() => expect(toast.error).toHaveBeenCalledWith('boom'));
-		expect(screen.getByText('No budgets for October 2026.')).toBeInTheDocument();
+		// The empty state is not there when the toast fires: the failed load sets the list to empty,
+		// and only then is the month refreshed and rendered. Wait for what is asserted, not for the toast.
+		expect(await screen.findByText('No budgets for October 2026.')).toBeInTheDocument();
+		expect(toast.error).toHaveBeenCalledWith('boom');
 	});
 });
