@@ -16,27 +16,28 @@ import { toast } from 'sonner';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { ChartCanvas } from '../components/ChartCanvas';
 import { BarList } from '../components/charts/BarList';
-import { ProgressBar } from '../components/charts/ProgressBar';
+import { BudgetPerformanceCard } from '../components/BudgetPerformanceCard';
+import { Button } from '../components/ui/button';
 import { PURPOSE_LABELS } from '../domain/transactions/purposeEngine';
 import { CategoryRepository } from '../data/dexie/categoryRepository';
 import { DateRangeSelector, type DateRange } from '../components/DateRangeSelector';
 import { useSession } from '../context/SessionContext';
+import { describeNetWorthSeries } from '../lib/netWorthSeriesLabel';
 import { getChartPalette, getAxisColor, getGridColor, withAlpha } from '../lib/chartColors';
 import {
 	categoryBreakdown,
 	purposeBreakdown,
 	incomeExpenseTrend,
 	cashFlowTrend,
-	budgetPerformance,
+	foldSmallCategories,
+	OTHER_CATEGORY_ID,
 	netWorthTrend,
 	type CategoryBreakdownItem,
 	type PurposeBreakdownItem,
 	type MonthlyTrendPoint,
 	type CashFlowPoint,
-	type BudgetPerformanceItem,
 	type NetWorthTrendPoint
 } from '../domain/analytics/analyticsEngine';
-import { groupBudgetPerformance } from '../domain/analytics/budgetPeriodLabel';
 import { todayLocalISO } from '../domain/shared/dateMath';
 import { formatMoney } from '../domain/shared/money';
 
@@ -51,6 +52,9 @@ Chart.register(
 	Tooltip,
 	Legend
 );
+
+// More bars than this are unreadable on a phone; the rest fold into "Other" until asked for.
+const TOP_CATEGORIES = 10;
 
 function defaultRange(): DateRange {
 	const now = new Date();
@@ -84,9 +88,9 @@ export function AnalyticsPage() {
 	// labelled with its full path, is what this chart has always shown.
 	const [hasSubcategories, setHasSubcategories] = useState(false);
 	const [rollUp, setRollUp] = useState(false);
+	const [showAllCategories, setShowAllCategories] = useState(false);
 	const [trend, setTrend] = useState<MonthlyTrendPoint[]>([]);
 	const [cashFlow, setCashFlow] = useState<CashFlowPoint[]>([]);
-	const [budgets, setBudgets] = useState<BudgetPerformanceItem[]>([]);
 	const [netWorth, setNetWorth] = useState<NetWorthTrendPoint[]>([]);
 
 	useEffect(() => {
@@ -97,16 +101,14 @@ export function AnalyticsPage() {
 			purposeBreakdown(key, range.from, range.to),
 			incomeExpenseTrend(key, range.from, range.to),
 			cashFlowTrend(key, range.from, range.to),
-			budgetPerformance(key, range.from, range.to),
 			netWorthTrend(key, range.from, range.to)
 		])
-			.then(([cat, purpose, inc, flow, perf, nw]) => {
+			.then(([cat, purpose, inc, flow, nw]) => {
 				if (cancelled) return;
 				setCategories(cat);
 				setPurposes(purpose);
 				setTrend(inc);
 				setCashFlow(flow);
-				setBudgets(perf);
 				setNetWorth(nw);
 			})
 			.catch((err: unknown) => {
@@ -127,6 +129,10 @@ export function AnalyticsPage() {
 			.then((all) => setHasSubcategories(all.some((c) => c.parentId !== null)))
 			.catch(() => setHasSubcategories(false));
 	}, [key]);
+
+	const chartCategories = showAllCategories
+		? categories
+		: foldSmallCategories(categories, TOP_CATEGORIES);
 
 	return (
 		<div className="mx-auto max-w-5xl px-4 py-8 sm:px-6">
@@ -160,18 +166,22 @@ export function AnalyticsPage() {
 								<EmptyState />
 							) : (
 								<ChartCanvas
-									label={`Bar chart of spending by category: ${categories
+									label={`Bar chart of spending by category: ${chartCategories
 										.map((c) => `${c.categoryName} ${formatMoney(c.total)}`)
 										.join(', ')}`}
 									config={{
 										type: 'bar',
 										data: {
-											labels: categories.map((c) => c.categoryName),
+											labels: chartCategories.map((c) => c.categoryName),
 											datasets: [
 												{
 													label: 'Spent',
-													data: categories.map((c) => c.total / 100),
-													backgroundColor: categories.map((_, i) => palette[i % palette.length])
+													data: chartCategories.map((c) => c.total / 100),
+													backgroundColor: chartCategories.map((c, i) =>
+														c.categoryId === OTHER_CATEGORY_ID
+															? axisColor
+															: palette[i % palette.length]
+													)
 												}
 											]
 										},
@@ -183,6 +193,19 @@ export function AnalyticsPage() {
 										}
 									}}
 								/>
+							)}
+							{categories.length > TOP_CATEGORIES + 1 && (
+								<Button
+									type="button"
+									variant="ghost"
+									size="sm"
+									className="mt-2"
+									onClick={() => setShowAllCategories((all) => !all)}
+								>
+									{showAllCategories
+										? `Show top ${TOP_CATEGORIES} only`
+										: `Show all ${categories.length} categories`}
+								</Button>
 							)}
 						</CardContent>
 					</Card>
@@ -306,9 +329,7 @@ export function AnalyticsPage() {
 								<EmptyState />
 							) : (
 								<ChartCanvas
-									label={`Line chart of net worth trend: ${netWorth
-										.map((p) => `${p.date} ${formatMoney(p.netWorth)}`)
-										.join(', ')}`}
+									label={`Line chart of net worth trend: ${describeNetWorthSeries(netWorth)}`}
 									config={{
 										type: 'line',
 										data: {
@@ -335,52 +356,10 @@ export function AnalyticsPage() {
 							)}
 						</CardContent>
 					</Card>
-
-					<Card className="sm:col-span-2">
-						<CardHeader>
-							<CardTitle className="flex items-center gap-2 text-base">
-								<Target className="size-4 text-primary" /> Budget performance
-							</CardTitle>
-						</CardHeader>
-						<CardContent>
-							{budgets.length === 0 ? (
-								<EmptyState />
-							) : (
-								<div className="flex flex-col gap-5">
-									{groupBudgetPerformance(budgets).map((group) => (
-										<section key={group.id} className="flex flex-col gap-3">
-											<h3 className="text-sm font-medium">{group.label}</h3>
-											{group.items.map((b) => (
-												<div
-													key={`${b.budgetId}-${b.periodStart}`}
-													className="flex flex-col gap-1.5"
-												>
-													<div className="flex items-baseline justify-between gap-3 text-sm">
-														<span className="min-w-0">{b.categoryName}</span>
-														<span className="shrink-0 text-muted-foreground tabular-nums">
-															{formatMoney(b.actualAmount)} of {formatMoney(b.plannedAmount)}
-														</span>
-													</div>
-													<ProgressBar
-														value={b.actualAmount}
-														max={b.plannedAmount}
-														label={`${b.categoryName} spent against its budget`}
-													/>
-													{b.actualAmount > b.plannedAmount && (
-														<p className="text-xs text-destructive">
-															{formatMoney(b.actualAmount - b.plannedAmount)} over budget
-														</p>
-													)}
-												</div>
-											))}
-										</section>
-									))}
-								</div>
-							)}
-						</CardContent>
-					</Card>
 				</div>
 			)}
+
+			<BudgetPerformanceCard className="mt-4" />
 		</div>
 	);
 }

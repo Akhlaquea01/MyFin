@@ -11,7 +11,11 @@ import {
 	incomeExpenseTrend,
 	cashFlowTrend,
 	budgetPerformance,
-	netWorthTrend
+	foldSmallCategories,
+	withLiveBudgetActuals,
+	netWorthTrend,
+	OTHER_CATEGORY_ID,
+	type CategoryBreakdownItem
 } from '../../src/domain/analytics/analyticsEngine';
 import { deriveEncryptionKey, randomSaltBase64 } from '../../src/data/crypto/cryptoService';
 
@@ -166,6 +170,36 @@ describe('Analytics engine', () => {
 		]);
 	});
 
+	it('recomputes actual spend from the ledger when the stored figure has gone stale', async () => {
+		const budget = await BudgetRepository.create(key, {
+			categoryId: groceriesId,
+			periodType: 'monthly',
+			amount: 10000,
+			rolloverEnabled: false,
+			isSinkingFund: false
+		});
+		await ensureCurrentBudgetItem(key, budget, new Date('2026-03-15T00:00:00Z'));
+		// Spent after the budget item was last opened, so nothing has refreshed the stored figure.
+		await TransactionRepository.create(
+			key,
+			{ accountId, date: '2026-03-20', amount: -4500, type: 'expense' },
+			[{ categoryId: groceriesId, amount: -4500 }]
+		);
+
+		const stored = await budgetPerformance(key, '2026-03-01', '2026-03-31');
+		expect(stored[0].actualAmount).toBe(0);
+
+		const live = await withLiveBudgetActuals(key, stored);
+		expect(live).toHaveLength(1);
+		expect(live[0].actualAmount).toBe(4500);
+		expect(live[0].plannedAmount).toBe(10000);
+		expect(stored[0].actualAmount).toBe(0);
+	});
+
+	it('leaves an empty list alone', async () => {
+		expect(await withLiveBudgetActuals(key, [])).toEqual([]);
+	});
+
 	it('restricts net worth trend to snapshots within the selected date range', async () => {
 		await AccountRepository.create(key, {
 			name: 'Savings',
@@ -179,5 +213,37 @@ describe('Analytics engine', () => {
 
 		const trend = await netWorthTrend(key, '2026-02-01', '2026-03-31');
 		expect(trend.map((p) => p.date)).toEqual(['2026-03-01']);
+	});
+});
+
+describe('foldSmallCategories', () => {
+	const categories = (count: number): CategoryBreakdownItem[] =>
+		Array.from({ length: count }, (_, i) => ({
+			categoryId: `c${i}`,
+			categoryName: `Category ${i}`,
+			total: (count - i) * 100
+		}));
+
+	it('leaves a short list as it is', () => {
+		const list = categories(10);
+		expect(foldSmallCategories(list, 10)).toBe(list);
+	});
+
+	it('adds everything past the limit into one "Other" bar, keeping the total', () => {
+		const list = categories(15);
+		const folded = foldSmallCategories(list, 10);
+		expect(folded).toHaveLength(11);
+		expect(folded.slice(0, 10)).toEqual(list.slice(0, 10));
+		const other = folded[10];
+		expect(other.categoryId).toBe(OTHER_CATEGORY_ID);
+		expect(other.categoryName).toBe('Other (5 categories)');
+		expect(folded.reduce((sum, c) => sum + c.total, 0)).toBe(
+			list.reduce((sum, c) => sum + c.total, 0)
+		);
+	});
+
+	it('does not fold a lone category into "Other", which would only rename it', () => {
+		const list = categories(11);
+		expect(foldSmallCategories(list, 10)).toBe(list);
 	});
 });

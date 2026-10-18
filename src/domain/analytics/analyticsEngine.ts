@@ -5,6 +5,7 @@ import {
 	UNCATEGORIZED_CATEGORY_ID
 } from '../../data/dexie/transactionRepository';
 import { BudgetRepository, BudgetItemRepository } from '../../data/dexie/budgetRepository';
+import { recalcActualAmount } from '../budgets/budgetEngine';
 import { NetWorthSnapshotRepository } from '../../data/dexie/wealthRepository';
 import type { Category, PurposeKind, TransactionSplit } from '../entities';
 
@@ -119,6 +120,26 @@ export async function categoryBreakdown(
 			total: -movement
 		}))
 		.sort((a, b) => b.total - a.total);
+}
+
+export const OTHER_CATEGORY_ID = '__other__';
+
+/** The `limit` biggest categories as they are, the rest added into one "Other" bar. Expects `items` biggest first. */
+export function foldSmallCategories(
+	items: CategoryBreakdownItem[],
+	limit: number
+): CategoryBreakdownItem[] {
+	// Folding a single category into "Other" would only rename it.
+	if (items.length <= limit + 1) return items;
+	const tail = items.slice(limit);
+	return [
+		...items.slice(0, limit),
+		{
+			categoryId: OTHER_CATEGORY_ID,
+			categoryName: `Other (${tail.length} categories)`,
+			total: tail.reduce((sum, item) => sum + item.total, 0)
+		}
+	];
 }
 
 export interface CategoryActivityItem {
@@ -337,6 +358,31 @@ export async function budgetPerformance(
 		}
 	}
 	return results.sort((a, b) => (a.periodStart < b.periodStart ? -1 : 1));
+}
+
+/**
+ * `items` with each actualAmount recomputed from the ledger, the way the Budgets page does. The
+ * stored figure only moves when a budget is opened (`ensureBudgetItemForPeriod`), so spending
+ * recorded since reads as zero here.
+ */
+export async function withLiveBudgetActuals(
+	key: CryptoKey,
+	items: BudgetPerformanceItem[]
+): Promise<BudgetPerformanceItem[]> {
+	if (items.length === 0) return items;
+	const categories = await CategoryRepository.list(key);
+	return Promise.all(
+		items.map(async (item) => ({
+			...item,
+			actualAmount: await recalcActualAmount(
+				key,
+				item.categoryId,
+				item.periodStart,
+				item.periodEnd,
+				{ categories }
+			)
+		}))
+	);
 }
 
 /** Net worth history restricted to [dateFrom, dateTo] (FR-035). */
