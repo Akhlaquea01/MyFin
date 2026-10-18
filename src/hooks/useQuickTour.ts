@@ -1,5 +1,5 @@
 import { useContext } from 'react';
-import { QuickTourContext } from '../components/ui/quick-tour/QuickTourProvider';
+import { QuickTourContext } from '../components/quick-tour/QuickTourProvider';
 
 export function useQuickTour() {
 	const context = useContext(QuickTourContext);

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, waitFor, act } from '@testing-library/react';
+import { configure, render, screen, waitFor, act } from '@testing-library/react';
 import { LockScreen } from '../../src/components/LockScreen';
 import { SessionProvider } from '../../src/context/SessionContext';
 import { UserProfileRepository } from '../../src/data/dexie/userProfileRepository';
@@ -10,6 +10,10 @@ import {
 	randomSaltBase64
 } from '../../src/data/crypto/cryptoService';
 
+// The test derives a real PBKDF2 PIN verifier and then waits for the lock screen to read it back;
+// under the full parallel suite that has exceeded Testing Library's 1 s wait, so allow 5 s.
+configure({ asyncUtilTimeout: 5_000 });
+
 /**
  * Regression: the ticking lockout countdown lived directly inside a `role="alert"` region,
  * whose text changed roughly every 500ms — most screen readers re-announce a live region on
@@ -17,6 +21,8 @@ import {
  * The countdown text is now split from the one-time transition announcement.
  */
 describe('LockScreen lockout announcement', () => {
+	vi.setConfig({ testTimeout: 30_000 });
+
 	beforeEach(async () => {
 		vi.useFakeTimers({ shouldAdvanceTime: true });
 		await db.delete();

@@ -1,10 +1,14 @@
-# MyFin — Engineering & QA Audit
+# MyFin — Engineering & QA Audit Log
 
-Scope: the whole repository (React 19 + Vite PWA, Dexie/IndexedDB with AES-GCM row encryption, Capacitor
+A dated record of three audits (sections 1–5, 6 and 7), kept as history: figures such as test counts
+and bundle sizes are those of the day they were written. For how the system is built see the
+[HLD](../architecture/HLD.md); for current open issues and decisions see [DECISIONS](DECISIONS.md).
+
+Scope of the first audit: the whole repository (React 19 + Vite PWA, Dexie/IndexedDB with AES-GCM row encryption, Capacitor
 Android shell). The audit read the crypto/session/backup core, the ledger and every domain engine, the
 import/export paths, the PWA and Android configuration, and then **fixed what it found, with regression
 tests**. Nothing here is a claim that was not run: the commands used are listed in
-[Verification](#verification).
+[Verification](#5-verification).
 
 Severity uses Critical / High / Medium / Low. No Critical defects were found: the encryption design,
 PIN throttle, session handling, backup/restore atomicity and money arithmetic (integer minor units

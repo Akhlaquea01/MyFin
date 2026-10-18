@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { configure, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { db } from '../../src/data/dexie/db';
 import { InvestmentHoldingRepository } from '../../src/data/dexie/wealthRepository';
@@ -15,7 +15,14 @@ vi.mock('../../src/context/SessionContext', () => ({
 import { toast } from 'sonner';
 import { HoldingEditDialog } from '../../src/components/HoldingEditDialog';
 
+// Saving goes through real AES-GCM and IndexedDB writes. Alone that takes a few hundred ms; with the
+// full suite running in parallel the first test has taken 3+ s, so wait up to 5 s for the save
+// (Testing Library's default is 1 s) and let a test run for 30 s (Vitest's default is 5 s).
+configure({ asyncUtilTimeout: 5_000 });
+
 describe('HoldingEditDialog', () => {
+	vi.setConfig({ testTimeout: 30_000 });
+
 	beforeEach(async () => {
 		vi.clearAllMocks();
 		await db.delete();

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { isElementVisible } from '../../src/components/ui/quick-tour/QuickTourOverlay';
+import { isElementVisible } from '../../src/components/quick-tour/QuickTourOverlay';
 
 /**
  * Regression coverage for the desktop-tour bug: a `data-tour` target that's present in the DOM

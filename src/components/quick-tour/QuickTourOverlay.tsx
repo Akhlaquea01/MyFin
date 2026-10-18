@@ -1,8 +1,8 @@
 import { useEffect, useLayoutEffect, useRef, useState, useCallback } from 'react';
-import { useQuickTour } from '../../../hooks/useQuickTour';
-import { QUICK_TOUR_STEPS } from './tour-steps';
-import { Button } from '../button';
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '../card';
+import { useQuickTour } from '../../hooks/useQuickTour';
+import { QUICK_TOUR_STEPS } from './tourSteps';
+import { Button } from '../ui/button';
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '../ui/card';
 import { X, ChevronLeft, ChevronRight } from 'lucide-react';
 import { createPortal } from 'react-dom';
 

@@ -1,7 +1,7 @@
 import type { CapacitorConfig } from '@capacitor/cli';
 
 /**
- * Android packaging (see ANDROID_APK_BUILD.md).
+ * Android packaging (see docs/deployment/BUILD.md).
  *
  * - `appId` is the Android application ID. Treat it as permanent: Android keys an installed
  *   app's data to it, so changing it later installs a *different* app with an empty database.

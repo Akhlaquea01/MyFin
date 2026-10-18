@@ -10,7 +10,7 @@
 [![Vite](https://img.shields.io/badge/Vite-8.0-646cff.svg?logo=vite&logoColor=white)](https://vitejs.dev/)
 [![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-v4-38bdf8.svg?logo=tailwindcss&logoColor=white)](https://tailwindcss.com/)
 [![PWA](https://img.shields.io/badge/PWA-Ready-5A0FC8.svg?logo=pwa&logoColor=white)](https://developer.mozilla.org/en-US/docs/Web/Progressive_web_apps)
-[![Security](https://img.shields.io/badge/Security-AES--256--GCM-green.svg)](docs/architecture.md)
+[![Security](https://img.shields.io/badge/Security-AES--256--GCM-green.svg)](docs/architecture/HLD.md#6-security-model)
 
 </div>
 
@@ -63,74 +63,50 @@ MyFin follows a strict **zero-knowledge architecture**:
 - **Searchable Encryption**: **Salted SHA-256 blind indexing** (per-installation salt) lets merchant aliases and tag names be looked up by exact match without their plaintext sitting in an IndexedDB index.
 - **Concurrency Isolation**: **Web Locks API** single-instance coordinator prevents concurrent tab write conflicts.
 
-For a detailed technical breakdown, read the **[Architecture & Security Documentation](docs/architecture.md)**.
+For the full threat model and design rationale, read the **[High-Level Design](docs/architecture/HLD.md)**.
 
 ---
 
 ## 🚀 Getting Started
 
-### Prerequisites
+You need [Node.js](https://nodejs.org/) 24 (22.22.2+ also works; the repo sets `engine-strict=true`, so older releases refuse to install the dependencies) and [Git](https://git-scm.com/).
 
-- [Node.js](https://nodejs.org/) `v22.22.2` or later, or `v24.15` or later (the repo sets `engine-strict=true`, so Node 20 and older 22/24 releases refuse to install its dependencies)
-- [npm](https://www.npmjs.com/) (`v10.x` or higher)
-- [Git](https://git-scm.com/)
+```bash
+git clone https://github.com/Akhlaquea01/MyFin.git
+cd MyFin
+npm ci
+npm run dev
+```
 
-### Installation
-
-1. Clone the repository:
-
-   ```bash
-   git clone https://github.com/Akhlaquea01/MyFin.git
-   cd MyFin
-   ```
-
-2. Install dependencies:
-
-   ```bash
-   npm install
-   ```
-
-3. Start the local development server:
-   ```bash
-   npm run dev
-   ```
-   Navigate to [http://localhost:5173](http://localhost:5173) in your browser.
+Open [http://localhost:5173](http://localhost:5173). Everything else — scripts, configuration files, editor setup, Windows notes — is in **[Development Setup](docs/development/SETUP.md)**.
 
 ---
 
 ## 🧪 Testing & Verification
 
-MyFin includes a comprehensive suite of unit, integration, and end-to-end tests:
+MyFin includes a comprehensive suite of unit, integration, component and end-to-end tests:
 
 ```bash
-# Run unit & integration tests
-npm run test:unit -- --run
-
-# Run Playwright end-to-end tests
-npm run test:e2e
-
-# Run TypeScript type check
-npm run check
-
-# Check code formatting & linting
-npm run lint
-
-# Build production bundle
-npm run build
+npm run check                # TypeScript type check
+npm run lint                 # Prettier + ESLint
+npm run test:unit -- --run   # Unit, integration and component tests (Vitest)
+npm run test:e2e             # Playwright end-to-end tests (~10 minutes)
+npm run build                # Production bundle
 ```
 
-Lint, the type check, the unit/integration suite and the Playwright suite also run on every pull request
-and on pushes to `master` ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)).
+These run on every pull request and on pushes to `master` ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)). See **[Testing](docs/testing/TESTING.md)** for the strategy and how to write tests.
 
 ---
 
 ## 📚 Documentation
 
-Detailed documentation is available in the [`docs/`](docs/) directory:
+Everything lives under [`docs/`](docs/README.md):
 
-- 📖 **[Documentation Hub](docs/README.md)**: Navigation and documentation index.
-- 🏛️ **[System Architecture](docs/architecture.md)**: Deep dive into system layers, security model, storage engine, and data flows.
-- 📋 **[Feature Catalog](docs/features.md)**: Complete specifications and domain engine logic for every feature.
+- 🏛️ **[Architecture](docs/architecture/HLD.md)**: [High-Level Design](docs/architecture/HLD.md) (system, principles, security model) and [Low-Level Design](docs/architecture/LLD.md) (modules, data flows, Android native layer).
+- 🛠️ **[Development setup](docs/development/SETUP.md)** and **[Testing](docs/testing/TESTING.md)**.
+- 📦 **[Build & deployment](docs/deployment/BUILD.md)**: production web build, hosting requirements, Android APK pipeline and releases.
+- 📋 **[Feature catalog](docs/product/FEATURES.md)** and the **[Android app guide](docs/product/ANDROID_APP.md)** (differences from the web app, bank-message auto-capture).
+- 🔧 **[Maintenance](docs/maintenance/TROUBLESHOOTING.md)**: troubleshooting, technical decisions and the audit log.
 
 ---
 

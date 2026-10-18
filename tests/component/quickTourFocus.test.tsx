@@ -5,9 +5,9 @@ import { useEffect } from 'react';
 import {
 	QuickTourProvider,
 	APP_QUICK_TOUR_SEEN
-} from '../../src/components/ui/quick-tour/QuickTourProvider';
-import { QuickTourOverlay } from '../../src/components/ui/quick-tour/QuickTourOverlay';
-import { QUICK_TOUR_STEPS } from '../../src/components/ui/quick-tour/tour-steps';
+} from '../../src/components/quick-tour/QuickTourProvider';
+import { QuickTourOverlay } from '../../src/components/quick-tour/QuickTourOverlay';
+import { QUICK_TOUR_STEPS } from '../../src/components/quick-tour/tourSteps';
 import { useQuickTour } from '../../src/hooks/useQuickTour';
 import { db } from '../../src/data/dexie/db';
 

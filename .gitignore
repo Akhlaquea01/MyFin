@@ -1,37 +1,48 @@
+# Dependencies
 node_modules
 
-# Output
+# Build output
+/dist
+dev-dist
 .output
 .vercel
 .netlify
 .wrangler
-/dist
-dev-dist
 
-# OS
-.DS_Store
-Thumbs.db
+# Test and tool output
+test-results
+playwright-report
+blob-report
+playwright/.cache
+coverage
 
-# Editor (JetBrains local project state — .vscode/ is tracked deliberately)
-.idea/
-
-# Env
-.env
-.env.*
-!.env.example
-!.env.test
+# TypeScript incremental build cache
+*.tsbuildinfo
 
 # Vite
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 
-# TypeScript incremental build cache
-*.tsbuildinfo
+# Environment (the app reads none; keep examples and the test file tracked)
+.env
+.env.*
+!.env.example
+!.env.test
 
-# Playwright
-test-results
-playwright-report
-blob-report
-playwright/.cache
-# Local agent directory
+# Logs
+*.log
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editors (.vscode/ is tracked deliberately: shared extensions and settings only)
+.idea/
+*.swp
+
+# Personal AI-assistant tooling: machine-specific skills, scheduled-task locks, worktrees and
+# local instructions. Not part of the project; never commit.
 .claude/
+.agents/
+CLAUDE.local.md
