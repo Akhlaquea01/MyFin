@@ -64,7 +64,13 @@ import { TransactionEngine } from '../domain/transactions/transactionEngine';
 import { formatTransactionLabel } from '../domain/transactions/transactionLabel';
 import { duplicateReason } from '../domain/transactions/duplicateCandidates';
 import { createRuleFromTransaction } from '../domain/recurring/recurringEngine';
-import { DAY_RANGE, clampDay, defaultDayFor } from '../domain/recurring/recurringDay';
+import {
+	DAY_RANGE,
+	MONTH_NAMES,
+	clampDay,
+	defaultDayFor,
+	defaultMonthFor
+} from '../domain/recurring/recurringDay';
 import { isNativeApp } from '../lib/native/platform';
 import { originalMessageOf } from '../domain/capture/originalMessage';
 import { suggestAccountTag } from '../domain/capture/accountMatcher';
@@ -160,6 +166,8 @@ export function ReviewPage() {
 	const [recurringTarget, setRecurringTarget] = useState<Transaction | null>(null);
 	const [recurringFrequency, setRecurringFrequency] = useState<RecurringFrequency>('monthly');
 	const [recurringDay, setRecurringDay] = useState('1');
+	// Yearly rules only: the month the day belongs to (1-12).
+	const [recurringMonth, setRecurringMonth] = useState('1');
 	const [rules, setRules] = useState<CategorizationRuleWithStatus[]>([]);
 	// Per-row "always file this merchant under the chosen category" opt-in.
 	const [rememberRule, setRememberRule] = useState<Record<string, boolean>>({});
@@ -591,6 +599,7 @@ export function ReviewPage() {
 		// UTC midnight and `.getDate()` then returns the *local* day, which can be off by one
 		// depending on the viewer's timezone. Read the day-of-month directly from the string.
 		setRecurringDay(String(defaultDayFor('monthly', tx.date)));
+		setRecurringMonth(String(defaultMonthFor(tx.date) ?? 1));
 		setRecurringFrequency('monthly');
 		setRecurringTarget(tx);
 	}
@@ -599,16 +608,21 @@ export function ReviewPage() {
 	 *  transaction's own date rather than carried over. */
 	function changeRecurringFrequency(frequency: RecurringFrequency) {
 		setRecurringFrequency(frequency);
-		if (recurringTarget) setRecurringDay(String(defaultDayFor(frequency, recurringTarget.date)));
+		if (recurringTarget) {
+			setRecurringDay(String(defaultDayFor(frequency, recurringTarget.date)));
+			setRecurringMonth(String(defaultMonthFor(recurringTarget.date) ?? 1));
+		}
 	}
 
 	async function confirmRecurring() {
 		if (!recurringTarget) return;
 		try {
-			const day = clampDay(recurringFrequency, recurringDay);
+			const month = Number(recurringMonth);
+			const day = clampDay(recurringFrequency, recurringDay, month);
 			const rule = await createRuleFromTransaction(key, recurringTarget, {
 				frequency: recurringFrequency,
 				dayOfPeriod: day,
+				...(recurringFrequency === 'yearly' ? { monthOfYear: month } : {}),
 				categoryId: categoryChoice[recurringTarget.id]
 			});
 			// Update the local transaction to reflect the new link
@@ -1118,6 +1132,23 @@ export function ReviewPage() {
 									</SelectContent>
 								</Select>
 							</div>
+							{recurringFrequency === 'yearly' && (
+								<div className="flex flex-col gap-1.5">
+									<Label htmlFor="recurring-month">Month</Label>
+									<Select value={recurringMonth} onValueChange={setRecurringMonth}>
+										<SelectTrigger id="recurring-month" className="w-full">
+											<SelectValue />
+										</SelectTrigger>
+										<SelectContent>
+											{MONTH_NAMES.map((name, index) => (
+												<SelectItem key={name} value={String(index + 1)}>
+													{name}
+												</SelectItem>
+											))}
+										</SelectContent>
+									</Select>
+								</div>
+							)}
 							<div className="flex flex-col gap-1.5">
 								<Label htmlFor="recurring-day">{DAY_RANGE[recurringFrequency].label}</Label>
 								<Input

@@ -46,7 +46,12 @@ export async function getDashboardSummary(key: CryptoKey): Promise<DashboardSumm
 
 	// recentTransactions is sorted newest-first; walk backwards from the current total to
 	// build an oldest-to-newest cumulative trend over the last TREND_POINTS transactions.
-	const trendSource = recentTransactions.slice(0, TREND_POINTS);
+	// Only entries on the accounts the total is made of: an archived account's entries were never part
+	// of it, so walking them back would put a point on the line that the balance never had.
+	const activeAccountIds = new Set(accounts.map((a) => a.id));
+	const trendSource = recentTransactions
+		.filter((tx) => activeAccountIds.has(tx.accountId))
+		.slice(0, TREND_POINTS);
 	const balanceTrend: number[] = [];
 	let runningBalance = totalBalance;
 	for (const tx of trendSource) {

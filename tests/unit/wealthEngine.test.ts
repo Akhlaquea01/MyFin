@@ -191,7 +191,7 @@ describe('Wealth engine', () => {
 			const holding = await InvestmentHoldingRepository.create(key, {
 				name: 'COALINDIA',
 				type: 'stock',
-				costBasis: 0,
+				costBasis: 40000,
 				units: 100,
 				avgPrice: 400
 			});
@@ -315,6 +315,30 @@ describe('Wealth engine', () => {
 					breakdown.otherLiabilities.subtotal);
 			expect(sumOfSubtotals).toBe(breakdown.netWorth);
 			expect(breakdown.totalAssets - breakdown.totalLiabilities).toBe(breakdown.netWorth);
+		});
+
+		it('counts a card that has been paid past what it owed as money in the user favour', async () => {
+			await AccountRepository.create(key, {
+				name: 'Checking',
+				type: 'bank',
+				openingBalance: 100000,
+				creditLimit: null,
+				billingCycleDay: null
+			});
+			const card = await AccountRepository.create(key, {
+				name: 'HDFC Card',
+				type: 'credit_card',
+				openingBalance: 0,
+				creditLimit: 100000,
+				billingCycleDay: null
+			});
+			await AccountRepository.setBalance(key, card.id, 50000); // overpaid by 500
+
+			const breakdown = await computeNetWorth(key);
+
+			expect(breakdown.creditCardDebt.subtotal).toBe(0); // nothing is owed on it
+			expect(breakdown.cash.items.map((item) => item.name)).toContain('HDFC Card (credit balance)');
+			expect(breakdown.netWorth).toBe(150000); // the same as the accounts add up to
 		});
 
 		it('excludes a linked credit_card Liability from creditCardDebt (FR-007/FR-009 single source of truth)', async () => {

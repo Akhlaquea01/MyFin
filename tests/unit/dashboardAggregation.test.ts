@@ -143,6 +143,54 @@ describe('Dashboard aggregation', () => {
 		expect(summary.balanceTrend).toEqual([900, 1100]);
 	});
 
+	it('leaves an archived account out of the balance trend, as it is out of the total', async () => {
+		const active = await AccountRepository.create(key, {
+			name: 'Checking',
+			type: 'bank',
+			openingBalance: 0,
+			creditLimit: null,
+			billingCycleDay: null
+		});
+		const old = await AccountRepository.create(key, {
+			name: 'Old account',
+			type: 'bank',
+			openingBalance: 0,
+			creditLimit: null,
+			billingCycleDay: null
+		});
+		await TransactionEngine.recordTransaction(key, {
+			accountId: active.id,
+			date: '2026-10-01',
+			amount: 60000,
+			type: 'income'
+		});
+		await TransactionEngine.recordTransaction(key, {
+			accountId: active.id,
+			date: '2026-10-02',
+			amount: 40000,
+			type: 'income'
+		});
+		await TransactionEngine.recordTransaction(key, {
+			accountId: old.id,
+			date: '2026-10-04',
+			amount: 50000,
+			type: 'income'
+		});
+		await TransactionEngine.recordTransaction(key, {
+			accountId: old.id,
+			date: '2026-10-05',
+			amount: -50000,
+			type: 'expense'
+		});
+		await AccountRepository.update(key, old.id, { isArchived: true });
+
+		const summary = await getDashboardSummary(key);
+
+		expect(summary.totalBalance).toBe(100000);
+		// Never a 150,000 the active accounts did not hold.
+		expect(summary.balanceTrend).toEqual([60000, 100000]);
+	});
+
 	it('splits the total into cash and credit-card halves, and flags when there are cards', async () => {
 		await AccountRepository.create(key, {
 			name: 'Checking',

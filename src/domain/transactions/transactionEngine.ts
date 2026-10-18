@@ -201,6 +201,30 @@ export const TransactionEngine = {
 		return pair;
 	},
 
+	/**
+	 * Posts the correction that brings an account to the balance its owner says it really has
+	 * (`amount` is the signed difference). A correction is neither income nor spending, so it is a
+	 * one-sided movement - like a person loan's or an investment trade's: the balance moves, but it
+	 * stays out of income, expenses, budgets and every report. It was posted as an ordinary income or
+	 * expense, which counted it as both. It still leaves an auditable entry, so "balance = opening
+	 * balance + entries" keeps holding.
+	 */
+	async recordBalanceAdjustment(
+		key: CryptoKey,
+		params: { accountId: string; amount: number; date: string }
+	): Promise<Transaction> {
+		if (params.amount === 0) throw new Error('There is no difference to adjust.');
+		return TransactionEngine.recordTransaction(key, {
+			accountId: params.accountId,
+			date: params.date,
+			amount: params.amount,
+			type: 'transfer',
+			transferPairId: null,
+			source: 'balance_adjustment',
+			notes: 'Balance adjustment'
+		});
+	},
+
 	async editTransaction(
 		key: CryptoKey,
 		id: string,

@@ -97,6 +97,42 @@ describe('budget rollover across skipped periods', () => {
 		expect(july.plannedAmount).toBe(july.rolloverInAmount + 5_000_00);
 	});
 
+	it('takes what was spent in a skipped month out of a sinking fund', async () => {
+		const budget = await makeBudget({ isSinkingFund: true });
+		await BudgetItemRepository.create(key, {
+			budgetId: budget.id,
+			periodStart: '2026-03-01',
+			periodEnd: '2026-03-31',
+			plannedAmount: 5_000_00,
+			actualAmount: 0,
+			rolloverInAmount: 0
+		});
+		await spend('2026-05-10', 2_000_00); // May was never opened, but the money left the fund
+
+		const july = await ensureCurrentBudgetItem(key, budget, new Date(2026, 6, 15));
+
+		// March's 5000, then April +5000, May +5000 -2000, June +5000.
+		expect(july.rolloverInAmount).toBe(18_000_00);
+	});
+
+	it('never lets spending in a skipped month take a sinking fund below zero', async () => {
+		const budget = await makeBudget({ isSinkingFund: true });
+		await BudgetItemRepository.create(key, {
+			budgetId: budget.id,
+			periodStart: '2026-03-01',
+			periodEnd: '2026-03-31',
+			plannedAmount: 5_000_00,
+			actualAmount: 0,
+			rolloverInAmount: 0
+		});
+		await spend('2026-04-10', 12_000_00); // more than the fund held
+
+		const july = await ensureCurrentBudgetItem(key, budget, new Date(2026, 6, 15));
+
+		// Emptied in April (5000 + 5000 - 12000, floored at 0), then May and June add 5000 each.
+		expect(july.rolloverInAmount).toBe(10_000_00);
+	});
+
 	it('carries only genuinely unspent money for a plain rollover budget', async () => {
 		const budget = await makeBudget({ rolloverEnabled: true });
 

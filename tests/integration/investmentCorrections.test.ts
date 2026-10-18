@@ -65,6 +65,56 @@ describe('correcting and removing investments', () => {
 			expect(edited.costBasis).toBe(Math.round(0.333 * 10001));
 		});
 
+		it('keeps an exact cost basis when only the name is changed', async () => {
+			const exact = await InvestmentHoldingRepository.create(key, {
+				name: 'Fund',
+				type: 'mutual_fund',
+				units: 10,
+				avgPrice: 10_002, // 1,000.17 was paid in all, which 10 x 10,002 does not give
+				costBasis: 100_017
+			});
+
+			const renamed = await editHolding(key, exact.id, {
+				name: 'Fund (growth)',
+				type: 'mutual_fund',
+				units: 10,
+				avgPrice: 10_002
+			});
+
+			expect(renamed.costBasis).toBe(100_017);
+		});
+
+		it('turns a legacy holding into one tracked in units, keeping its cost basis as entered', async () => {
+			const legacy = await InvestmentHoldingRepository.create(key, {
+				name: 'Old gold',
+				type: 'other',
+				costBasis: 50_000
+			});
+			const edited = await editHolding(key, legacy.id, {
+				name: 'Old gold',
+				type: 'other',
+				costBasis: 50_000,
+				units: 4
+			});
+			expect(edited).toMatchObject({ units: 4, avgPrice: 12_500, costBasis: 50_000 });
+		});
+
+		it('needs more than zero units to start tracking a legacy holding in units', async () => {
+			const legacy = await InvestmentHoldingRepository.create(key, {
+				name: 'Old gold',
+				type: 'other',
+				costBasis: 50_000
+			});
+			await expect(
+				editHolding(key, legacy.id, {
+					name: 'Old gold',
+					type: 'other',
+					costBasis: 50_000,
+					units: 0
+				})
+			).rejects.toThrow(/units/i);
+		});
+
 		it('corrects a legacy holding that only has a cost basis', async () => {
 			const legacy = await InvestmentHoldingRepository.create(key, {
 				name: 'Old gold',

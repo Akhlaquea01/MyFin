@@ -64,6 +64,8 @@ export function HoldingEditDialog({
 	const [units, setUnits] = useState(tracksUnits ? String(holding.units) : '');
 	const [avgPrice, setAvgPrice] = useState(tracksUnits ? formatMinorUnits(holding.avgPrice!) : '');
 	const [costBasis, setCostBasis] = useState(formatMinorUnits(holding.costBasis));
+	// A holding with no unit data can be given its units here, which is what lets it be bought into.
+	const [legacyUnits, setLegacyUnits] = useState('');
 	const [saving, setSaving] = useState(false);
 	const [history, setHistory] = useState<InvestmentValuation[]>([]);
 	const [trades, setTrades] = useState<InvestmentTrade[]>([]);
@@ -167,10 +169,15 @@ export function HoldingEditDialog({
 				});
 			} else {
 				if (!isNonNegativeMoney(costBasis || '0')) return toast.error('Enter a valid cost basis.');
+				const heldUnits = legacyUnits.trim() ? Number(legacyUnits) : undefined;
+				if (heldUnits !== undefined && (!Number.isFinite(heldUnits) || heldUnits <= 0)) {
+					return toast.error('Enter the number of units held (more than 0), or leave it blank.');
+				}
 				await editHolding(key, holding.id, {
 					name,
 					type,
-					costBasis: parseMoneyOrZero(costBasis || '0')
+					costBasis: parseMoneyOrZero(costBasis || '0'),
+					...(heldUnits !== undefined ? { units: heldUnits } : {})
 				});
 			}
 			toast.success(`${name.trim()} updated`);
@@ -184,11 +191,15 @@ export function HoldingEditDialog({
 	}
 
 	// Shown as the user types, so the consequence of a units/price edit is visible before saving.
+	const enteredAvgPrice = parseMoneyOrZero(
+		isNonNegativeMoney(avgPrice || '0') ? avgPrice || '0' : '0'
+	);
+	// Untouched units and price keep the cost basis exactly as it is (it is the money actually paid,
+	// which units x the rounded average price can differ from by a few paise).
 	const derivedCostBasis = tracksUnits
-		? Math.round(
-				(Number(units) || 0) *
-					parseMoneyOrZero(isNonNegativeMoney(avgPrice || '0') ? avgPrice || '0' : '0')
-			)
+		? Number(units) === holding.units && enteredAvgPrice === holding.avgPrice
+			? holding.costBasis
+			: Math.round((Number(units) || 0) * enteredAvgPrice)
 		: null;
 
 	return (
@@ -273,6 +284,20 @@ export function HoldingEditDialog({
 							/>
 							<p className="text-xs text-muted-foreground">
 								This holding has no unit data, so its cost basis is entered directly.
+							</p>
+							<Label htmlFor="holding-edit-legacy-units" className="mt-2">
+								Units held (optional)
+							</Label>
+							<Input
+								id="holding-edit-legacy-units"
+								type="number"
+								step="any"
+								value={legacyUnits}
+								onChange={(e) => setLegacyUnits(e.target.value)}
+							/>
+							<p className="text-xs text-muted-foreground">
+								Enter the units to track purchases and sales for this holding; the average price is
+								worked out from the cost basis.
 							</p>
 						</div>
 					)}

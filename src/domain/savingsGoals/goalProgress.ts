@@ -39,8 +39,10 @@ export function computeGoalProgress(input: ComputeGoalProgressInput): GoalProgre
 	// Floored at 0: a negative correction contribution (see GoalContribution's doc comment)
 	// can push savedAmount below zero, which would otherwise render as a confusing "-5%" for
 	// what is, from the user's perspective, simply "no progress yet."
-	const progressPercent = Math.max(0, Math.round((savedAmount / goal.targetAmount) * 100));
 	const achieved = savedAmount >= goal.targetAmount;
+	// Rounded, but never shown as 100% before the goal is actually met: 99.6% saved is not "done".
+	const roundedPercent = Math.round((savedAmount / goal.targetAmount) * 100);
+	const progressPercent = Math.max(0, achieved ? roundedPercent : Math.min(99, roundedPercent));
 
 	if (achieved) {
 		return {
@@ -86,7 +88,13 @@ function projectCompletionDate(
 	const monthSpan = monthsBetween(dates[0], dates[dates.length - 1]);
 	if (monthSpan <= 0) return null;
 
-	const monthlyRate = savedAmount / monthSpan;
+	// The first deposit marks where the clock starts: it was not saved over the months after it.
+	// Counting it as well read two deposits of 1,000 a month apart as 2,000 a month (and 12 monthly
+	// deposits as 9% too fast), so the pace is what came in AFTER the first day, over the time since.
+	const onFirstDay = contributions
+		.filter((c) => c.date === dates[0])
+		.reduce((sum, c) => sum + c.amount, 0);
+	const monthlyRate = (savedAmount - onFirstDay) / monthSpan;
 	if (monthlyRate <= 0) return null;
 
 	const remaining = Math.max(0, goal.targetAmount - savedAmount);

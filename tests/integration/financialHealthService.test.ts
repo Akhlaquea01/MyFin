@@ -167,6 +167,33 @@ describe('financialHealthService against Dexie (via the existing analyticsEngine
 		expect(trend[1].budgetsConsidered).toBe(0); // February gets nothing
 	});
 
+	it('judges adherence on spending recorded after the budget was last opened', async () => {
+		const budget = await BudgetRepository.create(key, {
+			categoryId: groceriesId,
+			periodType: 'monthly',
+			amount: 10000,
+			rolloverEnabled: false,
+			isSinkingFund: false
+		});
+		// Opening the budget saves its spend (still nothing) ...
+		await ensureCurrentBudgetItem(key, budget, new Date('2026-01-15T00:00:00Z'));
+		await TransactionRepository.create(
+			key,
+			{ accountId, date: '2026-01-10', amount: 50000, type: 'income' },
+			[{ categoryId: salaryId, amount: 50000 }]
+		);
+		// ... and the entry that puts it over the limit comes later.
+		await TransactionRepository.create(
+			key,
+			{ accountId, date: '2026-01-12', amount: -15000, type: 'expense' },
+			[{ categoryId: groceriesId, amount: -15000 }]
+		);
+
+		const trend = await getFinancialHealthTrend(key, '2026-01-01', '2026-01-31');
+
+		expect(trend[0].budgetAdherence).toBe(0); // 15000 spent against 10000: not within the limit
+	});
+
 	it('derives the composite score from the same trend the UI renders (getFinancialHealthScore)', async () => {
 		await TransactionRepository.create(
 			key,

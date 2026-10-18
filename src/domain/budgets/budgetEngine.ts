@@ -120,6 +120,31 @@ export async function recalcActualAmount(
 }
 
 /**
+ * A sinking fund's balance carried through periods nobody opened, oldest first: each one adds its
+ * allowance and loses what was spent in it, and never goes below zero (FR-026). `skipped` is newest
+ * first, the order the walk back finds them in. Counting only the allowance, as this used to, left
+ * money spent in an unopened month still sitting in the fund.
+ */
+async function accrueThroughSkippedPeriods(
+	key: CryptoKey,
+	budget: Budget,
+	startingBalance: number,
+	skipped: PeriodRange[]
+): Promise<number> {
+	let balance = startingBalance;
+	for (const range of [...skipped].reverse()) {
+		const spent = await recalcActualAmount(
+			key,
+			budget.categoryId,
+			range.periodStart,
+			range.periodEnd
+		);
+		balance = Math.max(0, balance + budget.amount - spent);
+	}
+	return balance;
+}
+
+/**
  * Gets (or creates) the BudgetItem for the period containing `referenceDate`, applying
  * rollover from the previous period when enabled (FR-025) — sinking funds (FR-026) always
  * roll over their unused amount, since accumulating toward a goal is the point.
@@ -175,9 +200,9 @@ export async function ensureBudgetItemForPeriod(
 		// the feature (FR-026).
 		let cursor = getPreviousPeriodRange(budget.periodType, periodStart);
 		let prevItem = await BudgetItemRepository.findForPeriod(key, budget.id, cursor.periodStart);
-		let skippedPeriods = 0;
-		while (!prevItem && skippedPeriods < MAX_ROLLOVER_LOOKBACK[budget.periodType]) {
-			skippedPeriods++;
+		const skippedPeriods: PeriodRange[] = [];
+		while (!prevItem && skippedPeriods.length < MAX_ROLLOVER_LOOKBACK[budget.periodType]) {
+			skippedPeriods.push(cursor);
 			cursor = getPreviousPeriodRange(budget.periodType, cursor.periodStart);
 			prevItem = await BudgetItemRepository.findForPeriod(key, budget.id, cursor.periodStart);
 		}
@@ -205,7 +230,9 @@ export async function ensureBudgetItemForPeriod(
 			// A sinking fund keeps accruing its allowance through the skipped periods; a plain
 			// rollover budget only carries forward what was actually left over (positive or, in
 			// 'full' mode, negative).
-			rolloverInAmount = budget.isSinkingFund ? unspent + skippedPeriods * budget.amount : unspent;
+			rolloverInAmount = budget.isSinkingFund
+				? await accrueThroughSkippedPeriods(key, budget, unspent, skippedPeriods)
+				: unspent;
 		}
 	}
 

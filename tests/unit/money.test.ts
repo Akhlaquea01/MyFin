@@ -184,6 +184,8 @@ describe('formatMoney / formatAmount (display)', () => {
 describe('formatMoneyCompact (chart labels)', () => {
 	it.each([
 		[0, '₹0'],
+		[99_949, '₹999'],
+		[99_950, '₹1K'],
 		[95_000, '₹950'],
 		[100_000, '₹1K'],
 		[123_400, '₹1.2K'],

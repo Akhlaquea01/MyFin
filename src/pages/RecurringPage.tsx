@@ -50,7 +50,13 @@ import {
 import { buildCategoryLabels } from '../domain/categories/categoryHierarchy';
 // The valid `dayOfPeriod` range per frequency lives with the engine's other recurring rules, so
 // this page and the Review screen's "Mark as recurring" dialog cannot disagree about it.
-import { DAY_RANGE } from '../domain/recurring/recurringDay';
+import {
+	DAY_RANGE,
+	MONTH_NAMES,
+	formatYearlyDate,
+	maxDayOfMonth,
+	yearlyMonthDay
+} from '../domain/recurring/recurringDay';
 import { deleteRecurringRule, updateRecurringRule } from '../domain/recurring/recurringEngine';
 import { useConfirm } from '../lib/confirm';
 import { isoDateToLocalDate } from '../domain/shared/dateMath';
@@ -61,13 +67,21 @@ const ruleSchema = z
 		categoryId: z.string().min(1, 'Choose a category.'),
 		frequency: z.enum(['weekly', 'monthly', 'yearly']),
 		dayOfPeriod: z.string(),
+		// Yearly rules only: 1-12.
+		monthOfYear: z.string(),
 		amount: z.string().refine((v) => isPositiveMoney(v), 'Enter a positive amount.'),
 		direction: z.enum(['expense', 'income']),
 		isSubscription: z.boolean(),
 		label: z.string()
 	})
 	.superRefine((values, ctx) => {
-		const { min, max, hint } = DAY_RANGE[values.frequency];
+		const { min, hint } = DAY_RANGE[values.frequency];
+		// A yearly rule's day is a day of its month, so it cannot be 31 February.
+		const month = Number(values.monthOfYear);
+		const max =
+			values.frequency === 'yearly' && month >= 1 && month <= 12
+				? maxDayOfMonth(month)
+				: DAY_RANGE[values.frequency].max;
 		const raw = values.dayOfPeriod.trim();
 		const day = Number(raw);
 		if (!/^\d+$/.test(raw) || day < min || day > max) {
@@ -81,6 +95,7 @@ const NEW_RULE_VALUES: RuleFormValues = {
 	categoryId: '',
 	frequency: 'monthly',
 	dayOfPeriod: '1',
+	monthOfYear: '1',
 	amount: '0',
 	direction: 'expense',
 	isSubscription: false,
@@ -89,11 +104,14 @@ const NEW_RULE_VALUES: RuleFormValues = {
 
 /** What the rule dialog shows when an existing rule is opened for editing. */
 function valuesFor(rule: RecurringRule): RuleFormValues {
+	// A yearly rule is shown as the month and day it falls on, whichever way it was saved.
+	const yearly = rule.frequency === 'yearly' ? yearlyMonthDay(rule) : null;
 	return {
 		accountId: rule.accountId,
 		categoryId: rule.categoryId,
 		frequency: rule.frequency,
-		dayOfPeriod: String(rule.dayOfPeriod),
+		dayOfPeriod: String(yearly ? yearly.day : rule.dayOfPeriod),
+		monthOfYear: String(yearly ? yearly.month : 1),
 		amount: formatMinorUnits(Math.abs(rule.amount)),
 		direction: rule.amount < 0 ? 'expense' : 'income',
 		isSubscription: !!rule.isSubscription,
@@ -219,6 +237,7 @@ export function RecurringPage() {
 					amount: signedAmount,
 					frequency: values.frequency,
 					dayOfPeriod: parseInt(values.dayOfPeriod, 10),
+					monthOfYear: values.frequency === 'yearly' ? parseInt(values.monthOfYear, 10) : undefined,
 					label,
 					isSubscription: isSubscription || undefined
 				});
@@ -229,6 +248,7 @@ export function RecurringPage() {
 					amount: signedAmount,
 					frequency: values.frequency,
 					dayOfPeriod: parseInt(values.dayOfPeriod, 10),
+					monthOfYear: values.frequency === 'yearly' ? parseInt(values.monthOfYear, 10) : undefined,
 					label,
 					isSubscription
 				});
@@ -428,6 +448,29 @@ export function RecurringPage() {
 											)}
 										/>
 									</div>
+									{form.watch('frequency') === 'yearly' && (
+										<div className="flex flex-col gap-1.5">
+											<Label htmlFor="rule-month">Month</Label>
+											<Controller
+												control={form.control}
+												name="monthOfYear"
+												render={({ field }) => (
+													<Select value={field.value} onValueChange={field.onChange}>
+														<SelectTrigger id="rule-month" className="w-full">
+															<SelectValue />
+														</SelectTrigger>
+														<SelectContent>
+															{MONTH_NAMES.map((name, index) => (
+																<SelectItem key={name} value={String(index + 1)}>
+																	{name}
+																</SelectItem>
+															))}
+														</SelectContent>
+													</Select>
+												)}
+											/>
+										</div>
+									)}
 									<div className="flex flex-col gap-1.5">
 										<Label htmlFor="rule-day">Day</Label>
 										<Input id="rule-day" type="number" {...form.register('dayOfPeriod')} />
@@ -547,7 +590,10 @@ export function RecurringPage() {
 												<p className="text-xs text-muted-foreground">
 													{accountName(rule.accountId)}
 													{rule.label ? ` · ${categoryName(rule.categoryId)}` : ''} ·{' '}
-													{FREQUENCY_LABELS[rule.frequency]} · day {rule.dayOfPeriod}
+													{FREQUENCY_LABELS[rule.frequency]} ·{' '}
+													{rule.frequency === 'yearly'
+														? formatYearlyDate(yearlyMonthDay(rule).month, yearlyMonthDay(rule).day)
+														: `day ${rule.dayOfPeriod}`}
 												</p>
 											</div>
 											<div className="flex items-center gap-3">

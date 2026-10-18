@@ -159,6 +159,68 @@ describe('Cash-flow forecast engine', () => {
 		expect(first.warning).toEqual(second.warning);
 	});
 
+	it('counts a bill that is due today and not yet paid', async () => {
+		// Local noon, so it is the same calendar day in any time zone.
+		const today = new Date(2026, 9, 18, 12, 0, 0);
+		await RecurringRepository.create(key, {
+			accountId,
+			categoryId,
+			amount: -50000,
+			frequency: 'monthly',
+			dayOfPeriod: 18
+		});
+
+		const forecast = await projectAccountBalance(key, accountId, 7, today);
+
+		// It lands on the first projected day instead of being counted nowhere.
+		expect(forecast.points[0].projectedBalanceMinor).toBe(450000);
+		expect(forecast.points[forecast.points.length - 1].projectedBalanceMinor).toBe(450000);
+	});
+
+	describe('everyday spending (drift) on an account with a short history', () => {
+		// Local noon, so the dates below are the same calendar days in any time zone.
+		const today = new Date(2026, 9, 18, 12, 0, 0);
+		const daysBefore = (n: number) => {
+			const d = new Date(2026, 9, 18 - n);
+			return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+		};
+		const spendEveryDay = async (days: number) => {
+			for (let n = 1; n <= days; n++) {
+				await TransactionRepository.create(
+					key,
+					{ accountId, date: daysBefore(n), amount: -1000, type: 'expense' },
+					[]
+				);
+			}
+		};
+
+		it('averages over the days the account has been in use, not always 90', async () => {
+			await spendEveryDay(45); // 1,000 a day for the 45 days the account has existed
+
+			const forecast = await projectAccountBalance(key, accountId, 30, today);
+
+			// 30 more days at that rate, not the 1/2 of it that dividing 45 days' spending by 90 gave.
+			expect(forecast.points[29].projectedBalanceMinor).toBe(500000 - 30 * 1000);
+		});
+
+		it('still spreads a month or less of history over a month, so a few days cannot be blown up', async () => {
+			await spendEveryDay(20);
+
+			const forecast = await projectAccountBalance(key, accountId, 30, today);
+
+			// 20,000 of spending over a 30-day floor: 20,000 more across the next 30 days.
+			expect(forecast.points[29].projectedBalanceMinor).toBe(500000 - 20000);
+		});
+
+		it('uses the full 90 days once the account has that much history', async () => {
+			await spendEveryDay(120); // only the last 90 days count
+
+			const forecast = await projectAccountBalance(key, accountId, 30, today);
+
+			expect(forecast.points[29].projectedBalanceMinor).toBe(500000 - 30 * 1000);
+		});
+	});
+
 	describe('credit cards', () => {
 		const iso = (daysAgo: number) =>
 			new Date(asOf.getTime() - daysAgo * DAY_MS).toISOString().slice(0, 10);

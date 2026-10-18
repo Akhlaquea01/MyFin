@@ -136,6 +136,17 @@ export async function computeNetWorth(key: CryptoKey): Promise<NetWorthBreakdown
 			});
 		} else if (account.type === 'credit_card') {
 			const { used } = computeCardUtilization(account);
+			// A card paid past what it owed (or refunded) holds money in the user's favour. The debt below
+			// is clamped at zero, so without this that credit vanished from net worth while the account
+			// balances still added it up.
+			if (account.currentBalance > 0) {
+				addItem(cash, {
+					id: account.id,
+					name: `${account.name} (credit balance)`,
+					amount: account.currentBalance,
+					source: 'account'
+				});
+			}
 			addItem(creditCardDebt, {
 				id: account.id,
 				name: account.name,
@@ -577,15 +588,23 @@ export async function recordPurchase(
 	const accountId = purchase.accountId || null;
 	if (accountId) await assertTradeAccount(key, accountId);
 
-	const existingUnits = holding.units ?? 0;
-	const existingAvgPrice = holding.avgPrice ?? 0;
+	// A holding that only ever had a cost basis has no units to add to: buying on top of it used to
+	// replace the money already invested with just this purchase. It has to be given its units first
+	// (unless nothing was invested, when there is nothing to lose).
+	const tracksUnits = holding.units !== undefined && holding.avgPrice !== undefined;
+	if (!tracksUnits && holding.costBasis > 0) {
+		throw new Error(
+			'This holding has no unit data yet. Edit it and enter the units you hold, then record the purchase.'
+		);
+	}
 
-	const newUnits = existingUnits + purchase.units;
-	const newAvgPrice = Math.round(
-		(existingUnits * existingAvgPrice + purchase.units * purchase.price) / newUnits
-	);
-	const newCostBasis = costBasisFor(newUnits, newAvgPrice);
+	const newUnits = (holding.units ?? 0) + purchase.units;
 	const spent = Math.round(purchase.units * purchase.price);
+	// The cost basis is the money actually put in, added up exactly. It is not re-derived from the
+	// rounded average price (that drifts by up to half a paisa per unit held): the average is the
+	// figure worked out from it.
+	const newCostBasis = (tracksUnits ? holding.costBasis : 0) + spent;
+	const newAvgPrice = Math.round(newCostBasis / newUnits);
 	const date = purchase.date ?? todayLocalISO();
 
 	const transactionId = accountId
@@ -629,7 +648,7 @@ export async function recordPurchase(
 
 /**
  * Records a sale (decrease) of units for an existing holding. Average price is unchanged;
- * costBasis is recalculated as remaining units × avgPrice (spec 016, FR-019/020,
+ * costBasis falls to the remaining share of what was paid (spec 016, FR-019/020,
  * contracts/wealth-engine.md). A recorded value shrinks in proportion to the units that remain -
  * to nothing when they are all sold.
  *
@@ -661,8 +680,10 @@ export async function recordSale(
 	}
 
 	const newUnits = existingUnits - sale.units;
-	const avgPrice = holding.avgPrice ?? 0;
-	const newCostBasis = costBasisFor(newUnits, avgPrice);
+	// What is left cost its share of what was paid, taken from the exact cost basis rather than from
+	// the rounded average price.
+	const newCostBasis =
+		existingUnits > 0 ? Math.round((holding.costBasis * newUnits) / existingUnits) : 0;
 	const proceeds = price ? Math.round(sale.units * price) : null;
 	const date = sale.date ?? todayLocalISO();
 
@@ -754,9 +775,11 @@ export async function undoLatestTrade(
 }
 
 /** What can be corrected on a holding. A holding tracked in units is corrected through its units and
- *  average price (the cost basis follows); a legacy one that only ever had a cost basis, through that. */
+ *  average price (the cost basis follows); a legacy one that only ever had a cost basis, through that -
+ *  and, given its `units` too, it starts being tracked in units (the average price is worked out from
+ *  the cost basis, which stays exactly as entered). */
 export type HoldingEdit = { name: string; type: InvestmentType } & (
-	{ units: number; avgPrice: number } | { costBasis: number }
+	{ units: number; avgPrice: number } | { costBasis: number; units?: number }
 );
 
 /**
@@ -776,7 +799,7 @@ export async function editHolding(
 	const holding = await InvestmentHoldingRepository.getById(key, holdingId);
 	if (!holding) throw new Error('Holding not found.');
 
-	if ('units' in edit) {
+	if ('avgPrice' in edit) {
 		if (!Number.isFinite(edit.units) || edit.units < 0)
 			throw new Error('Units cannot be negative.');
 		if (!Number.isInteger(edit.avgPrice) || edit.avgPrice < 0) {
@@ -788,12 +811,27 @@ export async function editHolding(
 			type: edit.type,
 			units: edit.units,
 			avgPrice: edit.avgPrice,
-			costBasis: costBasisFor(edit.units, edit.avgPrice),
+			// Saving a rename must not replace an exact cost basis with units x the rounded average.
+			costBasis: numbersChanged ? costBasisFor(edit.units, edit.avgPrice) : holding.costBasis,
 			...(numbersChanged ? { trades: [] } : {})
 		});
 	}
 	if (!Number.isInteger(edit.costBasis) || edit.costBasis < 0) {
 		throw new Error('The cost basis cannot be negative.');
+	}
+	if (edit.units !== undefined) {
+		if (!Number.isFinite(edit.units) || edit.units <= 0) {
+			throw new Error('Enter how many units are held, more than zero, or leave it blank.');
+		}
+		return InvestmentHoldingRepository.update(key, holdingId, {
+			name,
+			type: edit.type,
+			units: edit.units,
+			avgPrice: Math.round(edit.costBasis / edit.units),
+			costBasis: edit.costBasis,
+			// Any earlier trade's "before" figures described a holding without units.
+			trades: []
+		});
 	}
 	return InvestmentHoldingRepository.update(key, holdingId, {
 		name,

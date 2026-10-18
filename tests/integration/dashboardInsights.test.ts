@@ -172,9 +172,11 @@ describe('getDashboardInsights', () => {
 				periodStart: '2026-10-01',
 				periodEnd: '2026-10-31',
 				plannedAmount: planned,
-				actualAmount: actual,
+				// The saved figure is left stale on purpose: the spend that counts is the ledger's.
+				actualAmount: 0,
 				rolloverInAmount: 0
 			});
+			await record('2026-10-05', -actual, name);
 		};
 		await make('Food', 100_000, 40_000);
 		await make('Travel', 100_000, 120_000);
@@ -183,6 +185,29 @@ describe('getDashboardInsights', () => {
 
 		const insights = await getDashboardInsights(key, TODAY);
 		expect(insights.budgets.map((b) => b.label)).toEqual(['Travel', 'Fun', 'Food']);
+	});
+
+	it("reads a budget's spend from the ledger, not the figure saved when it was last opened", async () => {
+		const budget = await BudgetRepository.create(key, {
+			categoryId: cats.Food,
+			periodType: 'monthly',
+			amount: 100_000,
+			rolloverEnabled: false,
+			isSinkingFund: false
+		});
+		await BudgetItemRepository.create(key, {
+			budgetId: budget.id,
+			periodStart: '2026-10-01',
+			periodEnd: '2026-10-31',
+			plannedAmount: 100_000,
+			actualAmount: 0,
+			rolloverInAmount: 0
+		});
+		await record('2026-10-04', -120_000, 'Food'); // recorded after the budget was last opened
+
+		const insights = await getDashboardInsights(key, TODAY);
+
+		expect(insights.budgets).toMatchObject([{ label: 'Food', planned: 100_000, actual: 120_000 }]);
 	});
 
 	it('is empty and safe for a ledger with nothing in it', async () => {

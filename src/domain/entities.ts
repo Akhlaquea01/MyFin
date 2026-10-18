@@ -89,7 +89,10 @@ export type TransactionSource =
 	/** A bank SMS captured by the Android app. */
 	| 'sms_capture'
 	/** A payment-app or bank-app notification captured by the Android app. */
-	| 'notification_capture';
+	| 'notification_capture'
+	/** The correction posted by "Adjust balance": a one-sided `transfer`, so it moves the balance
+	 *  without counting as income or spending. */
+	| 'balance_adjustment';
 export type CaptureChannel = 'sms' | 'notification';
 
 /** What a spending entry was FOR, when it is one of the four things worth tracking separately from
@@ -222,7 +225,13 @@ export interface RecurringRule extends Timestamped {
 	categoryId: ID;
 	amount: number;
 	frequency: RecurringFrequency;
+	/** Weekly: the weekday (0 = Sunday). Monthly: the day of the month. Yearly: the day of the month
+	 *  in `monthOfYear`. (A yearly rule saved before `monthOfYear` existed holds a day of an
+	 *  ordinary year here instead - see `yearlyMonthDay`.) */
 	dayOfPeriod: number;
+	/** Yearly rules only: the month, 1-12. Absent on every other rule, and on yearly rules from before
+	 *  it existed. */
+	monthOfYear?: number;
 	isActive: boolean;
 	/** Human-readable description, copied from the source transaction's notes when created
 	 *  via createRuleFromTransaction (FR-005, spec 016). Display falls back to category-name

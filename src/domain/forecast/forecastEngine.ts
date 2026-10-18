@@ -7,6 +7,9 @@ import { todayLocalISO } from '../shared/dateMath';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const DRIFT_LOOKBACK_DAYS = 90;
+/** The fewest days the drift is averaged over, so a handful of days of history cannot be stretched
+ *  into a forecast by one large payment. */
+const MIN_DRIFT_WINDOW_DAYS = 30;
 const MIN_EVENTS_FOR_CONFIDENCE = 2;
 const MIN_TRANSACTIONS_FOR_CONFIDENCE = 10;
 
@@ -20,7 +23,8 @@ function toDateOnly(d: Date): string {
  * contracts/cashflow-forecast.md), combining two contributions per day: (a) deterministic —
  * this account's active `RecurringRule`s' pending `ExpectedEvent`s landing inside the horizon
  * (reusing `recurringEngine.generateExpectedEvents`, never re-deriving it), and (b) drift — the
- * trailing 90-day average daily net of transactions *not* already accounted for by a recurring rule,
+ * trailing average daily net (over the last 90 days, or the 30 to 90 the account has existed) of
+ * transactions *not* already accounted for by a recurring rule,
  * spread evenly across the horizon. `warning` is the first day the trajectory crosses the
  * account's low-balance threshold (default 0) — or, for a credit card, the day the projected amount
  * owed would pass its credit limit.
@@ -82,7 +86,17 @@ export async function projectAccountBalance(
 			!paidByRule.has(tx.id)
 	);
 	const driftNet = recentTransactions.reduce((sum, tx) => sum + tx.amount, 0);
-	const driftPerDay = recentTransactions.length > 0 ? driftNet / DRIFT_LOOKBACK_DAYS : 0;
+	// Averaged over the days the account has actually been in use (30 to 90), not always 90: a new
+	// account's 20 days of spending, divided by 90, understated its daily burn more than fourfold.
+	const firstEntryDate = await TransactionRepository.firstDateForAccount(accountId);
+	const daysOfHistory = firstEntryDate
+		? Math.round((Date.parse(asOfDateOnly) - Date.parse(firstEntryDate)) / DAY_MS)
+		: DRIFT_LOOKBACK_DAYS;
+	const driftWindowDays = Math.min(
+		DRIFT_LOOKBACK_DAYS,
+		Math.max(MIN_DRIFT_WINDOW_DAYS, daysOfHistory)
+	);
+	const driftPerDay = recentTransactions.length > 0 ? driftNet / driftWindowDays : 0;
 
 	const eventAmountByDate = new Map<string, number>();
 	for (const event of eventsInHorizon) {
@@ -103,6 +117,9 @@ export async function projectAccountBalance(
 
 	for (let i = 1; i <= horizonDays; i++) {
 		const date = toDateOnly(new Date(asOf.getTime() + i * DAY_MS));
+		// A bill due today that is still pending has not left the balance yet, and the loop starts
+		// tomorrow: it lands on the first projected day rather than being counted nowhere.
+		if (i === 1) cumulative += eventAmountByDate.get(asOfDateOnly) ?? 0;
 		cumulative += eventAmountByDate.get(date) ?? 0;
 		cumulative += driftPerDay;
 		const projectedBalanceMinor = Math.round(cumulative);

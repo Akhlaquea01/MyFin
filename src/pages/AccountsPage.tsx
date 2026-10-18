@@ -282,12 +282,10 @@ export function AccountsPage() {
 			// "balance = opening balance + sum of transactions" invariant always holds, and every
 			// correction leaves an auditable trail instead of being silently lost on the next
 			// recalculation.
-			await TransactionEngine.recordTransaction(key, {
+			await TransactionEngine.recordBalanceAdjustment(key, {
 				accountId: adjustTarget.id,
 				date: todayLocalISO(),
-				amount: diff,
-				type: diff > 0 ? 'income' : 'expense',
-				notes: 'Balance adjustment'
+				amount: diff
 			});
 			setAdjustTarget(null);
 			toast.success(`${adjustTarget.name} balance updated`);
@@ -843,8 +841,8 @@ export function AccountsPage() {
 						>
 							<p className="text-sm text-muted-foreground">
 								{adjustTarget.type === 'credit_card'
-									? `${adjustTarget.name} is currently tracked as owing ${formatMoney(-adjustTarget.currentBalance)}. Enter what the card statement says you owe and a balancing transaction will be added to close the gap.`
-									: `${adjustTarget.name} is currently tracked at ${formatMoney(adjustTarget.currentBalance)}. Enter what the account actually holds and a balancing transaction will be added to close the gap.`}
+									? `${adjustTarget.name} is currently tracked as owing ${formatMoney(-adjustTarget.currentBalance)}. Enter what the card statement says you owe and a balancing transaction will be added to close the gap. It is not counted as income or spending.`
+									: `${adjustTarget.name} is currently tracked at ${formatMoney(adjustTarget.currentBalance)}. Enter what the account actually holds and a balancing transaction will be added to close the gap. It is not counted as income or spending.`}
 							</p>
 							<div className="flex flex-col gap-1.5">
 								<Label htmlFor="actual-balance">

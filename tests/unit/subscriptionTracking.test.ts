@@ -102,6 +102,20 @@ describe('ruleFromDetected', () => {
 		});
 	});
 
+	it('puts a yearly subscription on the month and day of its last charge', () => {
+		const found = detected({
+			cadence: 'yearly',
+			lastAmountMinor: 120_000,
+			lastChargedDate: '2026-03-01'
+		});
+		if (!canTrack(found)) throw new Error('a yearly charge can be tracked');
+		expect(ruleFromDetected(found)).toMatchObject({
+			frequency: 'yearly',
+			dayOfPeriod: 1,
+			monthOfYear: 3
+		});
+	});
+
 	it('cannot track a quarterly charge', () => {
 		expect(canTrack(detected({ cadence: 'quarterly' }))).toBe(false);
 	});

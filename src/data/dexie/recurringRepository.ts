@@ -9,6 +9,8 @@ export interface NewRecurringRule {
 	amount: number;
 	frequency: RecurringFrequency;
 	dayOfPeriod: number;
+	/** Yearly rules: the month (1-12) that `dayOfPeriod` is the day of. */
+	monthOfYear?: number;
 	label?: string;
 	isSubscription?: boolean;
 }
@@ -23,6 +25,10 @@ export const RecurringRepository = {
 			amount: input.amount,
 			frequency: input.frequency,
 			dayOfPeriod: input.dayOfPeriod,
+			// Written only for a yearly rule, so every other rule keeps the shape it always had.
+			...(input.frequency === 'yearly' && input.monthOfYear !== undefined
+				? { monthOfYear: input.monthOfYear }
+				: {}),
 			isActive: true,
 			label: input.label,
 			// Written only when set, so a rule that is not a subscription keeps the shape it always had.

@@ -8,7 +8,7 @@ import { normalizeMerchantText } from '../parser/merchantResolver';
 import { looksLikeCardPayment } from '../parser/cardPaymentDetector';
 import { parseCapturedMessage } from '../capture/captureParser';
 import { originalMessageOf } from '../capture/originalMessage';
-import { defaultDayFor } from './recurringDay';
+import { defaultDayFor, defaultMonthFor } from './recurringDay';
 import type { RecurringFrequency, RecurringRule, Transaction } from '../entities';
 import { todayLocalISO } from '../shared/dateMath';
 
@@ -246,6 +246,9 @@ export function ruleFromDetected(
 		amount: -subscription.lastAmountMinor,
 		frequency: subscription.cadence,
 		dayOfPeriod: defaultDayFor(subscription.cadence, subscription.lastChargedDate),
+		...(subscription.cadence === 'yearly'
+			? { monthOfYear: defaultMonthFor(subscription.lastChargedDate) ?? undefined }
+			: {}),
 		label: subscription.merchantName,
 		isSubscription: true
 	};

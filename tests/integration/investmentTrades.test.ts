@@ -145,6 +145,88 @@ describe('investment trades that move money', () => {
 		});
 	});
 
+	describe('cost basis', () => {
+		it('adds up what was actually paid, instead of re-deriving it from the rounded average', async () => {
+			const h = await InvestmentHoldingRepository.create(key, {
+				name: 'Fund',
+				type: 'mutual_fund',
+				units: 3,
+				avgPrice: 10_001,
+				costBasis: 30_003
+			});
+			// 3 x 100.01 + 7 x 100.02 = 1,000.17 - not 10 x the rounded 100.02 average.
+			const bought = await recordPurchase(key, h.id, { units: 7, price: 10_002 });
+
+			expect(bought.costBasis).toBe(100_017);
+			expect(bought.avgPrice).toBe(10_002);
+		});
+
+		it('leaves what a sale did not sell at its share of that exact cost', async () => {
+			const h = await InvestmentHoldingRepository.create(key, {
+				name: 'Fund',
+				type: 'mutual_fund',
+				units: 3,
+				avgPrice: 10_001,
+				costBasis: 30_003
+			});
+			await recordPurchase(key, h.id, { units: 7, price: 10_002 });
+
+			const sold = await recordSale(key, h.id, { units: 3 });
+
+			expect(sold.units).toBe(7);
+			expect(sold.avgPrice).toBe(10_002);
+			expect(sold.costBasis).toBe(Math.round((100_017 * 7) / 10)); // 70,012; 7 x 10,002 would say 70,014
+		});
+
+		it('is nothing once everything is sold, and starts again from the next purchase', async () => {
+			const h = await holding();
+			const sold = await recordSale(key, h.id, { units: 10 });
+			expect(sold.costBasis).toBe(0);
+
+			const again = await recordPurchase(key, h.id, { units: 2, price: 15_000 });
+			expect(again.costBasis).toBe(30_000);
+			expect(again.avgPrice).toBe(15_000);
+		});
+
+		it('refuses to buy on a holding that only has a cost basis, rather than lose the money in it', async () => {
+			const legacy = await InvestmentHoldingRepository.create(key, {
+				name: 'Old gold',
+				type: 'other',
+				costBasis: 50_000
+			});
+
+			await expect(recordPurchase(key, legacy.id, { units: 1, price: 20_000 })).rejects.toThrow(
+				/no unit data/
+			);
+
+			const after = await fresh(legacy.id);
+			expect(after.costBasis).toBe(50_000);
+			expect(after.units).toBeUndefined();
+			expect(after.trades ?? []).toHaveLength(0);
+		});
+
+		it('can be bought into once it is given its units, keeping everything already invested', async () => {
+			const legacy = await InvestmentHoldingRepository.create(key, {
+				name: 'Old gold',
+				type: 'other',
+				costBasis: 50_000
+			});
+			const tracked = await editHolding(key, legacy.id, {
+				name: 'Old gold',
+				type: 'other',
+				costBasis: 50_000,
+				units: 3
+			});
+			expect(tracked).toMatchObject({ units: 3, avgPrice: 16_667, costBasis: 50_000 });
+
+			const bought = await recordPurchase(key, legacy.id, { units: 1, price: 20_000 });
+
+			expect(bought.units).toBe(4);
+			expect(bought.costBasis).toBe(70_000);
+			expect(bought.avgPrice).toBe(17_500);
+		});
+	});
+
 	describe('selling', () => {
 		it('adds the proceeds to the account', async () => {
 			const h = await holding();
@@ -283,19 +365,19 @@ describe('investment trades that move money', () => {
 			expect(history.map((v) => [v.date, v.value])).toEqual([['2026-01-01', 150_000]]);
 		});
 
-		it('puts a legacy holding back to having no unit data at all', async () => {
-			const legacy = await InvestmentHoldingRepository.create(key, {
-				name: 'Old gold',
+		it('puts a holding that was empty before its first purchase back to having no unit data', async () => {
+			const empty = await InvestmentHoldingRepository.create(key, {
+				name: 'Not bought yet',
 				type: 'other',
-				costBasis: 50_000
+				costBasis: 0
 			});
-			const bought = await recordPurchase(key, legacy.id, { units: 1, price: 20_000 });
+			const bought = await recordPurchase(key, empty.id, { units: 1, price: 20_000 });
 			expect(bought.units).toBe(1);
 
-			const undone = await undoLatestTrade(key, legacy.id, bought.trades![0].id);
+			const undone = await undoLatestTrade(key, empty.id, bought.trades![0].id);
 			expect(undone.units).toBeUndefined();
 			expect(undone.avgPrice).toBeUndefined();
-			expect(undone.costBasis).toBe(50_000);
+			expect(undone.costBasis).toBe(0);
 		});
 
 		it('works for a trade recorded on the holding alone', async () => {

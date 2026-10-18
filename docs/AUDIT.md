@@ -183,3 +183,62 @@ item's `actualAmount` with no transactions behind it; they now record real spend
    money in. On the Dashboard, the spending-by-category chart and the month's expense figure can therefore differ by that month's refunds.
 5. **Messages waiting for an account are capped at 100** (the oldest are dropped), the same cap as the unreadable
    list; the phone's own queue has its own cap.
+
+---
+
+## 7. Third audit — calculations (2026-10-18)
+
+Scope: every place the app computes a figure — money and dates, the ledger and balances, budgets and
+rollover, analytics, the dashboard, financial health, forecast, net worth, investments, loans, goals, the
+debt planner, recurring dates, and the import/capture amount parsers. The core arithmetic (integer minor
+units, balance = opening + entries, paired transfers, the payoff simulation, loan balances) held up.
+Each defect below was reproduced with a failing test, then fixed.
+
+### 7.1 Fixed
+
+- **H-01 (Medium) Dashboard budget bars and the health score read stale spend.** A budget's saved
+  `actualAmount` only moves when it is opened, so spending recorded since (Quick Add, an import) left the
+  Dashboard bar where it was and let an over-limit budget count as "within limit" in the health score.
+  Both now use `withLiveBudgetActuals`, as the Analytics card already did.
+- **H-02 (Medium) The forecast ignored a bill due today.** The loop starts tomorrow and today's pending
+  events were dropped; they now land on the first projected day.
+- **H-03 (Medium) Forecast drift was always divided by 90.** A 20-day-old account's spending was spread over
+  90 days. It is now averaged over the days the account has been in use, from 30 to 90.
+- **H-04 (Medium) Buying on a holding with no unit data replaced its cost basis** with just the new
+  purchase's cost. Such a holding must now be given its units first (Edit → "Units held"; the cost basis is
+  kept exactly and the average price is worked out from it).
+- **H-05 (Low) Cost basis drifted from what was paid.** It was re-derived as units × the rounded average
+  price (up to half a paisa per unit). It is now the exact sum paid, cut to the remaining share on a sale;
+  re-saving a holding with untouched units and price keeps it.
+- **H-06 (Low) Goal pace counted the first deposit as saved over the months after it.** Two deposits of
+  1,000 a month apart read as 2,000 a month. The pace is now what came in after the first day, over the months
+  since. The goal contract and its tests were updated. A goal 99.6% saved no longer reads 100%.
+- **H-07 (Low) A yearly rule drifted by a day in leap years.** `dayOfPeriod` was a plain day of the year, so
+  a rule made from 1 March was 2 March in the other years. A yearly rule is now a calendar date: a month
+  (`monthOfYear`, new, optional) and a day of that month in `dayOfPeriod`, clamped to the month's length as a
+  monthly rule's 31st is, so there is no leap-year logic at all and 29 February is the 28th in other years.
+  The rule form and the Review "Mark as recurring" dialog ask for a month and a day. **Compatibility:** a
+  yearly rule saved before this has no month and still holds a day of the year; it is read as that date of an
+  ordinary year (60 = 1 March, 366 = 31 December) and gets its month the next time it is saved. One made from
+  a date after February in a leap year (2024, 2028) holds a number one too high and falls a day late; edit it once.
+- **H-08 (Low) "Adjust balance" counted as income or spending.** It now posts a one-sided movement marked
+  `balance_adjustment` (like a loan or a trade), so it moves the balance but stays out of income, expenses,
+  budgets and the forecast's drift. The ledger labels it "Adjustment" and it is edited as itself. Adjustments
+  posted before this change remain ordinary income/expense entries.
+- **H-09 (Low) Sinking funds ignored spending in a month the app was not opened**, overstating the fund. Each
+  skipped period now adds its allowance and loses what was spent (never below zero).
+- **H-10 (Low) The balance sparkline** walked back entries of archived accounts that were never in the total.
+- **H-11 (Low) A card paid past what it owed** dropped out of net worth; its credit now counts as an asset.
+- **H-12 (Low) `formatMoneyCompact`** wrote ₹999.50 as "₹1000" (now "₹1K").
+
+Regression tests: `balanceAdjustment.test.ts`, `holdingEditDialog.test.tsx`, `balanceAdjustment.spec.ts`, and
+cases added to the budget, dashboard, health, forecast, goal, recurring, investment, net-worth and money
+suites. `budgetPerformanceCard.test.tsx` ("reports a failed load…") and `alertsPaging.test.tsx` can time out
+when the whole suite runs in parallel and pass alone; this predates the audit.
+
+### 7.2 Known limits left in place
+
+1. **Forecast drift keeps a 30-day floor**, so an account used for fewer than 30 days still has its spending
+   spread over 30: a few days of history cannot be stretched into a forecast by one large payment.
+2. **A sale does not record a realised gain**; the remaining holding's gain/loss is shown, the proceeds are
+   money in the account.

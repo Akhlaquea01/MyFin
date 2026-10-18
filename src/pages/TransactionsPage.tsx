@@ -746,7 +746,11 @@ export function TransactionsPage() {
 												</span>
 												{tx.type === 'transfer' && (
 													<Badge variant="secondary" className="shrink-0">
-														{tx.transferPairId ? 'Transfer' : 'Loan'}
+														{tx.transferPairId
+															? 'Transfer'
+															: tx.source === 'balance_adjustment'
+																? 'Adjustment'
+																: 'Loan'}
 													</Badge>
 												)}
 												{tx.purpose && (

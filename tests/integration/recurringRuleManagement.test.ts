@@ -108,6 +108,27 @@ describe('editing and deleting recurring rules', () => {
 		expect(regenerated['2026-04-05']).toBeUndefined();
 	});
 
+	it('changing the month of a yearly rule replaces the waiting reminders', async () => {
+		const rule = await RecurringRepository.create(key, {
+			accountId: account,
+			categoryId: '__uncategorized__',
+			amount: -120_000,
+			frequency: 'yearly',
+			dayOfPeriod: 15,
+			monthOfYear: 3
+		});
+		await generateExpectedEvents(key, rule, new Date('2027-12-31'), new Date('2026-01-01'));
+		expect(Object.keys(await statuses(rule.id)).sort()).toEqual(['2026-03-15', '2027-03-15']);
+
+		// The same day, a different month: it is a different date, so the plan has to change.
+		const moved = await updateRecurringRule(key, rule.id, { monthOfYear: 9 });
+		expect(moved.monthOfYear).toBe(9);
+		expect(await statuses(rule.id)).toEqual({});
+
+		await generateExpectedEvents(key, moved, new Date('2027-12-31'), new Date('2026-01-01'));
+		expect(Object.keys(await statuses(rule.id)).sort()).toEqual(['2026-09-15', '2027-09-15']);
+	});
+
 	it('changing the frequency replaces the waiting reminders too', async () => {
 		const { rule } = await monthlyRule();
 		await updateRecurringRule(key, rule.id, { frequency: 'weekly', dayOfPeriod: 1 });

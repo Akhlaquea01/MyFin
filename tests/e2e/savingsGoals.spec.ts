@@ -83,7 +83,9 @@ test('projected completion date and behind-schedule flag (Scenario 2)', async ({
 	const goalCard = page.locator('[data-slot="card"]').filter({ hasText: 'Vacation' });
 	await expect(goalCard.getByText('Behind schedule')).toBeVisible();
 
-	await logContribution(page, 'Vacation', '4000', TODAY);
+	// 1000 two months ago, then 1000 + 5000 today: 6000 in 2 months is 3000/mo, so the remaining
+	// 5000 takes 2 more months - inside the 3 months to the target.
+	await logContribution(page, 'Vacation', '5000', TODAY);
 	await expect(goalCard.getByText('On track')).toBeVisible();
 });
 

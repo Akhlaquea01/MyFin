@@ -4,7 +4,7 @@
  * — never a new Dexie query — so this panel structurally cannot drift from what Analytics/
  * Budgets already show (FR-007, research.md §1-2). Never writes anything.
  */
-import { incomeExpenseTrend, budgetPerformance } from './analyticsEngine';
+import { incomeExpenseTrend, budgetPerformance, withLiveBudgetActuals } from './analyticsEngine';
 import {
 	buildMonthlyMetrics,
 	computeFinancialHealthScore,
@@ -23,10 +23,13 @@ export async function getFinancialHealthTrend(
 	dateFrom: string,
 	dateTo: string
 ): Promise<FinancialHealthMetrics[]> {
-	const [trend, budgetItems] = await Promise.all([
+	const [trend, storedBudgetItems] = await Promise.all([
 		incomeExpenseTrend(key, dateFrom, dateTo),
 		budgetPerformance(key, dateFrom, dateTo)
 	]);
+	// Stored spend lags behind new entries (it only moves when a budget is opened), and adherence is
+	// "was the spend within the limit" - so it is judged on the ledger's figure, not the saved one.
+	const budgetItems = await withLiveBudgetActuals(key, storedBudgetItems);
 
 	const budgetsByMonth = new Map<string, { plannedAmount: number; actualAmount: number }[]>();
 	for (const item of budgetItems) {

@@ -4,6 +4,7 @@ import {
 	UNCATEGORIZED_CATEGORY_ID
 } from '../../data/dexie/transactionRepository';
 import { localDateAsUtc, todayLocalISO } from '../shared/dateMath';
+import { yearlyMonthDay } from './recurringDay';
 import type {
 	RecurringRule,
 	RecurringFrequency,
@@ -18,12 +19,15 @@ function toDateOnly(d: Date): string {
 	return d.toISOString().slice(0, 10);
 }
 
-function isLeapYear(year: number): boolean {
-	return (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
-}
-
-function daysInYear(year: number): number {
-	return isLeapYear(year) ? 366 : 365;
+/**
+ * The date a yearly rule falls on in `year`: its month and day of the month, held to the month's
+ * length the way a monthly rule's 31st is (so 29 February is the 28th in an ordinary year). A calendar
+ * date needs no leap-year handling of its own.
+ */
+function yearlyOccurrence(year: number, rule: RecurringRule): Date {
+	const { month, day } = yearlyMonthDay(rule);
+	const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
+	return new Date(Date.UTC(year, month - 1, Math.min(day, lastDay)));
 }
 
 /** Next occurrence on/after `from` for the rule's frequency/dayOfPeriod (FR-028). */
@@ -56,18 +60,11 @@ function nextOccurrenceOnOrAfter(rule: RecurringRule, from: Date): Date {
 		);
 	}
 
-	// yearly: dayOfPeriod is a 1-366 day-of-year, clamped to the target year's actual length
-	// (366 only exists in a leap year — without this clamp, a rule set to day 366 rolls into
-	// Jan 1 of the following year in a non-leap year and skips that year's occurrence entirely).
+	// yearly: a month and a day of that month (see yearlyOccurrence).
 	const year = d.getUTCFullYear();
-	const startOfYear = Date.UTC(year, 0, 1);
-	const dayThisYear = Math.min(rule.dayOfPeriod, daysInYear(year));
-	const candidate = new Date(startOfYear + (dayThisYear - 1) * DAY_MS);
+	const candidate = yearlyOccurrence(year, rule);
 	if (candidate >= d) return candidate;
-	const nextYear = year + 1;
-	const startOfNextYear = Date.UTC(nextYear, 0, 1);
-	const dayNextYear = Math.min(rule.dayOfPeriod, daysInYear(nextYear));
-	return new Date(startOfNextYear + (dayNextYear - 1) * DAY_MS);
+	return yearlyOccurrence(year + 1, rule);
 }
 
 function addOnePeriod(rule: RecurringRule, date: Date): Date {
@@ -305,7 +302,7 @@ export async function rematchTransaction(
 }
 
 /** The parts of a rule that decide on which dates a payment is expected. */
-const SCHEDULE_FIELDS = ['frequency', 'dayOfPeriod'] as const;
+const SCHEDULE_FIELDS = ['frequency', 'dayOfPeriod', 'monthOfYear'] as const;
 
 /**
  * Saves changes to a rule (any of its fields). Changing when it recurs makes the reminders still
@@ -328,6 +325,7 @@ export async function updateRecurringRule(
 			| 'amount'
 			| 'frequency'
 			| 'dayOfPeriod'
+			| 'monthOfYear'
 			| 'label'
 			| 'isSubscription'
 			| 'isActive'
@@ -392,7 +390,13 @@ export async function markMissedPastDue(key: CryptoKey, asOf: Date = new Date())
 export async function createRuleFromTransaction(
 	key: CryptoKey,
 	transaction: Transaction,
-	details: { frequency: RecurringFrequency; dayOfPeriod: number; categoryId?: string }
+	details: {
+		frequency: RecurringFrequency;
+		dayOfPeriod: number;
+		/** Yearly rules: the month the day belongs to. */
+		monthOfYear?: number;
+		categoryId?: string;
+	}
 ): Promise<RecurringRule> {
 	// Build a RecurringRule using the same shape RecurringPage.tsx already builds via its form,
 	// plus the new optional `label` field. Prefer the caller's explicit categoryId (e.g. Review's
@@ -410,6 +414,7 @@ export async function createRuleFromTransaction(
 		amount: transaction.amount,
 		frequency: details.frequency,
 		dayOfPeriod: details.dayOfPeriod,
+		monthOfYear: details.monthOfYear,
 		label: transaction.notes || undefined
 	});
 

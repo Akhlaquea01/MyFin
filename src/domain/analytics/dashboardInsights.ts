@@ -9,6 +9,7 @@ import {
 	budgetPerformance,
 	categoryBreakdown,
 	incomeExpenseTrend,
+	withLiveBudgetActuals,
 	type MonthlyTrendPoint
 } from './analyticsEngine';
 
@@ -99,7 +100,7 @@ export async function getDashboardInsights(
 	const months = lastMonths(today, TREND_MONTHS);
 	const month = months[months.length - 1];
 	const monthStart = `${month}-01`;
-	const [trendPoints, spendingRaw, budgetItems, categories] = await Promise.all([
+	const [trendPoints, spendingRaw, storedBudgetItems, categories] = await Promise.all([
 		// Netted the same way as the spending breakdown below, so "Money out" is what "Where it went"
 		// adds up to instead of a larger gross figure beside it.
 		incomeExpenseTrend(key, `${months[0]}-01`, monthEnd(month), { netRefunds: true, rollUp: true }),
@@ -107,6 +108,9 @@ export async function getDashboardInsights(
 		budgetPerformance(key, monthStart, monthEnd(month)),
 		CategoryRepository.list(key)
 	]);
+	// A budget's stored spend only moves when the budget is opened, so spending recorded since (this
+	// session's Quick Add, an import) would leave its bar where it was. Read it from the ledger instead.
+	const budgetItems = await withLiveBudgetActuals(key, storedBudgetItems);
 	const colors = buildCategoryColors(categories);
 	const trend = fillMonths(months, trendPoints);
 	const current = trend[trend.length - 1];

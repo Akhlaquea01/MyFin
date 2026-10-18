@@ -141,7 +141,12 @@ export function formatMoneyCompact(minorUnits: number): string {
 	units.forEach(([size], i) => {
 		if (major >= size) index = i;
 	});
-	if (index === -1) return `${sign}${CURRENCY_SYMBOL}${Math.round(major)}`;
+	if (index === -1) {
+		const whole = Math.round(major);
+		if (whole < 1_000) return `${sign}${CURRENCY_SYMBOL}${whole}`;
+		// 999.50 rounds to 1000, which is 1K: carry it up instead of writing "₹1000".
+		index = 0;
+	}
 
 	let scaled = Math.round((major / units[index][0]) * 10) / 10;
 	// 99.96K rounds to 100K, which is 1L: carry it up instead of writing "100K".

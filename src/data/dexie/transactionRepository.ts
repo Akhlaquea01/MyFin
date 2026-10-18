@@ -634,6 +634,18 @@ export const TransactionRepository = {
 		return sortNewestFirst(transactions);
 	},
 
+	/**
+	 * The earliest date of any entry on `accountId`, or null when it has none. Walks the `date` index
+	 * from the oldest entry and stops at the first one on that account, so nothing is decrypted.
+	 */
+	async firstDateForAccount(accountId: string): Promise<string | null> {
+		const first = await db.transactions
+			.orderBy('date')
+			.filter((row) => row.accountId === accountId)
+			.first();
+		return first?.date ?? null;
+	},
+
 	/** Counts transactions straight off the table — no rows decrypted. */
 	async count(): Promise<number> {
 		return db.transactions.count();

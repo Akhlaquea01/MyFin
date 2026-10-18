@@ -689,7 +689,8 @@ async function runTemplateImport(
 				er.categoryId === resolvedCatId &&
 				er.amount === rr.amount &&
 				er.frequency === rr.frequency &&
-				er.dayOfPeriod === rr.dayOfPeriod
+				er.dayOfPeriod === rr.dayOfPeriod &&
+				(er.monthOfYear ?? null) === (rr.monthOfYear ?? null)
 		);
 		if (match) {
 			recurringRuleRemap.set(rr.id, match.id);
@@ -701,6 +702,7 @@ async function runTemplateImport(
 				amount: rr.amount,
 				frequency: rr.frequency,
 				dayOfPeriod: rr.dayOfPeriod,
+				monthOfYear: rr.monthOfYear,
 				label: rr.label,
 				isSubscription: rr.isSubscription
 			});

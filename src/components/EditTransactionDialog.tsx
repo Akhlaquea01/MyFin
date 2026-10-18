@@ -42,7 +42,7 @@ import type {
 	TransactionSplit
 } from '../domain/entities';
 
-type Kind = 'loading' | 'regular' | 'transfer' | 'loan';
+type Kind = 'loading' | 'regular' | 'transfer' | 'adjustment' | 'loan';
 
 /**
  * Edit an existing transaction. Until this existed the only things a user could do to a wrong
@@ -126,6 +126,7 @@ export function EditTransactionDialog({
 				setLink(loanLink);
 				if (loanLink) setKind('loan');
 				else if (transaction.type === 'transfer' && transaction.transferPairId) setKind('transfer');
+				else if (transaction.source === 'balance_adjustment') setKind('adjustment');
 				else setKind('regular');
 			} catch (err) {
 				if (!cancelled) {
@@ -161,6 +162,17 @@ export function EditTransactionDialog({
 					amount: parseMoneyOrZero(amount),
 					notes: notes.trim() || null
 				});
+			} else if (kind === 'adjustment') {
+				// A one-sided correction stays a transfer (never income or spending); only its size, date
+				// and note change, and it keeps the direction it had.
+				const magnitude = parseMoneyOrZero(amount);
+				const signed = transaction.amount < 0 ? -magnitude : magnitude;
+				await TransactionEngine.editTransaction(
+					key,
+					transaction.id,
+					{ date, amount: signed, notes: notes.trim() || null },
+					[{ categoryId: UNCATEGORIZED_CATEGORY_ID, amount: signed }]
+				);
 			} else {
 				const magnitude = parseMoneyOrZero(amount);
 				const signed = type === 'expense' ? -magnitude : magnitude;
@@ -264,9 +276,11 @@ export function EditTransactionDialog({
 					<DialogDescription>
 						{kind === 'transfer'
 							? 'This is one side of a transfer. Changes apply to both sides together.'
-							: kind === 'loan'
-								? 'This entry belongs to a loan, liability or investment record.'
-								: 'Changes update the account balance and reports straight away.'}
+							: kind === 'adjustment'
+								? 'This is a balance adjustment. It moves the account balance and is not counted as income or spending.'
+								: kind === 'loan'
+									? 'This entry belongs to a loan, liability or investment record.'
+									: 'Changes update the account balance and reports straight away.'}
 					</DialogDescription>
 				</DialogHeader>
 
@@ -309,7 +323,7 @@ export function EditTransactionDialog({
 					</div>
 				)}
 
-				{(kind === 'regular' || kind === 'transfer') && (
+				{(kind === 'regular' || kind === 'transfer' || kind === 'adjustment') && (
 					<form
 						className="flex flex-col gap-4"
 						onSubmit={(e) => {
