@@ -2,7 +2,7 @@ name: Build Android APK
 
 # Builds an installable debug APK on a GitHub-hosted runner - nothing Android is needed on your PC.
 # Every build from master is also published as a GitHub Release (MyFin-vX.Y.Z.apk), which is what
-# the app's About page checks and installs updates from. See ANDROID_APK_BUILD.md.
+# the app's About page checks and installs updates from. See docs/deployment/BUILD.md.
 on:
   workflow_dispatch:
   push:

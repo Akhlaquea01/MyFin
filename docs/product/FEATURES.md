@@ -58,9 +58,9 @@ The foundational layer of MyFin providing zero-knowledge, local-first personal f
 
 ### Domain Engine & Architecture
 
-- **Engine**: [`src/domain/transactions/transactionEngine.ts`](../src/domain/transactions/transactionEngine.ts), [`src/domain/wealth/wealthEngine.ts`](../src/domain/wealth/wealthEngine.ts) (net worth/liabilities)
-- **Repositories**: [`accountRepository.ts`](../src/data/dexie/accountRepository.ts), [`transactionRepository.ts`](../src/data/dexie/transactionRepository.ts), [`categoryRepository.ts`](../src/data/dexie/categoryRepository.ts), [`wealthRepository.ts`](../src/data/dexie/wealthRepository.ts)
-- **Primary Pages**: [`DashboardPage.tsx`](../src/pages/DashboardPage.tsx), [`AccountsPage.tsx`](../src/pages/AccountsPage.tsx), [`TransactionsPage.tsx`](../src/pages/TransactionsPage.tsx), [`NewTransactionPage.tsx`](../src/pages/NewTransactionPage.tsx), [`CategoriesPage.tsx`](../src/pages/CategoriesPage.tsx), [`TransferPage.tsx`](../src/pages/TransferPage.tsx), [`LiabilitiesPage.tsx`](../src/pages/LiabilitiesPage.tsx), [`NetWorthPage.tsx`](../src/pages/NetWorthPage.tsx)
+- **Engine**: [`src/domain/transactions/transactionEngine.ts`](../../src/domain/transactions/transactionEngine.ts), [`src/domain/wealth/wealthEngine.ts`](../../src/domain/wealth/wealthEngine.ts) (net worth/liabilities)
+- **Repositories**: [`accountRepository.ts`](../../src/data/dexie/accountRepository.ts), [`transactionRepository.ts`](../../src/data/dexie/transactionRepository.ts), [`categoryRepository.ts`](../../src/data/dexie/categoryRepository.ts), [`wealthRepository.ts`](../../src/data/dexie/wealthRepository.ts)
+- **Primary Pages**: [`DashboardPage.tsx`](../../src/pages/DashboardPage.tsx), [`AccountsPage.tsx`](../../src/pages/AccountsPage.tsx), [`TransactionsPage.tsx`](../../src/pages/TransactionsPage.tsx), [`NewTransactionPage.tsx`](../../src/pages/NewTransactionPage.tsx), [`CategoriesPage.tsx`](../../src/pages/CategoriesPage.tsx), [`TransferPage.tsx`](../../src/pages/TransferPage.tsx), [`LiabilitiesPage.tsx`](../../src/pages/LiabilitiesPage.tsx), [`NetWorthPage.tsx`](../../src/pages/NetWorthPage.tsx)
 
 ---
 
@@ -82,9 +82,9 @@ An interactive financial planning engine allowing users to simulate, compare, an
 
 ### Domain Engine & Architecture
 
-- **Engine**: [`src/domain/debtPlanner/generatePlan.ts`](../src/domain/debtPlanner/generatePlan.ts)
-- **Repository**: [`debtPlannerPreferenceRepository.ts`](../src/data/dexie/debtPlannerPreferenceRepository.ts)
-- **Primary Page**: [`DebtPayoffPlannerPage.tsx`](../src/pages/DebtPayoffPlannerPage.tsx)
+- **Engine**: [`src/domain/debtPlanner/generatePlan.ts`](../../src/domain/debtPlanner/generatePlan.ts)
+- **Repository**: [`debtPlannerPreferenceRepository.ts`](../../src/data/dexie/debtPlannerPreferenceRepository.ts)
+- **Primary Page**: [`DebtPayoffPlannerPage.tsx`](../../src/pages/DebtPayoffPlannerPage.tsx)
 
 ---
 
@@ -105,9 +105,9 @@ Visual goal tracking that connects target savings amounts with dedicated or pool
 
 ### Domain Engine & Architecture
 
-- **Engine**: [`src/domain/savingsGoals/goalProgress.ts`](../src/domain/savingsGoals/goalProgress.ts)
-- **Repository**: [`savingsGoalRepository.ts`](../src/data/dexie/savingsGoalRepository.ts)
-- **Primary Page**: [`SavingsGoalsPage.tsx`](../src/pages/SavingsGoalsPage.tsx)
+- **Engine**: [`src/domain/savingsGoals/goalProgress.ts`](../../src/domain/savingsGoals/goalProgress.ts)
+- **Repository**: [`savingsGoalRepository.ts`](../../src/data/dexie/savingsGoalRepository.ts)
+- **Primary Page**: [`SavingsGoalsPage.tsx`](../../src/pages/SavingsGoalsPage.tsx)
 
 ---
 
@@ -129,9 +129,9 @@ Predictive bill calendar, recurring payment automation, and proactive budget thr
 
 ### Domain Engine & Architecture
 
-- **Engines**: [`src/domain/recurring/recurringEngine.ts`](../src/domain/recurring/recurringEngine.ts), [`src/domain/notifications/notificationEngine.ts`](../src/domain/notifications/notificationEngine.ts)
-- **Repositories**: [`recurringRepository.ts`](../src/data/dexie/recurringRepository.ts), [`notificationRepository.ts`](../src/data/dexie/notificationRepository.ts)
-- **Primary Pages**: [`RecurringPage.tsx`](../src/pages/RecurringPage.tsx), [`RecurringUpcomingPage.tsx`](../src/pages/RecurringUpcomingPage.tsx), [`BudgetsPage.tsx`](../src/pages/BudgetsPage.tsx), [`NotificationSettingsPage.tsx`](../src/pages/NotificationSettingsPage.tsx)
+- **Engines**: [`src/domain/recurring/recurringEngine.ts`](../../src/domain/recurring/recurringEngine.ts), [`src/domain/notifications/notificationEngine.ts`](../../src/domain/notifications/notificationEngine.ts)
+- **Repositories**: [`recurringRepository.ts`](../../src/data/dexie/recurringRepository.ts), [`notificationRepository.ts`](../../src/data/dexie/notificationRepository.ts)
+- **Primary Pages**: [`RecurringPage.tsx`](../../src/pages/RecurringPage.tsx), [`RecurringUpcomingPage.tsx`](../../src/pages/RecurringUpcomingPage.tsx), [`BudgetsPage.tsx`](../../src/pages/BudgetsPage.tsx), [`NotificationSettingsPage.tsx`](../../src/pages/NotificationSettingsPage.tsx)
 
 ---
 
@@ -151,9 +151,9 @@ Client-side encrypted image and document attachment system allowing users to sto
 
 ### Domain Engine & Architecture
 
-- **Helpers**: [`src/lib/imageAttachment.ts`](../src/lib/imageAttachment.ts)
-- **Repository**: [`attachmentRepository.ts`](../src/data/dexie/attachmentRepository.ts)
-- **Component**: Embedded in [`TransactionsPage.tsx`](../src/pages/TransactionsPage.tsx) and transaction edit sheets.
+- **Helpers**: [`src/lib/imageAttachment.ts`](../../src/lib/imageAttachment.ts)
+- **Repository**: [`attachmentRepository.ts`](../../src/data/dexie/attachmentRepository.ts)
+- **Component**: Embedded in [`TransactionsPage.tsx`](../../src/pages/TransactionsPage.tsx) and transaction edit sheets.
 
 ---
 
@@ -175,9 +175,9 @@ Automated transaction categorization engine combining explicit user-defined matc
 
 ### Domain Engine & Architecture
 
-- **Engine**: [`src/domain/categorization/categorizationEngine.ts`](../src/domain/categorization/categorizationEngine.ts), [`keywordMatching.ts`](../src/domain/categorization/keywordMatching.ts), [`resolveCategorization.ts`](../src/domain/categorization/resolveCategorization.ts), [`src/domain/parser/merchantResolver.ts`](../src/domain/parser/merchantResolver.ts)
-- **Repositories**: [`categorizationRuleRepository.ts`](../src/data/dexie/categorizationRuleRepository.ts), [`merchantCategorySignalRepository.ts`](../src/data/dexie/merchantCategorySignalRepository.ts)
-- **Primary Page**: [`CategorizationRulesPage.tsx`](../src/pages/CategorizationRulesPage.tsx)
+- **Engine**: [`src/domain/categorization/categorizationEngine.ts`](../../src/domain/categorization/categorizationEngine.ts), [`keywordMatching.ts`](../../src/domain/categorization/keywordMatching.ts), [`resolveCategorization.ts`](../../src/domain/categorization/resolveCategorization.ts), [`src/domain/parser/merchantResolver.ts`](../../src/domain/parser/merchantResolver.ts)
+- **Repositories**: [`categorizationRuleRepository.ts`](../../src/data/dexie/categorizationRuleRepository.ts), [`merchantCategorySignalRepository.ts`](../../src/data/dexie/merchantCategorySignalRepository.ts)
+- **Primary Page**: [`CategorizationRulesPage.tsx`](../../src/pages/CategorizationRulesPage.tsx)
 
 ---
 
@@ -199,9 +199,9 @@ Holistic financial wellness assessment calculating an aggregate health score (0â
 
 ### Domain Engine & Architecture
 
-- **Engine**: [`src/domain/analytics/financialHealthEngine.ts`](../src/domain/analytics/financialHealthEngine.ts)
-- **Service**: [`financialHealthService.ts`](../src/domain/analytics/financialHealthService.ts)
-- **Primary Page**: [`FinancialHealthPage.tsx`](../src/pages/FinancialHealthPage.tsx)
+- **Engine**: [`src/domain/analytics/financialHealthEngine.ts`](../../src/domain/analytics/financialHealthEngine.ts)
+- **Service**: [`financialHealthService.ts`](../../src/domain/analytics/financialHealthService.ts)
+- **Primary Page**: [`FinancialHealthPage.tsx`](../../src/pages/FinancialHealthPage.tsx)
 
 ---
 
@@ -219,9 +219,9 @@ Native OS integration enabling users on Android, Windows, and macOS to share rec
 
 ### Domain Engine & Architecture
 
-- **Service Worker**: [`public/sw-share-target.js`](../public/sw-share-target.js)
-- **Parser**: [`src/domain/parser/quickAddParser.ts`](../src/domain/parser/quickAddParser.ts)
-- **Primary Page**: [`ShareTargetLandingPage.tsx`](../src/pages/ShareTargetLandingPage.tsx), [`QuickAddPage.tsx`](../src/pages/QuickAddPage.tsx)
+- **Service Worker**: [`public/sw-share-target.js`](../../public/sw-share-target.js)
+- **Parser**: [`src/domain/parser/quickAddParser.ts`](../../src/domain/parser/quickAddParser.ts)
+- **Primary Page**: [`ShareTargetLandingPage.tsx`](../../src/pages/ShareTargetLandingPage.tsx), [`QuickAddPage.tsx`](../../src/pages/QuickAddPage.tsx)
 
 ---
 
@@ -243,8 +243,8 @@ Enterprise-grade CSV and Excel file importer capable of ingesting statements fro
 
 ### Domain Engine & Architecture
 
-- **Engine**: [`src/data/io/importService.ts`](../src/data/io/importService.ts), [`src/data/io/bulkTextImportService.ts`](../src/data/io/bulkTextImportService.ts)
-- **Primary Pages**: [`ImportPage.tsx`](../src/pages/ImportPage.tsx), [`ReviewPage.tsx`](../src/pages/ReviewPage.tsx), [`BulkTextImportPage.tsx`](../src/pages/BulkTextImportPage.tsx)
+- **Engine**: [`src/data/io/importService.ts`](../../src/data/io/importService.ts), [`src/data/io/bulkTextImportService.ts`](../../src/data/io/bulkTextImportService.ts)
+- **Primary Pages**: [`ImportPage.tsx`](../../src/pages/ImportPage.tsx), [`ReviewPage.tsx`](../../src/pages/ReviewPage.tsx), [`BulkTextImportPage.tsx`](../../src/pages/BulkTextImportPage.tsx)
 
 ---
 
@@ -267,9 +267,9 @@ Peer-to-peer debt and loan ledger tracking money lent to or borrowed from friend
 
 ### Domain Engine & Architecture
 
-- **Engine**: [`src/domain/personLoans/loanProgress.ts`](../src/domain/personLoans/loanProgress.ts)
-- **Repository**: [`personLoanRepository.ts`](../src/data/dexie/personLoanRepository.ts)
-- **Primary Page**: [`PeoplePage.tsx`](../src/pages/PeoplePage.tsx)
+- **Engine**: [`src/domain/personLoans/loanProgress.ts`](../../src/domain/personLoans/loanProgress.ts)
+- **Repository**: [`personLoanRepository.ts`](../../src/data/dexie/personLoanRepository.ts)
+- **Primary Page**: [`PeoplePage.tsx`](../../src/pages/PeoplePage.tsx)
 
 ---
 
@@ -288,9 +288,9 @@ Annual financial retrospective presenting rich interactive infographics of spend
 
 ### Domain Engine & Architecture
 
-- **Engines**: [`src/domain/reports/reportEngine.ts`](../src/domain/reports/reportEngine.ts), [`src/domain/reports/reportService.ts`](../src/domain/reports/reportService.ts)
-- **PDF Generator**: [`src/data/io/reportPdfExport.ts`](../src/data/io/reportPdfExport.ts)
-- **Primary Page**: [`AnalyticsPage.tsx`](../src/pages/AnalyticsPage.tsx)
+- **Engines**: [`src/domain/reports/reportEngine.ts`](../../src/domain/reports/reportEngine.ts), [`src/domain/reports/reportService.ts`](../../src/domain/reports/reportService.ts)
+- **PDF Generator**: [`src/data/io/reportPdfExport.ts`](../../src/data/io/reportPdfExport.ts)
+- **Primary Page**: [`AnalyticsPage.tsx`](../../src/pages/AnalyticsPage.tsx)
 
 ---
 
@@ -309,9 +309,9 @@ Flexible non-hierarchical tagging system allowing multidimensional transaction l
 
 ### Domain Engine & Architecture
 
-- **Engine**: [`src/domain/transactions/tagFilterEngine.ts`](../src/domain/transactions/tagFilterEngine.ts)
-- **Repository**: [`tagRepository.ts`](../src/data/dexie/tagRepository.ts)
-- **Primary Page**: Integrated into [`TransactionsPage.tsx`](../src/pages/TransactionsPage.tsx)
+- **Engine**: [`src/domain/transactions/tagFilterEngine.ts`](../../src/domain/transactions/tagFilterEngine.ts)
+- **Repository**: [`tagRepository.ts`](../../src/data/dexie/tagRepository.ts)
+- **Primary Page**: Integrated into [`TransactionsPage.tsx`](../../src/pages/TransactionsPage.tsx)
 
 ---
 
@@ -330,8 +330,8 @@ Customizable view presets allowing users to save, name, and switch between compl
 
 ### Domain Engine & Architecture
 
-- **Repository**: [`savedFilterViewRepository.ts`](../src/data/dexie/savedFilterViewRepository.ts)
-- **Primary Page**: [`TransactionsPage.tsx`](../src/pages/TransactionsPage.tsx)
+- **Repository**: [`savedFilterViewRepository.ts`](../../src/data/dexie/savedFilterViewRepository.ts)
+- **Primary Page**: [`TransactionsPage.tsx`](../../src/pages/TransactionsPage.tsx)
 
 ---
 
@@ -356,9 +356,9 @@ Guided interactive walkthrough overlay introducing new users to the interface, n
 
 ### Domain Engine & Architecture
 
-- **Components**: [`QuickTourProvider.tsx`](../src/components/ui/quick-tour/QuickTourProvider.tsx), [`QuickTourOverlay.tsx`](../src/components/ui/quick-tour/QuickTourOverlay.tsx)
-- **Step Config**: [`src/components/ui/quick-tour/tour-steps.ts`](../src/components/ui/quick-tour/tour-steps.ts)
-- **Hook**: [`useQuickTour.ts`](../src/hooks/useQuickTour.ts)
+- **Components**: [`QuickTourProvider.tsx`](../../src/components/quick-tour/QuickTourProvider.tsx), [`QuickTourOverlay.tsx`](../../src/components/quick-tour/QuickTourOverlay.tsx)
+- **Step Config**: [`src/components/quick-tour/tourSteps.ts`](../../src/components/quick-tour/tourSteps.ts)
+- **Hook**: [`useQuickTour.ts`](../../src/hooks/useQuickTour.ts)
 
 ---
 
@@ -377,10 +377,10 @@ Export and import sanitized, reusable configuration templates (categories, accou
 
 ### Domain Engine & Architecture
 
-- **Service**: [`src/data/io/templateService.ts`](../src/data/io/templateService.ts)
-- **Types**: [`src/data/io/templateTypes.ts`](../src/data/io/templateTypes.ts)
-- **Starter Sample**: [`src/data/io/sampleTemplate.ts`](../src/data/io/sampleTemplate.ts)
-- **Primary Pages**: [`ExportPage.tsx`](../src/pages/ExportPage.tsx), [`BackupSettingsPage.tsx`](../src/pages/BackupSettingsPage.tsx)
+- **Service**: [`src/data/io/templateService.ts`](../../src/data/io/templateService.ts)
+- **Types**: [`src/data/io/templateTypes.ts`](../../src/data/io/templateTypes.ts)
+- **Starter Sample**: [`src/data/io/sampleTemplate.ts`](../../src/data/io/sampleTemplate.ts)
+- **Primary Pages**: [`ExportPage.tsx`](../../src/pages/ExportPage.tsx), [`BackupSettingsPage.tsx`](../../src/pages/BackupSettingsPage.tsx)
 
 ---
 
@@ -402,9 +402,9 @@ A bundle of seven targeted fixes and additions to the daily-use workflow: transa
 
 ### Domain Engine & Architecture
 
-- **Engines**: [`budgetEngine.ts`](../src/domain/budgets/budgetEngine.ts) (`ensureBudgetItemForPeriod`), [`recurringEngine.ts`](../src/domain/recurring/recurringEngine.ts) (`createRuleFromTransaction`), [`wealthEngine.ts`](../src/domain/wealth/wealthEngine.ts) (`recordPurchase`/`recordSale`)
-- **Data Layer**: [`clearAllTables.ts`](../src/data/dexie/clearAllTables.ts), [`resetService.ts`](../src/data/io/resetService.ts), import-time budget recompute and investment type mapping in [`templateService.ts`](../src/data/io/templateService.ts)
-- **Primary Pages**: [`DashboardPage.tsx`](../src/pages/DashboardPage.tsx), [`TransactionsPage.tsx`](../src/pages/TransactionsPage.tsx), [`ReviewPage.tsx`](../src/pages/ReviewPage.tsx), [`AccountsPage.tsx`](../src/pages/AccountsPage.tsx), [`BudgetsPage.tsx`](../src/pages/BudgetsPage.tsx), [`BackupSettingsPage.tsx`](../src/pages/BackupSettingsPage.tsx), [`InvestmentsPage.tsx`](../src/pages/InvestmentsPage.tsx)
+- **Engines**: [`budgetEngine.ts`](../../src/domain/budgets/budgetEngine.ts) (`ensureBudgetItemForPeriod`), [`recurringEngine.ts`](../../src/domain/recurring/recurringEngine.ts) (`createRuleFromTransaction`), [`wealthEngine.ts`](../../src/domain/wealth/wealthEngine.ts) (`recordPurchase`/`recordSale`)
+- **Data Layer**: [`clearAllTables.ts`](../../src/data/dexie/clearAllTables.ts), [`resetService.ts`](../../src/data/io/resetService.ts), import-time budget recompute and investment type mapping in [`templateService.ts`](../../src/data/io/templateService.ts)
+- **Primary Pages**: [`DashboardPage.tsx`](../../src/pages/DashboardPage.tsx), [`TransactionsPage.tsx`](../../src/pages/TransactionsPage.tsx), [`ReviewPage.tsx`](../../src/pages/ReviewPage.tsx), [`AccountsPage.tsx`](../../src/pages/AccountsPage.tsx), [`BudgetsPage.tsx`](../../src/pages/BudgetsPage.tsx), [`BackupSettingsPage.tsx`](../../src/pages/BackupSettingsPage.tsx), [`InvestmentsPage.tsx`](../../src/pages/InvestmentsPage.tsx)
 
 ---
 
@@ -430,12 +430,12 @@ A bundle of five visibility and control gaps closed across credit cards, net wor
 
 ### Domain Engine & Architecture
 
-- **Engine**: [`src/domain/wealth/wealthEngine.ts`](../src/domain/wealth/wealthEngine.ts) (`computeCardUtilization`, `computeNetWorth`, `findLikelyDuplicateAccounts`, `linkLiabilityToAccount`, `dismissDuplicateWarning`, `computePortfolioSummary`)
-- **Matcher**: [`src/domain/parser/cardIdentifierMatcher.ts`](../src/domain/parser/cardIdentifierMatcher.ts) (`findCardMatches`)
-- **Budget Engine**: [`src/domain/budgets/budgetEngine.ts`](../src/domain/budgets/budgetEngine.ts)
-- **Repositories**: [`wealthRepository.ts`](../src/data/dexie/wealthRepository.ts), [`budgetRepository.ts`](../src/data/dexie/budgetRepository.ts) (`remove`), [`accountRepository.ts`](../src/data/dexie/accountRepository.ts) (`creditLimit`, `billingCycleDay`, `cardLast4`, `cardNickname`)
-- **Import Integration**: [`importService.ts`](../src/data/io/importService.ts), [`bulkTextImportService.ts`](../src/data/io/bulkTextImportService.ts)
-- **Primary Pages**: [`AccountsPage.tsx`](../src/pages/AccountsPage.tsx), [`LiabilitiesPage.tsx`](../src/pages/LiabilitiesPage.tsx), [`NetWorthPage.tsx`](../src/pages/NetWorthPage.tsx), [`BudgetsPage.tsx`](../src/pages/BudgetsPage.tsx), [`InvestmentsPage.tsx`](../src/pages/InvestmentsPage.tsx), [`ImportPage.tsx`](../src/pages/ImportPage.tsx), [`BulkTextImportPage.tsx`](../src/pages/BulkTextImportPage.tsx)
+- **Engine**: [`src/domain/wealth/wealthEngine.ts`](../../src/domain/wealth/wealthEngine.ts) (`computeCardUtilization`, `computeNetWorth`, `findLikelyDuplicateAccounts`, `linkLiabilityToAccount`, `dismissDuplicateWarning`, `computePortfolioSummary`)
+- **Matcher**: [`src/domain/parser/cardIdentifierMatcher.ts`](../../src/domain/parser/cardIdentifierMatcher.ts) (`findCardMatches`)
+- **Budget Engine**: [`src/domain/budgets/budgetEngine.ts`](../../src/domain/budgets/budgetEngine.ts)
+- **Repositories**: [`wealthRepository.ts`](../../src/data/dexie/wealthRepository.ts), [`budgetRepository.ts`](../../src/data/dexie/budgetRepository.ts) (`remove`), [`accountRepository.ts`](../../src/data/dexie/accountRepository.ts) (`creditLimit`, `billingCycleDay`, `cardLast4`, `cardNickname`)
+- **Import Integration**: [`importService.ts`](../../src/data/io/importService.ts), [`bulkTextImportService.ts`](../../src/data/io/bulkTextImportService.ts)
+- **Primary Pages**: [`AccountsPage.tsx`](../../src/pages/AccountsPage.tsx), [`LiabilitiesPage.tsx`](../../src/pages/LiabilitiesPage.tsx), [`NetWorthPage.tsx`](../../src/pages/NetWorthPage.tsx), [`BudgetsPage.tsx`](../../src/pages/BudgetsPage.tsx), [`InvestmentsPage.tsx`](../../src/pages/InvestmentsPage.tsx), [`ImportPage.tsx`](../../src/pages/ImportPage.tsx), [`BulkTextImportPage.tsx`](../../src/pages/BulkTextImportPage.tsx)
 
 ---
 
@@ -457,10 +457,10 @@ Seven independently-shippable additions spanning passive insight (subscriptions,
 
 ### Domain Engine & Architecture
 
-- **Engines**: [`subscriptionDetectionEngine.ts`](../src/domain/recurring/subscriptionDetectionEngine.ts) (`detectSubscriptions`), [`forecastEngine.ts`](../src/domain/forecast/forecastEngine.ts) (`projectAccountBalance`), [`budgetVarianceEngine.ts`](../src/domain/budgets/budgetVarianceEngine.ts) (`computeVarianceReport`), [`budgetEngine.ts`](../src/domain/budgets/budgetEngine.ts) (extended with `rolloverMode`'s deficit-carry), [`searchIndex.ts`](../src/domain/search/searchIndex.ts) (`buildSearchIndex`/`querySearchIndex`), [`dashboardLayout.ts`](../src/domain/analytics/dashboardLayout.ts) (`resolveDashboardLayout`)
-- **Data Layer**: [`autoBackupSettingsRepository.ts`](../src/data/dexie/autoBackupSettingsRepository.ts), [`autoBackupService.ts`](../src/data/io/autoBackupService.ts) (`maybeRunScheduledBackup`, reusing `backupService.ts`'s `createBackup` unchanged), Dexie schema v12 (`autoBackupSettings` table)
-- **Primary Pages**: [`RecurringPage.tsx`](../src/pages/RecurringPage.tsx) (subscriptions), [`CashFlowForecastPage.tsx`](../src/pages/CashFlowForecastPage.tsx), [`BudgetVarianceReportPage.tsx`](../src/pages/BudgetVarianceReportPage.tsx), [`BudgetsPage.tsx`](../src/pages/BudgetsPage.tsx), [`DashboardPage.tsx`](../src/pages/DashboardPage.tsx), [`BackupSettingsPage.tsx`](../src/pages/BackupSettingsPage.tsx)
-- **Components**: [`CommandPalette.tsx`](../src/components/CommandPalette.tsx), [`DashboardCustomizeSheet.tsx`](../src/components/DashboardCustomizeSheet.tsx)
+- **Engines**: [`subscriptionDetectionEngine.ts`](../../src/domain/recurring/subscriptionDetectionEngine.ts) (`detectSubscriptions`), [`forecastEngine.ts`](../../src/domain/forecast/forecastEngine.ts) (`projectAccountBalance`), [`budgetVarianceEngine.ts`](../../src/domain/budgets/budgetVarianceEngine.ts) (`computeVarianceReport`), [`budgetEngine.ts`](../../src/domain/budgets/budgetEngine.ts) (extended with `rolloverMode`'s deficit-carry), [`searchIndex.ts`](../../src/domain/search/searchIndex.ts) (`buildSearchIndex`/`querySearchIndex`), [`dashboardLayout.ts`](../../src/domain/analytics/dashboardLayout.ts) (`resolveDashboardLayout`)
+- **Data Layer**: [`autoBackupSettingsRepository.ts`](../../src/data/dexie/autoBackupSettingsRepository.ts), [`autoBackupService.ts`](../../src/data/io/autoBackupService.ts) (`maybeRunScheduledBackup`, reusing `backupService.ts`'s `createBackup` unchanged), Dexie schema v12 (`autoBackupSettings` table)
+- **Primary Pages**: [`RecurringPage.tsx`](../../src/pages/RecurringPage.tsx) (subscriptions), [`CashFlowForecastPage.tsx`](../../src/pages/CashFlowForecastPage.tsx), [`BudgetVarianceReportPage.tsx`](../../src/pages/BudgetVarianceReportPage.tsx), [`BudgetsPage.tsx`](../../src/pages/BudgetsPage.tsx), [`DashboardPage.tsx`](../../src/pages/DashboardPage.tsx), [`BackupSettingsPage.tsx`](../../src/pages/BackupSettingsPage.tsx)
+- **Components**: [`CommandPalette.tsx`](../../src/components/CommandPalette.tsx), [`DashboardCustomizeSheet.tsx`](../../src/components/DashboardCustomizeSheet.tsx)
 
 ---
 
@@ -482,12 +482,12 @@ Three changes aimed at the Android APK. Fingerprint unlock did not work there at
 
 ### Domain Engine & Architecture
 
-- **Biometric**: [`src/lib/biometric.ts`](../src/lib/biometric.ts) (provider choice, reasons), [`src/lib/native/nativeBiometric.ts`](../src/lib/native/nativeBiometric.ts), [`src/lib/pinWrap.ts`](../src/lib/pinWrap.ts), native `NativeBiometricPlugin.java` / `BiometricVault.java`
-- **Session**: [`SessionContext.tsx`](../src/context/SessionContext.tsx) (`lockIfExpired`, `setAutoLockTimeout`), [`appState.ts`](../src/lib/native/appState.ts), [`useAppActive.ts`](../src/hooks/useAppActive.ts)
-- **Capture domain**: [`src/domain/capture/`](../src/domain/capture/) (`captureFilter`, `captureParser`, `accountMatcher`, `capturePairing`, `originalMessage`)
-- **Capture data layer**: [`captureIngestService.ts`](../src/data/io/captureIngestService.ts), [`captureDrain.ts`](../src/data/io/captureDrain.ts), [`captureSetup.ts`](../src/data/io/captureSetup.ts), [`sealedBox.ts`](../src/data/crypto/sealedBox.ts)
+- **Biometric**: [`src/lib/biometric.ts`](../../src/lib/biometric.ts) (provider choice, reasons), [`src/lib/native/nativeBiometric.ts`](../../src/lib/native/nativeBiometric.ts), [`src/lib/pinWrap.ts`](../../src/lib/pinWrap.ts), native `NativeBiometricPlugin.java` / `BiometricVault.java`
+- **Session**: [`SessionContext.tsx`](../../src/context/SessionContext.tsx) (`lockIfExpired`, `setAutoLockTimeout`), [`appState.ts`](../../src/lib/native/appState.ts), [`useAppActive.ts`](../../src/hooks/useAppActive.ts)
+- **Capture domain**: [`src/domain/capture/`](../../src/domain/capture/) (`captureFilter`, `captureParser`, `accountMatcher`, `capturePairing`, `originalMessage`)
+- **Capture data layer**: [`captureIngestService.ts`](../../src/data/io/captureIngestService.ts), [`captureDrain.ts`](../../src/data/io/captureDrain.ts), [`captureSetup.ts`](../../src/data/io/captureSetup.ts), [`sealedBox.ts`](../../src/data/crypto/sealedBox.ts)
 - **Native capture**: `android/app/src/main/java/io/github/akhlaquea01/myfin/capture/` (`SmsReceiver`, `NotificationCaptureService`, `SealedBox`, `CaptureFilter`, `CaptureQueue`, `CaptureNotifier`, `TransactionCapturePlugin`)
-- **Pages**: [`SecurityPage.tsx`](../src/pages/SecurityPage.tsx), [`AutoCapturePage.tsx`](../src/pages/AutoCapturePage.tsx), [`ReviewPage.tsx`](../src/pages/ReviewPage.tsx), [`AccountsPage.tsx`](../src/pages/AccountsPage.tsx) (account digits)
+- **Pages**: [`SecurityPage.tsx`](../../src/pages/SecurityPage.tsx), [`AutoCapturePage.tsx`](../../src/pages/AutoCapturePage.tsx), [`ReviewPage.tsx`](../../src/pages/ReviewPage.tsx), [`AccountsPage.tsx`](../../src/pages/AccountsPage.tsx) (account digits)
 
 ---
 
@@ -526,11 +526,11 @@ The Android-side code below compiled only against stand-ins for the Android and 
 
 ### Domain Engine & Architecture
 
-- **PIN**: [`changePinService.ts`](../src/data/io/changePinService.ts), [`pinGate.ts`](../src/data/auth/pinGate.ts), [`resetService.ts`](../src/data/io/resetService.ts) (`resetEverything`), [`SessionContext.tsx`](../src/context/SessionContext.tsx) (`handleAppActiveChange`)
-- **Backups**: [`backupReminder.ts`](../src/lib/backupReminder.ts), [`backupReminderService.ts`](../src/data/io/backupReminderService.ts), [`BackupNudgeBanner.tsx`](../src/components/BackupNudgeBanner.tsx)
-- **Entry**: [`splitInput.ts`](../src/domain/transactions/splitInput.ts), [`recurringDay.ts`](../src/domain/recurring/recurringDay.ts), [`dateText.ts`](../src/domain/parser/dateText.ts), [`starterCategories.ts`](../src/data/io/starterCategories.ts)
-- **Alerts & confirmations**: [`notificationInboxRepository.ts`](../src/data/dexie/notificationInboxRepository.ts), [`unreadableCaptureRepository.ts`](../src/data/dexie/unreadableCaptureRepository.ts), [`AlertsPage.tsx`](../src/pages/AlertsPage.tsx), [`ConfirmProvider.tsx`](../src/components/ConfirmProvider.tsx) / [`confirm.ts`](../src/lib/confirm.ts), Dexie schema v14 (`notificationInbox`, `unreadableCaptures`; both carried by backups and a PIN change)
-- **Shell**: [`AppShell.tsx`](../src/components/AppShell.tsx), [`AndroidBackHandler.tsx`](../src/components/AndroidBackHandler.tsx), [`NotificationTapHandler.tsx`](../src/components/NotificationTapHandler.tsx), [`CaptureHealthBanner.tsx`](../src/components/CaptureHealthBanner.tsx), [`NotFoundPage.tsx`](../src/pages/NotFoundPage.tsx)
+- **PIN**: [`changePinService.ts`](../../src/data/io/changePinService.ts), [`pinGate.ts`](../../src/data/auth/pinGate.ts), [`resetService.ts`](../../src/data/io/resetService.ts) (`resetEverything`), [`SessionContext.tsx`](../../src/context/SessionContext.tsx) (`handleAppActiveChange`)
+- **Backups**: [`backupReminder.ts`](../../src/lib/backupReminder.ts), [`backupReminderService.ts`](../../src/data/io/backupReminderService.ts), [`BackupNudgeBanner.tsx`](../../src/components/BackupNudgeBanner.tsx)
+- **Entry**: [`splitInput.ts`](../../src/domain/transactions/splitInput.ts), [`recurringDay.ts`](../../src/domain/recurring/recurringDay.ts), [`dateText.ts`](../../src/domain/parser/dateText.ts), [`starterCategories.ts`](../../src/data/io/starterCategories.ts)
+- **Alerts & confirmations**: [`notificationInboxRepository.ts`](../../src/data/dexie/notificationInboxRepository.ts), [`unreadableCaptureRepository.ts`](../../src/data/dexie/unreadableCaptureRepository.ts), [`AlertsPage.tsx`](../../src/pages/AlertsPage.tsx), [`ConfirmProvider.tsx`](../../src/components/ConfirmProvider.tsx) / [`confirm.ts`](../../src/lib/confirm.ts), Dexie schema v14 (`notificationInbox`, `unreadableCaptures`; both carried by backups and a PIN change)
+- **Shell**: [`AppShell.tsx`](../../src/components/AppShell.tsx), [`AndroidBackHandler.tsx`](../../src/components/AndroidBackHandler.tsx), [`NotificationTapHandler.tsx`](../../src/components/NotificationTapHandler.tsx), [`CaptureHealthBanner.tsx`](../../src/components/CaptureHealthBanner.tsx), [`NotFoundPage.tsx`](../../src/pages/NotFoundPage.tsx)
 
 ## Feature 022: Clearer Review, Search-as-you-type Categories & a Charted Dashboard
 
@@ -556,18 +556,18 @@ Made the captured-message flow quicker to act on and easier to read on a phone: 
 
 ### Domain Engine & Architecture
 
-- **Capture**: [`captureParser.ts`](../src/domain/capture/captureParser.ts) (`extractAccountTails`, `extractRefNo`), [`accountMatcher.ts`](../src/domain/capture/accountMatcher.ts) (`matchCaptureAccount`, `findAccountMatches`), [`capturePairing.ts`](../src/domain/capture/capturePairing.ts), [`captureIngestService.ts`](../src/data/io/captureIngestService.ts), [`duplicateCandidates.ts`](../src/domain/transactions/duplicateCandidates.ts) (`findDuplicateCandidates`, `findByReference`, `duplicateReason`)
-- **Categories**: [`CategoryPicker.tsx`](../src/components/CategoryPicker.tsx), [`categoryHierarchy.ts`](../src/domain/categories/categoryHierarchy.ts) (`filterCategoryOptions`), [`categoryColor.ts`](../src/domain/categories/categoryColor.ts)
-- **Review**: [`ReviewPage.tsx`](../src/pages/ReviewPage.tsx), [`DuplicateCompare.tsx`](../src/components/DuplicateCompare.tsx), [`useWaitingReview.ts`](../src/hooks/useWaitingReview.ts)
-- **Charts**: [`charts/`](../src/components/charts) (`BarList`, `ProgressBar`, `SegmentedBar`, `TrendBars`), [`dashboardInsights.ts`](../src/domain/analytics/dashboardInsights.ts), [`dashboardLayout.ts`](../src/domain/analytics/dashboardLayout.ts), colour tokens in [`index.css`](../src/index.css)
-- **Navigation**: [`hubs.ts`](../src/lib/hubs.ts), [`HubTabs.tsx`](../src/components/HubTabs.tsx)
+- **Capture**: [`captureParser.ts`](../../src/domain/capture/captureParser.ts) (`extractAccountTails`, `extractRefNo`), [`accountMatcher.ts`](../../src/domain/capture/accountMatcher.ts) (`matchCaptureAccount`, `findAccountMatches`), [`capturePairing.ts`](../../src/domain/capture/capturePairing.ts), [`captureIngestService.ts`](../../src/data/io/captureIngestService.ts), [`duplicateCandidates.ts`](../../src/domain/transactions/duplicateCandidates.ts) (`findDuplicateCandidates`, `findByReference`, `duplicateReason`)
+- **Categories**: [`CategoryPicker.tsx`](../../src/components/CategoryPicker.tsx), [`categoryHierarchy.ts`](../../src/domain/categories/categoryHierarchy.ts) (`filterCategoryOptions`), [`categoryColor.ts`](../../src/domain/categories/categoryColor.ts)
+- **Review**: [`ReviewPage.tsx`](../../src/pages/ReviewPage.tsx), [`DuplicateCompare.tsx`](../../src/components/DuplicateCompare.tsx), [`useWaitingReview.ts`](../../src/hooks/useWaitingReview.ts)
+- **Charts**: [`charts/`](../../src/components/charts) (`BarList`, `ProgressBar`, `SegmentedBar`, `TrendBars`), [`dashboardInsights.ts`](../../src/domain/analytics/dashboardInsights.ts), [`dashboardLayout.ts`](../../src/domain/analytics/dashboardLayout.ts), colour tokens in [`index.css`](../../src/index.css)
+- **Navigation**: [`hubs.ts`](../../src/lib/hubs.ts), [`HubTabs.tsx`](../../src/components/HubTabs.tsx)
 - **Tests**: a `mobile` Playwright project (Pixel 7) runs `tests/e2e/*.mobile.spec.ts`; the desktop project runs the rest.
 
 ---
 
 ## Feature 023: Audit Hardening â€” Imports, Integrity & Start-up
 
-Details, findings and remaining risks are in [`AUDIT.md`](./AUDIT.md).
+Details, findings and remaining risks are in [`AUDIT-LOG.md`](../maintenance/AUDIT-LOG.md).
 
 ### Key Capabilities
 
@@ -580,10 +580,10 @@ Details, findings and remaining risks are in [`AUDIT.md`](./AUDIT.md).
 
 ### Domain Engine & Architecture
 
-- **Integrity**: [`integrityService.ts`](../src/data/io/integrityService.ts), [`DataIntegrityCard.tsx`](../src/components/DataIntegrityCard.tsx)
-- **Dates**: `isValidIsoDate` in [`dateMath.ts`](../src/domain/shared/dateMath.ts)
-- **Import**: `cellToText`, `parseDateWithFormat` and the `positive-is-expense` convention in [`importService.ts`](../src/data/io/importService.ts)
-- **Code splitting**: `lazyPage` in [`App.tsx`](../src/App.tsx), [`staleChunk.ts`](../src/lib/staleChunk.ts)
+- **Integrity**: [`integrityService.ts`](../../src/data/io/integrityService.ts), [`DataIntegrityCard.tsx`](../../src/components/DataIntegrityCard.tsx)
+- **Dates**: `isValidIsoDate` in [`dateMath.ts`](../../src/domain/shared/dateMath.ts)
+- **Import**: `cellToText`, `parseDateWithFormat` and the `positive-is-expense` convention in [`importService.ts`](../../src/data/io/importService.ts)
+- **Code splitting**: `lazyPage` in [`App.tsx`](../../src/App.tsx), [`staleChunk.ts`](../../src/lib/staleChunk.ts)
 
 ---
 
@@ -608,10 +608,10 @@ Five related changes: an expense can be marked as debt, savings, an investment o
 
 ### Domain Engine & Architecture
 
-- **Purpose**: [`purposeEngine.ts`](../src/domain/transactions/purposeEngine.ts) (`validatePurpose`, `applyPurpose`, `clearPurpose`, `syncPurpose`) called from [`transactionEngine.ts`](../src/domain/transactions/transactionEngine.ts); `linkTransactionToRule` in [`recurringEngine.ts`](../src/domain/recurring/recurringEngine.ts); [`PurposeField.tsx`](../src/components/PurposeField.tsx); `purposeBreakdown` in [`analyticsEngine.ts`](../src/domain/analytics/analyticsEngine.ts). The effect on a target is found again through the target's own link to the transaction (`LiabilityPayment.transactionId`, `GoalContribution.transactionId`, `ExpectedEvent.matchedTransactionId`), so applying is repeatable and reversing needs only the transaction.
-- **Capture**: [`captureParser.ts`](../src/domain/capture/captureParser.ts) (instrument, direction fallbacks, merchant), [`accountMatcher.ts`](../src/domain/capture/accountMatcher.ts) (`soleCreditCard`, `suggestAccountTag`), [`captureFilter.ts`](../src/domain/capture/captureFilter.ts), [`captureMoment.ts`](../src/domain/capture/captureMoment.ts), [`dateText.ts`](../src/domain/parser/dateText.ts) (`parseTimeFromText`), [`duplicateCandidates.ts`](../src/domain/transactions/duplicateCandidates.ts); native `CaptureFilter.java`, `SmsReceiver.java`; shared test fixture [`tests/fixtures/captureAcceptCases.txt`](../tests/fixtures/captureAcceptCases.txt).
-- **Recurring**: [`subscriptionDetectionEngine.ts`](../src/domain/recurring/subscriptionDetectionEngine.ts) (`excludeTracked`, `ruleFromDetected`, `toMonthlyCost`), [`recurringEngine.ts`](../src/domain/recurring/recurringEngine.ts) (`updateRecurringRule`, `deleteRecurringRule`), [`RecurringPage.tsx`](../src/pages/RecurringPage.tsx).
-- **Categories**: [`categoryEngine.ts`](../src/domain/categories/categoryEngine.ts) (`moveAndRemoveCategory`), [`categoryOverview.ts`](../src/domain/categories/categoryOverview.ts), `categoryActivity` in [`analyticsEngine.ts`](../src/domain/analytics/analyticsEngine.ts), [`categoryColor.ts`](../src/domain/categories/categoryColor.ts), [`src/components/categories/`](../src/components/categories), [`CategoriesPage.tsx`](../src/pages/CategoriesPage.tsx).
+- **Purpose**: [`purposeEngine.ts`](../../src/domain/transactions/purposeEngine.ts) (`validatePurpose`, `applyPurpose`, `clearPurpose`, `syncPurpose`) called from [`transactionEngine.ts`](../../src/domain/transactions/transactionEngine.ts); `linkTransactionToRule` in [`recurringEngine.ts`](../../src/domain/recurring/recurringEngine.ts); [`PurposeField.tsx`](../../src/components/PurposeField.tsx); `purposeBreakdown` in [`analyticsEngine.ts`](../../src/domain/analytics/analyticsEngine.ts). The effect on a target is found again through the target's own link to the transaction (`LiabilityPayment.transactionId`, `GoalContribution.transactionId`, `ExpectedEvent.matchedTransactionId`), so applying is repeatable and reversing needs only the transaction.
+- **Capture**: [`captureParser.ts`](../../src/domain/capture/captureParser.ts) (instrument, direction fallbacks, merchant), [`accountMatcher.ts`](../../src/domain/capture/accountMatcher.ts) (`soleCreditCard`, `suggestAccountTag`), [`captureFilter.ts`](../../src/domain/capture/captureFilter.ts), [`captureMoment.ts`](../../src/domain/capture/captureMoment.ts), [`dateText.ts`](../../src/domain/parser/dateText.ts) (`parseTimeFromText`), [`duplicateCandidates.ts`](../../src/domain/transactions/duplicateCandidates.ts); native `CaptureFilter.java`, `SmsReceiver.java`; shared test fixture [`tests/fixtures/captureAcceptCases.txt`](../../tests/fixtures/captureAcceptCases.txt).
+- **Recurring**: [`subscriptionDetectionEngine.ts`](../../src/domain/recurring/subscriptionDetectionEngine.ts) (`excludeTracked`, `ruleFromDetected`, `toMonthlyCost`), [`recurringEngine.ts`](../../src/domain/recurring/recurringEngine.ts) (`updateRecurringRule`, `deleteRecurringRule`), [`RecurringPage.tsx`](../../src/pages/RecurringPage.tsx).
+- **Categories**: [`categoryEngine.ts`](../../src/domain/categories/categoryEngine.ts) (`moveAndRemoveCategory`), [`categoryOverview.ts`](../../src/domain/categories/categoryOverview.ts), `categoryActivity` in [`analyticsEngine.ts`](../../src/domain/analytics/analyticsEngine.ts), [`categoryColor.ts`](../../src/domain/categories/categoryColor.ts), [`src/components/categories/`](../../src/components/categories), [`CategoriesPage.tsx`](../../src/pages/CategoriesPage.tsx).
 - **No schema change.** Every new field (`Transaction.purpose`, `CaptureInfo.txnAt`/`msgHash`/`directionGuessed`, `GoalContribution.transactionId`, `RecurringRule.isSubscription`, `Category.color`/`kind`, `CaptureSettings.ignoredCounts`) is optional and lives inside the encrypted row, so older data and backups load unchanged and a backup carries them automatically.
 
 ### Needs a device check
@@ -638,8 +638,8 @@ The sidebar's last group, "Data & settings", listed nine links. It is now **Mana
 
 ### Domain Engine & Architecture
 
-- **Hubs**: `Hub.folded` and `hubEntryPath` in [`hubs.ts`](../src/lib/hubs.ts) are the single description of which screens belong together; the sidebar's folded entries are built from it (`hubEntry` in [`AppShell.tsx`](../src/components/AppShell.tsx)), and [`HubTabs.tsx`](../src/components/HubTabs.tsx) draws the strip.
-- **Tests**: `openScreen` in [`tests/e2e/helpers.ts`](../tests/e2e/helpers.ts) opens a screen through its entry and strip; [`sidebarNavigation.spec.ts`](../tests/e2e/sidebarNavigation.spec.ts) covers the grouping.
+- **Hubs**: `Hub.folded` and `hubEntryPath` in [`hubs.ts`](../../src/lib/hubs.ts) are the single description of which screens belong together; the sidebar's folded entries are built from it (`hubEntry` in [`AppShell.tsx`](../../src/components/AppShell.tsx)), and [`HubTabs.tsx`](../../src/components/HubTabs.tsx) draws the strip.
+- **Tests**: `openScreen` in [`tests/e2e/helpers.ts`](../../tests/e2e/helpers.ts) opens a screen through its entry and strip; [`sidebarNavigation.spec.ts`](../../tests/e2e/sidebarNavigation.spec.ts) covers the grouping.
 - **No data or schema change.**
 
 ### Not done
@@ -663,11 +663,11 @@ Every build from `master` used to be a zipped workflow artifact that had to be d
 
 ### Domain Engine & Architecture
 
-- **Native plugin**: [`NativeAppUpdatePlugin.java`](../android/app/src/main/java/io/github/akhlaquea01/myfin/update/NativeAppUpdatePlugin.java) does the network, download, verification and install hand-off. The decisions (version comparison, which file is the app, which hosts a download may touch) are in [`UpdateRules.java`](../android/app/src/main/java/io/github/akhlaquea01/myfin/update/UpdateRules.java), covered by [`UpdateRulesTest.java`](../android/app/src/test/java/io/github/akhlaquea01/myfin/update/UpdateRulesTest.java).
+- **Native plugin**: [`NativeAppUpdatePlugin.java`](../../android/app/src/main/java/io/github/akhlaquea01/myfin/update/NativeAppUpdatePlugin.java) does the network, download, verification and install hand-off. The decisions (version comparison, which file is the app, which hosts a download may touch) are in [`UpdateRules.java`](../../android/app/src/main/java/io/github/akhlaquea01/myfin/update/UpdateRules.java), covered by [`UpdateRulesTest.java`](../../android/app/src/test/java/io/github/akhlaquea01/myfin/update/UpdateRulesTest.java).
 - **The network stays out of the web layer**: the Content-Security-Policy keeps `connect-src 'self'`, so script in the page still cannot send anything anywhere. The page cannot name an address either: the plugin asks one fixed repository, remembers the file it found, and downloads and installs only that. Redirects are followed by hand and only to GitHub's file hosts.
-- **Web side**: [`nativeAppUpdate.ts`](../src/lib/native/nativeAppUpdate.ts) wraps the plugin and maps its error codes to messages; [`appUpdateStore.ts`](../src/lib/appUpdateStore.ts) is the state machine (kept at module level so a download survives leaving the page); [`AppUpdateCard.tsx`](../src/components/AppUpdateCard.tsx) is the card, shown by [`AboutPage.tsx`](../src/pages/AboutPage.tsx) only when the plugin exists.
-- **CI**: [`build-apk.yml`](../.github/workflows/build-apk.yml) computes the version, passes it to Vite (`APP_VERSION`, read in `vite.config.ts`) and Gradle, checks the built APK carries it, and a separate `release` job (the only one with `contents: write`) publishes it. Only the newest commit on `master` is published.
-- **Tests**: [`appUpdateStore.test.ts`](../tests/unit/appUpdateStore.test.ts), [`appUpdateCard.test.tsx`](../tests/component/appUpdateCard.test.tsx) and [`aboutPageUpdates.test.tsx`](../tests/component/aboutPageUpdates.test.tsx).
+- **Web side**: [`nativeAppUpdate.ts`](../../src/lib/native/nativeAppUpdate.ts) wraps the plugin and maps its error codes to messages; [`appUpdateStore.ts`](../../src/lib/appUpdateStore.ts) is the state machine (kept at module level so a download survives leaving the page); [`AppUpdateCard.tsx`](../../src/components/AppUpdateCard.tsx) is the card, shown by [`AboutPage.tsx`](../../src/pages/AboutPage.tsx) only when the plugin exists.
+- **CI**: [`build-apk.yml`](../../.github/workflows/build-apk.yml) computes the version, passes it to Vite (`APP_VERSION`, read in `vite.config.ts`) and Gradle, checks the built APK carries it, and a separate `release` job (the only one with `contents: write`) publishes it. Only the newest commit on `master` is published.
+- **Tests**: [`appUpdateStore.test.ts`](../../tests/unit/appUpdateStore.test.ts), [`appUpdateCard.test.tsx`](../../tests/component/appUpdateCard.test.tsx) and [`aboutPageUpdates.test.tsx`](../../tests/component/aboutPageUpdates.test.tsx).
 - **No data or schema change.**
 
 ### Needs a device check

@@ -21,7 +21,7 @@ android {
     // A fixed debug key, committed on purpose (it is the standard public Android debug key, not a
     // secret). Without it every CI run signs with a fresh random key, and Android refuses to
     // install an APK over one signed differently - the only way out is uninstalling, which
-    // erases the app's data. See ANDROID_APK_BUILD.md.
+    // erases the app's data. See docs/deployment/BUILD.md.
     signingConfigs {
         debug {
             storeFile file('debug.keystore')

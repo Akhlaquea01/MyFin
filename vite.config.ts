@@ -74,7 +74,7 @@ function cspPlugin(): Plugin {
 	};
 }
 
-// `vite build --mode capacitor` is the Android build (see ANDROID_APK_BUILD.md). The APK bundles
+// `vite build --mode capacitor` is the Android build (see docs/deployment/BUILD.md). The APK bundles
 // every asset itself, so the PWA layer is switched off: a service worker would live in the
 // WebView's persistent storage across APK updates and keep serving the previous version's
 // precached UI until the user accepted an update prompt. `virtual:pwa-register/react` still

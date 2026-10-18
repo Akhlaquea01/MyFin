@@ -1,6 +1,6 @@
 import { createContext, useEffect, useState, type ReactNode } from 'react';
-import { db } from '../../../data/dexie/db';
-import { safeGetItem, safeSetItem } from '../../../lib/safeStorage';
+import { db } from '../../data/dexie/db';
+import { safeGetItem, safeSetItem } from '../../lib/safeStorage';
 
 export const APP_QUICK_TOUR_SEEN = 'APP_QUICK_TOUR_SEEN';
 

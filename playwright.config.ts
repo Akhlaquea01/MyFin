@@ -28,7 +28,7 @@ export default defineConfig({
 	// QuickTourProvider auto-starts the real product tour under. Every dialog it opens now
 	// carries `role="dialog"` (a deliberate accessibility fix), so left unsuppressed it
 	// collides with the many specs that assert `getByRole('dialog')` for a feature dialog they
-	// just opened themselves, expecting exactly one match. quick-tour.spec.ts explicitly
+	// just opened themselves, expecting exactly one match. quickTour.spec.ts explicitly
 	// resets this back to a fresh/unseen state for the one test that needs the tour to
 	// actually auto-start.
 	use: {

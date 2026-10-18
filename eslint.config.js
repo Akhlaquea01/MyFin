@@ -25,8 +25,13 @@ export default defineConfig(
 		// alongside the component (badge.tsx, button.tsx, tabs.tsx), and context modules
 		// conventionally export a `useX()` hook alongside their provider — both are
 		// idiomatic React, not the class-component-in-a-component-file pattern this rule
-		// exists to catch.
-		files: ['src/components/ui/**/*.tsx', 'src/context/**/*.tsx'],
+		// exists to catch. The quick tour's provider is the same case (a context object and a
+		// storage-key constant beside the provider component).
+		files: [
+			'src/components/ui/**/*.tsx',
+			'src/components/quick-tour/**/*.tsx',
+			'src/context/**/*.tsx'
+		],
 		rules: { 'react-refresh/only-export-components': 'off' }
 	},
 	{

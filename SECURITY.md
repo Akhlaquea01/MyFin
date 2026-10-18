@@ -4,7 +4,9 @@
 
 | Version | Supported          |
 | ------- | ------------------ |
-| 0.0.x   | :white_check_mark: |
+| 0.1.x   | :white_check_mark: |
+
+Builds are numbered `0.1.<commit count>` and published as GitHub Releases.
 
 ---
 
@@ -27,6 +29,8 @@ We will acknowledge receipt of your report within 48 hours and provide a timelin
 ---
 
 ## Zero-Knowledge Architecture
+
+The full design and threat model are in the [High-Level Design](docs/architecture/HLD.md#6-security-model). In summary:
 
 MyFin operates entirely client-side with a zero-knowledge threat model:
 

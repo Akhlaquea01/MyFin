@@ -34,9 +34,9 @@ import { CaptureHealthBanner } from './components/CaptureHealthBanner';
 import { AppShell } from './components/AppShell';
 import { ConfirmProvider } from './components/ConfirmProvider';
 import { DashboardPage } from './pages/DashboardPage';
-import { QuickTourProvider } from './components/ui/quick-tour/QuickTourProvider';
-import { QuickTourOverlay } from './components/ui/quick-tour/QuickTourOverlay';
-import { QUICK_TOUR_STEPS } from './components/ui/quick-tour/tour-steps';
+import { QuickTourProvider } from './components/quick-tour/QuickTourProvider';
+import { QuickTourOverlay } from './components/quick-tour/QuickTourOverlay';
+import { QUICK_TOUR_STEPS } from './components/quick-tour/tourSteps';
 
 /**
  * Pages load on demand: the whole app used to ship as one 2.3 MB script that the lock screen had
