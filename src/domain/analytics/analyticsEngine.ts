@@ -6,7 +6,7 @@ import {
 } from '../../data/dexie/transactionRepository';
 import { BudgetRepository, BudgetItemRepository } from '../../data/dexie/budgetRepository';
 import { NetWorthSnapshotRepository } from '../../data/dexie/wealthRepository';
-import type { PurposeKind } from '../entities';
+import type { Category, PurposeKind, TransactionSplit } from '../entities';
 
 export interface CategoryBreakdownItem {
 	categoryId: string;
@@ -51,6 +51,25 @@ export interface CategoryBreakdownOptions {
 }
 
 /**
+ * Adds `splits` to the running net movement per category (negative is spending). Unlabelled money in
+ * — an uncategorized positive — is skipped: a salary is as likely as a refund, so it must never
+ * offset spending. The one place this rule lives, so the category chart and the month's money out
+ * cannot drift apart.
+ */
+function addToNet(
+	net: Map<string, number>,
+	splits: TransactionSplit[],
+	categories: Category[],
+	rollUp: boolean | undefined
+): void {
+	for (const split of splits) {
+		if (split.categoryId === UNCATEGORIZED_CATEGORY_ID && split.amount >= 0) continue;
+		const target = rollUp ? topLevelAncestorId(categories, split.categoryId) : split.categoryId;
+		net.set(target, (net.get(target) ?? 0) + split.amount);
+	}
+}
+
+/**
  * Spending by category over [dateFrom, dateTo] (FR-035): what was spent in each category, joined
  * against each split's transaction date. Money coming back into a category (a refund, a
  * reimbursement) is netted against what was spent there, never below zero — the same rule the
@@ -89,13 +108,7 @@ export async function categoryBreakdown(
 		// of the category chart and the spending total of the Year-in-Review report — while the
 		// income/expense trend right below already excluded them, leaving the two figures disagreeing.
 		if (tx.type === 'transfer') continue;
-		for (const split of splitsByTx.get(tx.id) ?? []) {
-			if (split.categoryId === UNCATEGORIZED_CATEGORY_ID && split.amount >= 0) continue;
-			const target = options.rollUp
-				? topLevelAncestorId(categories, split.categoryId)
-				: split.categoryId;
-			net.set(target, (net.get(target) ?? 0) + split.amount);
-		}
+		addToNet(net, splitsByTx.get(tx.id) ?? [], categories, options.rollUp);
 	}
 
 	return [...net.entries()]
@@ -205,10 +218,21 @@ export async function purposeBreakdown(
 	return [...totals.values()].sort((a, b) => b.total - a.total);
 }
 
+export interface IncomeExpenseOptions extends CategoryBreakdownOptions {
+	/**
+	 * Take money that came back into a spending category (a refund, a reimbursement, a friend paying
+	 * you back) off money out instead of counting it as money in — the rule `categoryBreakdown` and
+	 * the Budgets use, so a month's money out equals what its category breakdown adds up to. Net flow
+	 * is the same either way. Off by default: the reports and the health score read the gross figures.
+	 */
+	netRefunds?: boolean;
+}
+
 async function monthlyIncomeExpense(
 	key: CryptoKey,
 	dateFrom: string,
-	dateTo: string
+	dateTo: string,
+	options: IncomeExpenseOptions = {}
 ): Promise<Map<string, { income: number; expense: number }>> {
 	const transactions = await TransactionRepository.search(key, { dateFrom, dateTo });
 	const byMonth = new Map<string, { income: number; expense: number }>();
@@ -221,6 +245,32 @@ async function monthlyIncomeExpense(
 		else bucket.expense += -tx.amount;
 		byMonth.set(month, bucket);
 	}
+	if (!options.netRefunds) return byMonth;
+
+	const [categories, splitsByTx] = await Promise.all([
+		CategoryRepository.list(key),
+		TransactionRepository.splitsByTransaction(
+			key,
+			transactions.map((t) => t.id)
+		)
+	]);
+	const netByMonth = new Map<string, Map<string, number>>();
+	for (const tx of transactions) {
+		if (tx.type === 'transfer') continue;
+		const month = tx.date.slice(0, 7);
+		const net = netByMonth.get(month) ?? new Map<string, number>();
+		addToNet(net, splitsByTx.get(tx.id) ?? [], categories, options.rollUp);
+		netByMonth.set(month, net);
+	}
+	for (const [month, net] of netByMonth) {
+		const bucket = byMonth.get(month);
+		if (!bucket) continue;
+		let spent = 0;
+		for (const movement of net.values()) if (movement < 0) spent -= movement;
+		// What came back moves from money in to off money out, so income - expense is unchanged.
+		bucket.income -= bucket.expense - spent;
+		bucket.expense = spent;
+	}
 	return byMonth;
 }
 
@@ -228,9 +278,10 @@ async function monthlyIncomeExpense(
 export async function incomeExpenseTrend(
 	key: CryptoKey,
 	dateFrom: string,
-	dateTo: string
+	dateTo: string,
+	options: IncomeExpenseOptions = {}
 ): Promise<MonthlyTrendPoint[]> {
-	const byMonth = await monthlyIncomeExpense(key, dateFrom, dateTo);
+	const byMonth = await monthlyIncomeExpense(key, dateFrom, dateTo, options);
 	return [...byMonth.entries()]
 		.sort(([a], [b]) => (a < b ? -1 : 1))
 		.map(([month, { income, expense }]) => ({ month, income, expense, netFlow: income - expense }));

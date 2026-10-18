@@ -87,6 +87,37 @@ describe('Analytics engine', () => {
 		]);
 	});
 
+	describe('income/expense with refunds', () => {
+		const record = (date: string, amount: number, categoryId: string) =>
+			TransactionRepository.create(
+				key,
+				{ accountId, date, amount, type: amount < 0 ? 'expense' : 'income' },
+				[{ categoryId, amount }]
+			);
+
+		beforeEach(async () => {
+			await record('2026-01-05', -5000, groceriesId);
+			await record('2026-01-06', 2000, groceriesId); // a refund
+			await record('2026-01-07', 50000, salaryId);
+		});
+
+		it('reads money out and in as they happened by default', async () => {
+			const [jan] = await incomeExpenseTrend(key, '2026-01-01', '2026-01-31');
+			expect(jan).toMatchObject({ income: 52000, expense: 5000, netFlow: 47000 });
+		});
+
+		it('with netRefunds, money back into a spending category comes off money out instead', async () => {
+			const [jan] = await incomeExpenseTrend(key, '2026-01-01', '2026-01-31', { netRefunds: true });
+			expect(jan).toMatchObject({ income: 50000, expense: 3000, netFlow: 47000 });
+		});
+
+		it('with netRefunds, money out equals what the category breakdown adds up to', async () => {
+			const [jan] = await incomeExpenseTrend(key, '2026-01-01', '2026-01-31', { netRefunds: true });
+			const breakdown = await categoryBreakdown(key, '2026-01-01', '2026-01-31');
+			expect(jan.expense).toBe(breakdown.reduce((sum, item) => sum + item.total, 0));
+		});
+	});
+
 	it('accumulates cash flow across months into a running total', async () => {
 		await TransactionRepository.create(
 			key,

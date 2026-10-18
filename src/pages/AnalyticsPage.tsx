@@ -13,10 +13,10 @@ import {
 } from 'chart.js';
 import { BarChart3, PieChart, ArrowLeftRight, Activity, TrendingUp, Target } from 'lucide-react';
 import { toast } from 'sonner';
-import { Badge } from '../components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { ChartCanvas } from '../components/ChartCanvas';
 import { BarList } from '../components/charts/BarList';
+import { ProgressBar } from '../components/charts/ProgressBar';
 import { PURPOSE_LABELS } from '../domain/transactions/purposeEngine';
 import { CategoryRepository } from '../data/dexie/categoryRepository';
 import { DateRangeSelector, type DateRange } from '../components/DateRangeSelector';
@@ -36,6 +36,7 @@ import {
 	type BudgetPerformanceItem,
 	type NetWorthTrendPoint
 } from '../domain/analytics/analyticsEngine';
+import { groupBudgetPerformance } from '../domain/analytics/budgetPeriodLabel';
 import { todayLocalISO } from '../domain/shared/dateMath';
 import { formatMoney } from '../domain/shared/money';
 
@@ -345,32 +346,34 @@ export function AnalyticsPage() {
 							{budgets.length === 0 ? (
 								<EmptyState />
 							) : (
-								<div className="flex flex-col gap-2">
-									{budgets.map((b) => (
-										<div
-											key={`${b.budgetId}-${b.periodStart}`}
-											className="flex items-center justify-between border-b py-2 text-sm last:border-0"
-										>
-											<span className="flex items-center gap-2">
-												{b.categoryName}{' '}
-												<span className="text-muted-foreground">({b.periodStart})</span>
-												{b.actualAmount > b.plannedAmount && (
-													<Badge variant="destructive">Over budget</Badge>
-												)}
-											</span>
-											<span className="font-mono">
-												{formatMoney(b.actualAmount)} /{' '}
-												<span
-													className={
-														b.actualAmount > b.plannedAmount
-															? 'text-destructive'
-															: 'text-muted-foreground'
-													}
+								<div className="flex flex-col gap-5">
+									{groupBudgetPerformance(budgets).map((group) => (
+										<section key={group.id} className="flex flex-col gap-3">
+											<h3 className="text-sm font-medium">{group.label}</h3>
+											{group.items.map((b) => (
+												<div
+													key={`${b.budgetId}-${b.periodStart}`}
+													className="flex flex-col gap-1.5"
 												>
-													{formatMoney(b.plannedAmount)}
-												</span>
-											</span>
-										</div>
+													<div className="flex items-baseline justify-between gap-3 text-sm">
+														<span className="min-w-0">{b.categoryName}</span>
+														<span className="shrink-0 text-muted-foreground tabular-nums">
+															{formatMoney(b.actualAmount)} of {formatMoney(b.plannedAmount)}
+														</span>
+													</div>
+													<ProgressBar
+														value={b.actualAmount}
+														max={b.plannedAmount}
+														label={`${b.categoryName} spent against its budget`}
+													/>
+													{b.actualAmount > b.plannedAmount && (
+														<p className="text-xs text-destructive">
+															{formatMoney(b.actualAmount - b.plannedAmount)} over budget
+														</p>
+													)}
+												</div>
+											))}
+										</section>
 									))}
 								</div>
 							)}
