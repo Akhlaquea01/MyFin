@@ -1,5 +1,6 @@
 import type { NotificationCandidate } from './types';
 import { localDateAsUtc } from '../shared/dateMath';
+import { formatMoney } from '../shared/money';
 
 /** The user's local calendar date `days` from `date`, as "YYYY-MM-DD". */
 function addDaysISO(date: Date, days: number): string {
@@ -13,6 +14,10 @@ export interface DueEventInput {
 	expectedDate: string; // ISO date
 	status: 'pending' | 'matched' | 'missed';
 	categoryName: string;
+	/** The rule's own name, and what it pays. Two rules in one category read the same by category
+	 *  alone, so an alert names the rule when it has a name and says the amount. */
+	label?: string;
+	amount?: number;
 }
 
 /**
@@ -32,8 +37,11 @@ export function findDueRecurringEvents(
 		.map((e) => ({
 			kind: 'recurring' as const,
 			key: `recurring:${e.id}`,
-			title: `Upcoming: ${e.categoryName}`,
-			body: `Due ${e.expectedDate}`
+			title: `Upcoming: ${e.label?.trim() || e.categoryName}`,
+			body:
+				e.amount === undefined
+					? `Due ${e.expectedDate}`
+					: `Due ${e.expectedDate} · ${formatMoney(Math.abs(e.amount))}`
 		}));
 }
 

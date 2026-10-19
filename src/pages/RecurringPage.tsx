@@ -190,7 +190,7 @@ export function RecurringPage() {
 		setLoading(true);
 		try {
 			const [accts, cats, ruleList, found] = await Promise.all([
-				AccountRepository.list(key, false),
+				AccountRepository.list(key),
 				CategoryRepository.list(key),
 				RecurringRepository.list(key),
 				detectSubscriptions(key)
@@ -377,11 +377,13 @@ export function RecurringPage() {
 														<SelectValue placeholder="Choose…" />
 													</SelectTrigger>
 													<SelectContent>
-														{accounts.map((a) => (
-															<SelectItem key={a.id} value={a.id}>
-																{a.name}
-															</SelectItem>
-														))}
+														{accounts
+															.filter((a) => !a.isArchived || a.id === field.value)
+															.map((a) => (
+																<SelectItem key={a.id} value={a.id}>
+																	{a.name}
+																</SelectItem>
+															))}
 													</SelectContent>
 												</Select>
 											)}

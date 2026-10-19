@@ -129,6 +129,10 @@ export async function detectSubscriptions(
 	for (const tx of transactions) {
 		// Only expenses represent a "charge" — income/transfer transactions are never subscriptions.
 		if (tx.type !== 'expense' || tx.transferPairId) continue;
+		// A loan EMI, a monthly SIP or a savings transfer repeats like a subscription but is money the
+		// user is putting toward a debt, a goal or an investment, not a service they pay for. Only a
+		// bill keeps its place: that is a payment for something.
+		if (tx.purpose && tx.purpose.kind !== 'bills') continue;
 		// Paying a credit card bill is a movement between the user's own accounts, not a service they
 		// subscribe to. When one is still recorded as a plain expense (an imported "CREDIT CARD
 		// PAYMENT" line, an SMS), its monthly rhythm made the card bill the biggest "subscription".

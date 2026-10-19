@@ -1,7 +1,7 @@
 // Changing the PIN. The PIN derives the key every row in the database is encrypted under, so a
 // new PIN means re-encrypting everything — the same operation a backup restore performs, which is
 // reused here: read the whole database into a payload under the old key, swap in a profile that
-// carries the new PIN's verifier and salts, and write it back under the new key in ONE
+// carries the new PIN's verifier, and write it back under the new key in ONE
 // transaction. A failure rolls back and leaves the old PIN and the old data untouched.
 import { UserProfileRepository } from '../dexie/userProfileRepository';
 import {
@@ -45,7 +45,10 @@ export async function changePin(
 	if (!profile) throw new ChangePinError('No profile found.');
 
 	const pinSalt = randomSaltBase64();
-	const encryptionSalt = randomSaltBase64();
+	// The key salt stays: the searchable digests (merchant aliases, tags) and the captured-message replay
+	// ledger are salted with it, and rotating it left every ledger entry unreadable to the new salt, so
+	// a message delivered twice after a PIN change was filed twice. The new PIN alone makes a new key.
+	const encryptionSalt = profile.encryptionSalt;
 	const pinVerifierHash = await hashPin(newPin, pinSalt);
 	const newKey = await deriveEncryptionKey(newPin, encryptionSalt);
 

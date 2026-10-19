@@ -14,6 +14,8 @@ import {
 	verifyPin
 } from '../../src/data/crypto/cryptoService';
 import { createSealingKey, loadSealingPrivateKey } from '../../src/data/crypto/sealedBox';
+import { resetBlindIndexSaltCache } from '../../src/data/dexie/blindIndexSalt';
+import { ingestCapturedMessages } from '../../src/data/io/captureIngestService';
 
 describe('changePin', () => {
 	const oldPin = '482915';
@@ -73,6 +75,35 @@ describe('changePin', () => {
 		const transactions = await TransactionRepository.search(newKey);
 		expect(transactions).toHaveLength(1);
 		expect(transactions[0].amount).toBe(-3000);
+	});
+
+	it('still recognises a captured message it filed before the PIN changed', async () => {
+		const { account } = await seedLedger();
+		const message = {
+			id: 'q1',
+			payload: {
+				channel: 'sms' as const,
+				sender: 'VM-HDFCBK',
+				body: 'Sent Rs.250.00 From HDFC Bank A/C *1234 To SWIGGY On 05/10/26 Ref 628123456789',
+				receivedAt: Date.UTC(2026, 9, 5, 6, 30)
+			}
+		};
+		resetBlindIndexSaltCache();
+		const first = await ingestCapturedMessages(oldKey, [message], { defaultAccountId: account.id });
+		expect(first.created).toBe(1);
+
+		await changePin(oldKey, oldPin, newPin);
+
+		// A reload after the PIN change starts with no cached salt; the same message arriving again
+		// (a re-posted notification, a queue entry whose acknowledgement was lost) must be recognised.
+		resetBlindIndexSaltCache();
+		const profile = (await UserProfileRepository.get())!;
+		const newKey = await deriveEncryptionKey(newPin, profile.encryptionSalt);
+		const again = await ingestCapturedMessages(newKey, [message], {
+			defaultAccountId: account.id
+		});
+
+		expect(again).toMatchObject({ created: 0, alreadyProcessed: 1 });
 	});
 
 	it('leaves the old key unable to read the data', async () => {

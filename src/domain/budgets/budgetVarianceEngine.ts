@@ -12,7 +12,8 @@ export type VarianceStatus = 'unbudgeted' | 'under' | 'on-track' | 'over';
 
 export interface CategoryVariance {
 	categoryId: string;
-	month: string; // "YYYY-MM"
+	/** "YYYY-MM"; just "YYYY" for a yearly budget, which is one row for the whole year. */
+	month: string;
 	budgetedMinor: number | null;
 	actualMinor: number;
 	varianceMinor: number | null;
@@ -56,6 +57,9 @@ export async function computeVarianceReport(
 	);
 
 	const results: CategoryVariance[] = [];
+	// A yearly budget's figures cover the whole year, so repeating them under every month would show
+	// the annual limit and the year's spend twelve times. It gets one row per year in the range.
+	const yearlyShown = new Set<string>();
 	for (const month of months) {
 		const referenceDate = monthToReferenceDate(month);
 		const { periodStart, periodEnd } = getCurrentPeriodRange('monthly', referenceDate);
@@ -63,6 +67,13 @@ export async function computeVarianceReport(
 		for (const category of categories) {
 			const budget = budgetByCategory.get(category.id);
 			if (budget) {
+				let rowMonth = month;
+				if (budget.periodType === 'yearly') {
+					const year = month.slice(0, 4);
+					if (yearlyShown.has(`${budget.id}|${year}`)) continue;
+					yearlyShown.add(`${budget.id}|${year}`);
+					rowMonth = year;
+				}
 				const item = await ensureBudgetItemForPeriod(key, budget, referenceDate);
 				const status: VarianceStatus =
 					item.actualAmount > item.plannedAmount
@@ -72,7 +83,7 @@ export async function computeVarianceReport(
 							: 'under';
 				results.push({
 					categoryId: category.id,
-					month,
+					month: rowMonth,
 					budgetedMinor: item.plannedAmount,
 					actualMinor: item.actualAmount,
 					varianceMinor: item.plannedAmount - item.actualAmount,

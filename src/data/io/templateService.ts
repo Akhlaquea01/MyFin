@@ -39,7 +39,7 @@ import {
 import { SavedFilterViewRepository } from '../dexie/savedFilterViewRepository';
 import { restoreSnapshot, snapshotDatabase } from '../dexie/snapshot';
 import { TransactionEngine } from '../../domain/transactions/transactionEngine';
-import { isValidIsoDate } from '../../domain/shared/dateMath';
+import { isValidIsoDate, todayLocalISO } from '../../domain/shared/dateMath';
 import { duplicateKey, findDuplicateId } from './importService';
 
 export const CURRENT_TEMPLATE_VERSION = 1;
@@ -730,10 +730,19 @@ async function runTemplateImport(
 		if (match) {
 			recordSkipped('expectedEvents', 'already-exists');
 		} else {
+			// A reminder marked as paid is only restored as paid once the entry that paid it has been
+			// imported (step 21a). Until then — and for good when that entry is skipped — it is still
+			// due, or missed once its date has passed; left "matched" it would claim a payment that is
+			// not in the ledger and could never be matched again.
 			const created = await ExpectedEventRepository.create(key, {
 				recurringRuleId: resolvedRuleId,
 				expectedDate: ee.expectedDate,
-				status: ee.status,
+				status:
+					ee.status === 'matched'
+						? ee.expectedDate < todayLocalISO()
+							? 'missed'
+							: 'pending'
+						: ee.status,
 				matchedTransactionId: null
 			});
 			// The file's matchedTransactionId refers to a transaction not yet imported (Transactions
@@ -1009,7 +1018,11 @@ async function runTemplateImport(
 				// The tag comes across. Its link to a debt or goal does not: the payments and contributions
 				// those links point at are not rebuilt from the file, and keeping the link would make a later
 				// edit apply the entry a second time. Bills and investments are imported first, so they remap.
-				...(importedPurpose ? { purpose: importedPurpose } : {})
+				...(importedPurpose ? { purpose: importedPurpose } : {}),
+				// Rules are imported before transactions (step 14), so the rule the entry created remaps.
+				...(tx.recurringRuleId && recurringRuleRemap.has(tx.recurringRuleId)
+					? { recurringRuleId: recurringRuleRemap.get(tx.recurringRuleId) }
+					: {})
 			},
 			resolvedSplits,
 			{ deferBalance: true, skipLearning: true, skipPurposeEffects: true }
@@ -1066,6 +1079,7 @@ async function runTemplateImport(
 		const resolvedTransactionId = transactionRemap.get(fileMatchedTransactionId);
 		if (resolvedTransactionId) {
 			await ExpectedEventRepository.update(key, eventId, {
+				status: 'matched',
 				matchedTransactionId: resolvedTransactionId
 			});
 		}

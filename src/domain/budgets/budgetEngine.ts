@@ -8,6 +8,7 @@ import type {
 	Budget,
 	BudgetItem,
 	BudgetPeriodType,
+	BudgetRolloverMode,
 	Category,
 	TransactionSplit
 } from '../../domain/entities';
@@ -145,6 +146,72 @@ async function accrueThroughSkippedPeriods(
 }
 
 /**
+ * spec 019 (envelope rollover, research.md R4): `rolloverMode` is the new authoritative field.
+ * Absent (every pre-existing Budget row) falls back to the legacy `rolloverEnabled` boolean, which was
+ * always positive-only — so old data's behavior is unchanged with no migration. Only an explicit
+ * `'full'` additionally carries a *deficit* forward.
+ */
+function effectiveRolloverMode(budget: Budget): BudgetRolloverMode {
+	return budget.rolloverMode ?? (budget.rolloverEnabled ? 'positive-only' : 'off');
+}
+
+/** Whether anything rolls into a new period of this budget: sinking funds always do. */
+function rollsOver(budget: Budget): boolean {
+	return effectiveRolloverMode(budget) !== 'off' || budget.isSinkingFund;
+}
+
+/**
+ * What rolls into the period starting `periodStart`, read from the closest earlier period that has an
+ * item; null when there is none to read it from (a new budget, or a gap longer than the lookback).
+ */
+async function computeRolloverIn(
+	key: CryptoKey,
+	budget: Budget,
+	periodStart: string
+): Promise<number | null> {
+	// Walk back past periods the user never opened the app in. Items are created lazily, so
+	// looking exactly one period back found nothing after any gap and silently reset the
+	// accumulated balance to zero — which, for a sinking fund, destroys the entire point of
+	// the feature (FR-026).
+	let cursor = getPreviousPeriodRange(budget.periodType, periodStart);
+	let prevItem = await BudgetItemRepository.findForPeriod(key, budget.id, cursor.periodStart);
+	const skippedPeriods: PeriodRange[] = [];
+	while (!prevItem && skippedPeriods.length < MAX_ROLLOVER_LOOKBACK[budget.periodType]) {
+		skippedPeriods.push(cursor);
+		cursor = getPreviousPeriodRange(budget.periodType, cursor.periodStart);
+		prevItem = await BudgetItemRepository.findForPeriod(key, budget.id, cursor.periodStart);
+	}
+	if (!prevItem) return null;
+
+	// What rolls over is what was REALLY left, not what the item said the last time somebody
+	// looked at it: spending recorded since (Quick Add, an import, a captured message) never
+	// touches the stored item, so a month that was last opened early on would hand its whole
+	// budget to the next month as "unspent". The closed month is brought up to date first.
+	const prevActual = await recalcActualAmount(
+		key,
+		budget.categoryId,
+		prevItem.periodStart,
+		prevItem.periodEnd
+	);
+	if (prevActual !== prevItem.actualAmount) {
+		prevItem = await BudgetItemRepository.update(key, prevItem.id, { actualAmount: prevActual });
+	}
+	const rawDelta = prevItem.plannedAmount - prevItem.actualAmount;
+	// A sinking fund's allowance is never negative, regardless of rolloverMode — only a
+	// plain envelope budget in 'full' mode carries a deficit (overspend) forward.
+	const unspent =
+		budget.isSinkingFund || effectiveRolloverMode(budget) !== 'full'
+			? Math.max(0, rawDelta)
+			: rawDelta;
+	// A sinking fund keeps accruing its allowance through the skipped periods; a plain
+	// rollover budget only carries forward what was actually left over (positive or, in
+	// 'full' mode, negative).
+	return budget.isSinkingFund
+		? accrueThroughSkippedPeriods(key, budget, unspent, skippedPeriods)
+		: unspent;
+}
+
+/**
  * Gets (or creates) the BudgetItem for the period containing `referenceDate`, applying
  * rollover from the previous period when enabled (FR-025) — sinking funds (FR-026) always
  * roll over their unused amount, since accumulating toward a goal is the point.
@@ -174,68 +241,36 @@ export async function ensureBudgetItemForPeriod(
 		);
 		const isClosedPeriod = periodStart < currentPeriodStart;
 
-		// Reflects a mid-period edit to the parent Budget's amount in the current/future period
-		// only — rolloverInAmount is left as already stored (it was fixed when this item was
-		// first created) so an edit doesn't retroactively change how much rolled in from before.
+		// The current/future period follows an edit to the parent Budget's amount, and — while the
+		// budget still rolls over — what is left of the period before it: spending back-filled into last
+		// month (an import, a captured message) changes what rolls in. Turning rollover off keeps what
+		// had already rolled in (FR-016), and a period with nothing earlier to read it from keeps what
+		// it was created with.
+		let rolloverInAmount = existing.rolloverInAmount;
+		if (!isClosedPeriod && rollsOver(budget)) {
+			rolloverInAmount =
+				(await computeRolloverIn(key, budget, periodStart)) ?? existing.rolloverInAmount;
+		}
 		const plannedAmount = isClosedPeriod
 			? existing.plannedAmount
-			: budget.amount + existing.rolloverInAmount;
-		if (actualAmount !== existing.actualAmount || plannedAmount !== existing.plannedAmount) {
-			return BudgetItemRepository.update(key, existing.id, { actualAmount, plannedAmount });
+			: budget.amount + rolloverInAmount;
+		if (
+			actualAmount !== existing.actualAmount ||
+			plannedAmount !== existing.plannedAmount ||
+			rolloverInAmount !== existing.rolloverInAmount
+		) {
+			return BudgetItemRepository.update(key, existing.id, {
+				actualAmount,
+				plannedAmount,
+				rolloverInAmount
+			});
 		}
 		return existing;
 	}
 
-	// spec 019 (envelope rollover, research.md R4): `rolloverMode` is the new authoritative
-	// field. Absent (every pre-existing Budget row) falls back to the legacy `rolloverEnabled`
-	// boolean, which was always positive-only — so old data's behavior is unchanged with no
-	// migration. Only an explicit `'full'` additionally carries a *deficit* forward.
-	const rolloverMode = budget.rolloverMode ?? (budget.rolloverEnabled ? 'positive-only' : 'off');
-
-	let rolloverInAmount = 0;
-	if (rolloverMode !== 'off' || budget.isSinkingFund) {
-		// Walk back past periods the user never opened the app in. Items are created lazily, so
-		// looking exactly one period back found nothing after any gap and silently reset the
-		// accumulated balance to zero — which, for a sinking fund, destroys the entire point of
-		// the feature (FR-026).
-		let cursor = getPreviousPeriodRange(budget.periodType, periodStart);
-		let prevItem = await BudgetItemRepository.findForPeriod(key, budget.id, cursor.periodStart);
-		const skippedPeriods: PeriodRange[] = [];
-		while (!prevItem && skippedPeriods.length < MAX_ROLLOVER_LOOKBACK[budget.periodType]) {
-			skippedPeriods.push(cursor);
-			cursor = getPreviousPeriodRange(budget.periodType, cursor.periodStart);
-			prevItem = await BudgetItemRepository.findForPeriod(key, budget.id, cursor.periodStart);
-		}
-		if (prevItem) {
-			// What rolls over is what was REALLY left, not what the item said the last time somebody
-			// looked at it: spending recorded since (Quick Add, an import, a captured message) never
-			// touches the stored item, so a month that was last opened early on would hand its whole
-			// budget to the next month as "unspent". The closed month is brought up to date first.
-			const prevActual = await recalcActualAmount(
-				key,
-				budget.categoryId,
-				prevItem.periodStart,
-				prevItem.periodEnd
-			);
-			if (prevActual !== prevItem.actualAmount) {
-				prevItem = await BudgetItemRepository.update(key, prevItem.id, {
-					actualAmount: prevActual
-				});
-			}
-			const rawDelta = prevItem.plannedAmount - prevItem.actualAmount;
-			// A sinking fund's allowance is never negative, regardless of rolloverMode — only a
-			// plain envelope budget in 'full' mode carries a deficit (overspend) forward.
-			const unspent =
-				budget.isSinkingFund || rolloverMode !== 'full' ? Math.max(0, rawDelta) : rawDelta;
-			// A sinking fund keeps accruing its allowance through the skipped periods; a plain
-			// rollover budget only carries forward what was actually left over (positive or, in
-			// 'full' mode, negative).
-			rolloverInAmount = budget.isSinkingFund
-				? await accrueThroughSkippedPeriods(key, budget, unspent, skippedPeriods)
-				: unspent;
-		}
-	}
-
+	const rolloverInAmount = rollsOver(budget)
+		? ((await computeRolloverIn(key, budget, periodStart)) ?? 0)
+		: 0;
 	const plannedAmount = budget.amount + rolloverInAmount;
 	const actualAmount = await recalcActualAmount(key, budget.categoryId, periodStart, periodEnd);
 
@@ -271,4 +306,22 @@ export async function hasActiveBudgetForCategory(
 ): Promise<boolean> {
 	const budgets = await BudgetRepository.list(key);
 	return budgets.some((b) => b.categoryId === categoryId && b.id !== excludeBudgetId);
+}
+
+/**
+ * Saves changes to a budget. Its items are periods of one shape — calendar months or calendar years —
+ * so switching the period type drops them: left in place they sat beside the new ones, and a monthly
+ * item from before the switch was listed (and counted by the dashboard and health score) under what
+ * was now a yearly budget. The new period's item is created the next time the budget is read.
+ */
+export async function updateBudget(
+	key: CryptoKey,
+	id: string,
+	changes: Partial<Budget>
+): Promise<Budget> {
+	const before = await BudgetRepository.getById(key, id);
+	if (!before) throw new Error('That budget no longer exists.');
+	const updated = await BudgetRepository.update(key, id, changes);
+	if (updated.periodType !== before.periodType) await BudgetItemRepository.removeForBudget(id);
+	return updated;
 }

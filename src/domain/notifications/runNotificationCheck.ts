@@ -77,19 +77,24 @@ export async function runNotificationCheck(
 	}
 	await markMissedPastDue(key, asOfDate);
 
-	const ruleCategoryById = new Map(activeRules.map((r) => [r.id, r.categoryId]));
+	const ruleById = new Map(activeRules.map((r) => [r.id, r]));
 	// Only events of rules that are still switched on: reminders generated before a rule was paused
 	// (or kept from an older version that did not drop them) would otherwise keep raising alerts for a
 	// bill the user turned off.
 	const pendingEvents = (await ExpectedEventRepository.listPending(key)).filter((e) =>
-		ruleCategoryById.has(e.recurringRuleId)
+		ruleById.has(e.recurringRuleId)
 	);
-	const dueEventInputs = pendingEvents.map((e) => ({
-		id: e.id,
-		expectedDate: e.expectedDate,
-		status: e.status,
-		categoryName: categoryNameById.get(ruleCategoryById.get(e.recurringRuleId) ?? '') ?? 'Recurring'
-	}));
+	const dueEventInputs = pendingEvents.map((e) => {
+		const rule = ruleById.get(e.recurringRuleId);
+		return {
+			id: e.id,
+			expectedDate: e.expectedDate,
+			status: e.status,
+			categoryName: categoryNameById.get(rule?.categoryId ?? '') ?? 'Recurring',
+			label: rule?.label,
+			amount: rule?.amount
+		};
+	});
 	const recurringCandidates = findDueRecurringEvents(
 		dueEventInputs,
 		preference.reminderLeadDays,
