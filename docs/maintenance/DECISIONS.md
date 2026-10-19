@@ -48,6 +48,23 @@ Recorded in [AUDIT-LOG §7](AUDIT-LOG.md#7-third-audit--calculations-2026-10-18)
 - "Adjust balance" posts a one-sided transfer labelled "Adjustment", outside income, expense and budgets.
 - Dashboard budgets and Financial Health read live spend rather than the stored budget item.
 
+## Product behaviour fixed by the relations audit (2026-10-19)
+
+Recorded in [AUDIT-LOG §8](AUDIT-LOG.md#8-fourth-audit--relations-between-features-2026-10-19); the
+non-obvious ones:
+
+- An account with an active recurring payment cannot be archived (a paused one does not stand in the way),
+  as it cannot be deleted.
+- `TransactionEngine.deleteTransaction` refuses the entry behind a person loan, an investment trade or a
+  liability payment; the owning page removes its record first, then the entry. An entry tagged as a debt
+  payment is the exception: deleting it gives the money back to the debt.
+- Changing a budget's period type (monthly ↔ yearly) clears its earlier periods.
+- A budget's current period follows spend back-filled into the period before it, while rollover is on;
+  turning rollover off keeps what had already rolled in.
+- Removing a goal contribution that came from an entry keeps the entry's Savings tag but takes the goal
+  off it.
+- Changing the PIN keeps the key salt (the replay ledger and searchable digests are salted with it).
+
 ## Testing and tooling
 
 | Decision                                          | Why                                                                                                                    | Detail                                                                     |
