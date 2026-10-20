@@ -126,7 +126,10 @@ export function EditTransactionDialog({
 				setLink(loanLink);
 				if (loanLink) setKind('loan');
 				else if (transaction.type === 'transfer' && transaction.transferPairId) setKind('transfer');
-				else if (transaction.source === 'balance_adjustment') setKind('adjustment');
+				// Any other one-sided movement (a balance adjustment, or a loan or trade whose record was
+				// removed) stays a transfer: offering Income/Expense here rewrote its type whenever only
+				// its note was changed.
+				else if (transaction.type === 'transfer') setKind('adjustment');
 				else setKind('regular');
 			} catch (err) {
 				if (!cancelled) {
@@ -277,7 +280,9 @@ export function EditTransactionDialog({
 						{kind === 'transfer'
 							? 'This is one side of a transfer. Changes apply to both sides together.'
 							: kind === 'adjustment'
-								? 'This is a balance adjustment. It moves the account balance and is not counted as income or spending.'
+								? transaction.source === 'balance_adjustment'
+									? 'This is a balance adjustment. It moves the account balance and is not counted as income or spending.'
+									: 'This is a one-sided movement of money, such as a loan or an investment purchase whose record was removed. It moves the account balance and is not counted as income or spending.'
 								: kind === 'loan'
 									? 'This entry belongs to a loan, liability or investment record.'
 									: 'Changes update the account balance and reports straight away.'}

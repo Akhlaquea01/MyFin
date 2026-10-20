@@ -23,7 +23,7 @@ import {
 import { ShowMoreButton } from '../components/ShowMoreButton';
 import { useSession } from '../context/SessionContext';
 import { useShowMore } from '../hooks/useShowMore';
-import { detachPurposeTarget } from '../domain/transactions/purposeEngine';
+import { detachPurposeTarget, removeGoalContribution } from '../domain/transactions/purposeEngine';
 import {
 	SavingsGoalRepository,
 	GoalContributionRepository
@@ -280,19 +280,20 @@ function GoalCard({
 		await onContributionsChanged();
 	}
 
-	async function removeContribution(id: string) {
-		// GoalContributionRepository.remove is a permanent hard delete, so it needs its own
-		// confirmation.
+	async function removeContribution(contribution: GoalContribution) {
+		// Removing a contribution is a permanent hard delete, so it needs its own confirmation.
 		if (
 			!(await confirm({
-				message: 'Permanently remove this contribution? This cannot be undone.',
+				message: contribution.transactionId
+					? 'Permanently remove this contribution? The entry it came from keeps its Savings tag but no longer counts toward this goal. This cannot be undone.'
+					: 'Permanently remove this contribution? This cannot be undone.',
 				confirmLabel: 'Remove contribution',
 				destructive: true
 			}))
 		)
 			return;
 		try {
-			await GoalContributionRepository.remove(key, id);
+			await removeGoalContribution(key, contribution.id);
 			await onContributionsChanged();
 		} catch (err) {
 			toast.error(err instanceof Error ? err.message : 'Could not remove contribution.');
@@ -407,7 +408,7 @@ function GoalCard({
 											variant="link"
 											size="sm"
 											className="h-auto p-0"
-											onClick={() => removeContribution(c.id)}
+											onClick={() => removeContribution(c)}
 										>
 											Remove
 										</Button>

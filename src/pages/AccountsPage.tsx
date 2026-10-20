@@ -35,7 +35,10 @@ import {
 import { useSession } from '../context/SessionContext';
 import { useConfirm } from '../lib/confirm';
 import { AccountRepository } from '../data/dexie/accountRepository';
-import { deleteAccount as removeAccount } from '../domain/accounts/accountDeletion';
+import {
+	deleteAccount as removeAccount,
+	setAccountArchived
+} from '../domain/accounts/accountDeletion';
 import { TransactionEngine } from '../domain/transactions/transactionEngine';
 import type { Account, AccountType } from '../domain/entities';
 import { isValidMoney, parseMoneyOrZero, formatMoney } from '../domain/shared/money';
@@ -296,21 +299,19 @@ export function AccountsPage() {
 	}
 
 	async function archiveAccount(account: Account) {
-		// Archived accounts are excluded from Net Worth/Dashboard totals — archiving one still
-		// holding money would silently drop that amount from every reported total with no
-		// warning or reconciling entry, so only a zeroed-out account may be archived.
-		if (!account.isArchived && account.currentBalance !== 0) {
-			toast.error(
-				`${account.name} still has a balance of ${formatMoney(account.currentBalance)}. ` +
-					'Move the money out with a transfer, or use "Adjust balance" to bring it to zero, then archive it.'
-			);
-			return;
-		}
 		try {
-			await AccountRepository.update(key, account.id, { isArchived: !account.isArchived });
+			// Refuses while the account still holds money or has active recurring payments.
+			await setAccountArchived(key, account.id, !account.isArchived);
 			await refresh();
 		} catch (err) {
-			toast.error(err instanceof Error ? err.message : 'Could not update account.');
+			const message = err instanceof Error ? err.message : 'Could not update account.';
+			if (/active recurring/i.test(message)) {
+				toast.error(message, {
+					action: { label: 'Open Recurring', onClick: () => navigate('/recurring') }
+				});
+			} else {
+				toast.error(message);
+			}
 		}
 	}
 

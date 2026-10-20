@@ -236,6 +236,31 @@ export async function detachPurposeTarget(
 }
 
 /**
+ * Removes a goal contribution. One made from an entry marked as savings keeps that entry's tag but
+ * takes the goal off it, as deleting the goal does (`detachPurposeTarget`): left naming the goal, the
+ * entry would claim money the goal no longer counts, and editing its date or amount later would quietly
+ * add the contribution back. The entry is released first, so a failure leaves a contribution that can
+ * simply be removed again.
+ */
+export async function removeGoalContribution(
+	key: CryptoKey,
+	contributionId: string
+): Promise<void> {
+	const contribution = (await GoalContributionRepository.list(key)).find(
+		(c) => c.id === contributionId
+	);
+	if (contribution?.transactionId) {
+		const tx = await TransactionRepository.getById(key, contribution.transactionId);
+		if (tx?.purpose?.kind === 'savings' && tx.purpose.targetId === contribution.goalId) {
+			await TransactionRepository.update(key, tx.id, {
+				purpose: { kind: 'savings', targetId: null }
+			});
+		}
+	}
+	await GoalContributionRepository.remove(key, contributionId);
+}
+
+/**
  * Brings the target in step after an entry was edited: reverses the old purpose, applies the new
  * one. Only does work when the purpose, or anything an effect depends on (amount, date, account,
  * type, review state), changed.

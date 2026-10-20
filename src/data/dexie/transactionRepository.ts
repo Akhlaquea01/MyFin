@@ -55,6 +55,9 @@ export interface NewTransactionInput {
 	/** What the entry was for. Stored as given; its effect on the target is applied by
 	 *  `TransactionEngine`, not here. */
 	purpose?: TransactionPurpose | null;
+	/** The recurring rule this entry was the source of (see `Transaction.recurringRuleId`). Set by the
+	 *  data-template import, which restores a rule together with the entry that created it. */
+	recurringRuleId?: string | null;
 }
 
 export interface SplitInput {
@@ -111,6 +114,23 @@ function toRow(tx: Transaction): Omit<TransactionRow, 'id' | 'encryptedData'> {
 	};
 }
 
+/** Every record that can hold the other half of a ledger entry, decrypted. */
+async function loadLinkSources(key: CryptoKey) {
+	const [loanRows, repaymentRows, liabilityRows, holdingRows] = await Promise.all([
+		db.personLoans.toArray(),
+		db.personLoanRepayments.toArray(),
+		db.liabilities.toArray(),
+		db.investmentHoldings.toArray()
+	]);
+	const [loans, repayments, liabilities, holdings] = await Promise.all([
+		decryptRows<PersonLoanRow, PersonLoan>(key, loanRows),
+		decryptRows<PersonLoanRepaymentRow, LoanRepayment>(key, repaymentRows),
+		decryptRows<LiabilityRow, Liability>(key, liabilityRows),
+		decryptRows<InvestmentHoldingRow, InvestmentHolding>(key, holdingRows)
+	]);
+	return { loans, repayments, liabilities, holdings };
+}
+
 export const TransactionRepository = {
 	async create(
 		key: CryptoKey,
@@ -135,6 +155,7 @@ export const TransactionRepository = {
 			// keeps exactly the shape it always had.
 			...(input.capture ? { capture: input.capture } : {}),
 			...(input.purpose ? { purpose: input.purpose } : {}),
+			...(input.recurringRuleId ? { recurringRuleId: input.recurringRuleId } : {}),
 			createdAt: now,
 			updatedAt: now
 		};
@@ -288,18 +309,7 @@ export const TransactionRepository = {
 	 * never on a list render.
 	 */
 	async getLoanLink(key: CryptoKey, id: string): Promise<TransactionLink | null> {
-		const [loanRows, repaymentRows, liabilityRows, holdingRows] = await Promise.all([
-			db.personLoans.toArray(),
-			db.personLoanRepayments.toArray(),
-			db.liabilities.toArray(),
-			db.investmentHoldings.toArray()
-		]);
-		const [loans, repayments, liabilities, holdings] = await Promise.all([
-			decryptRows<PersonLoanRow, PersonLoan>(key, loanRows),
-			decryptRows<PersonLoanRepaymentRow, LoanRepayment>(key, repaymentRows),
-			decryptRows<LiabilityRow, Liability>(key, liabilityRows),
-			decryptRows<InvestmentHoldingRow, InvestmentHolding>(key, holdingRows)
-		]);
+		const { loans, repayments, liabilities, holdings } = await loadLinkSources(key);
 		const loan = loans.find((l) => l.transactionId === id);
 		if (loan) return { kind: 'loan', loanId: loan.id };
 		const repayment = repayments.find((r) => r.transactionId === id);
@@ -309,6 +319,29 @@ export const TransactionRepository = {
 		const holding = holdings.find((h) => h.trades?.some((t) => t.transactionId === id));
 		if (holding) return { kind: 'investment-trade', holdingId: holding.id };
 		return null;
+	},
+
+	/**
+	 * What every linked ledger entry belongs to, in one pass — for a list that labels many rows, where
+	 * asking `getLoanLink` per row would scan the same tables once for each. An entry in no record's
+	 * hands (a loan whose person was deleted, a trade whose holding was edited) is simply absent.
+	 */
+	async linkKindsByTransaction(key: CryptoKey): Promise<Map<string, TransactionLink['kind']>> {
+		const { loans, repayments, liabilities, holdings } = await loadLinkSources(key);
+		const kinds = new Map<string, TransactionLink['kind']>();
+		for (const loan of loans) kinds.set(loan.transactionId, 'loan');
+		for (const repayment of repayments) kinds.set(repayment.transactionId, 'repayment');
+		for (const liability of liabilities) {
+			for (const payment of liability.payments ?? []) {
+				kinds.set(payment.transactionId, 'liability-payment');
+			}
+		}
+		for (const holding of holdings) {
+			for (const trade of holding.trades ?? []) {
+				if (trade.transactionId) kinds.set(trade.transactionId, 'investment-trade');
+			}
+		}
+		return kinds;
 	},
 
 	/**

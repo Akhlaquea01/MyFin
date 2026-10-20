@@ -193,7 +193,11 @@ async function findDanglingReferences(
 		if (!ruleIds.has(event.recurringRuleId)) {
 			dangling('A recurring-payment reminder', 'the recurring payment it belongs to');
 		}
-		if (noTransaction(event.matchedTransactionId)) {
+		// Marked as paid, with no entry named (or a named one that is gone).
+		if (
+			noTransaction(event.matchedTransactionId) ||
+			(event.status === 'matched' && !event.matchedTransactionId)
+		) {
 			dangling('A recurring-payment reminder marked as paid', 'the entry that paid it');
 		}
 	}

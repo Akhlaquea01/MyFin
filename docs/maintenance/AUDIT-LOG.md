@@ -1,6 +1,6 @@
 # MyFin — Engineering & QA Audit Log
 
-A dated record of three audits (sections 1–5, 6 and 7), kept as history: figures such as test counts
+A dated record of four audits (sections 1–5, 6, 7 and 8), kept as history: figures such as test counts
 and bundle sizes are those of the day they were written. For how the system is built see the
 [HLD](../architecture/HLD.md); for current open issues and decisions see [DECISIONS](DECISIONS.md).
 
@@ -246,3 +246,42 @@ when the whole suite runs in parallel and pass alone; this predates the audit.
    spread over 30: a few days of history cannot be stretched into a forecast by one large payment.
 2. **A sale does not record a realised gain**; the remaining holding's gain/loss is shown, the proceeds are
    money in the account.
+
+---
+
+## 8. Fourth audit — relations between features (2026-10-19)
+
+Scope: where one record points at another and something changes on one side only — deletes, archives,
+edits and imports across budgets, recurring payments, loans, goals, accounts and the data template. The
+earlier audits' invariants held (balances, transfer pairs, purpose effects, backup coverage of every
+table). Each defect below was first reproduced with a throwaway test, then fixed with a regression test
+(`tests/integration/relationFixes.test.ts`, `tests/component/editOrphanMovement.test.tsx`, and a case in
+`changePin.test.ts`).
+
+### 8.1 Fixed
+
+| #    | Sev    | Area              | Finding (observed → cause)                                                                                                                                                                                                           | Fix                                                                                                                                                                                                          |
+| ---- | ------ | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| I-01 | Medium | Budget vs. Actual | A yearly budget showed the annual limit and the whole year's spend under every month of the range (`ensureBudgetItemForPeriod` follows the budget's own period).                                                                     | One row per year, labelled with the year; the column is now "Period".                                                                                                                                        |
+| I-02 | Medium | Review / loans    | A data-template import files a loan or repayment movement for review when an entry of the same amount and day exists; Discard deleted it with no loan check, leaving the loan without its entry.                                     | `TransactionEngine.deleteTransaction` refuses entries behind a loan, repayment, trade or liability payment (a debt-tagged entry is reversed with its purpose); Review also guards "move to another account". |
+| I-03 | Medium | Savings goals     | Removing a contribution that came from an entry left the entry tagged to the goal; editing its date later brought the contribution back.                                                                                             | `removeGoalContribution` takes the goal off the entry (tag kept), as deleting a goal does.                                                                                                                   |
+| I-04 | Medium | Accounts          | Archiving an account left its active recurring payments running (alerts for a closed account) and the Recurring page printed the raw account id, since it loaded only active accounts.                                               | `setAccountArchived` refuses while an active recurring payment uses the account; the Recurring page loads every account for names and offers only active ones (plus the rule's own).                         |
+| I-05 | Medium | Data template     | A reminder marked paid was restored as `matched` with no entry when that entry was skipped, so it could never match again; "Check my data" did not notice.                                                                           | Restored as pending/missed and marked paid only once its entry is imported; the integrity check reports a paid reminder with no entry.                                                                       |
+| I-06 | Low    | Budgets           | Switching a budget between monthly and yearly left the old periods beside the new ones (dashboard, health score and the performance card listed both).                                                                               | `updateBudget` clears the periods on a period-type change; the page asks first.                                                                                                                              |
+| I-07 | Low    | Budgets           | The current month's rollover was fixed when its item was created, so spend back-filled into last month changed nothing.                                                                                                              | The open period re-reads what is left of the one before it while rollover is on; with rollover off, what had rolled in is kept (FR-016).                                                                     |
+| I-08 | Low    | Data template     | `Transaction.recurringRuleId` was not imported: entries that created a rule came back unlinked, and the forecast counted them again as everyday spending.                                                                            | Remapped through the imported rule.                                                                                                                                                                          |
+| I-09 | Low    | Subscriptions     | A monthly loan EMI was offered as a subscription.                                                                                                                                                                                    | Entries tagged debt, savings or investment are skipped (bills stay).                                                                                                                                         |
+| I-10 | Low    | Ledger            | An unpaired transfer with no record holding it (a loan after its person was deleted, a trade after the holding was edited) opened as an ordinary entry, and saving a new note rewrote it as income or expense; it was badged "Loan". | It opens like an adjustment (amount, date, note) and stays a transfer; the badge says Loan or Investment when a record holds it, otherwise "Movement".                                                       |
+| I-11 | Low    | Alerts            | Recurring alerts were titled by category only, so two rules in one category read the same.                                                                                                                                           | Titled by the rule's name when it has one, with the amount in the text.                                                                                                                                      |
+| I-12 | Low    | Change PIN        | The key salt was rotated with the PIN, but the captured-message replay ledger is salted with it, so every earlier entry stopped matching and a re-delivered message was filed again.                                                 | The key salt is kept; the new PIN alone makes the new key.                                                                                                                                                   |
+
+### 8.2 Known limits left in place
+
+1. **Changing a budget's category keeps its periods.** Their planned amounts are the old limit, measured
+   against the new category's spend.
+2. **Replay protection already lost to an earlier PIN change is not recovered:** only changes made after
+   this fix keep the ledger valid.
+3. **`deleteTransaction` now decrypts the loan, repayment, liability and holding tables once per call** to
+   look for a link (the Transactions page already did the same before asking for confirmation).
+4. **A loan movement flagged for review stays flagged:** it can be kept or the matching bank row deleted,
+   but not discarded from Review.

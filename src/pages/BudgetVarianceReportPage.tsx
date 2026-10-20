@@ -146,7 +146,7 @@ export function BudgetVarianceReportPage() {
 							<TableHeader>
 								<TableRow>
 									<TableHead>Category</TableHead>
-									<TableHead>Month</TableHead>
+									<TableHead>Period</TableHead>
 									<TableHead className="text-right">Budgeted</TableHead>
 									<TableHead className="text-right">Actual</TableHead>
 									<TableHead className="text-right">Variance</TableHead>
