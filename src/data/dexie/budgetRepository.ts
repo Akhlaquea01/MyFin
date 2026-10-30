@@ -97,6 +97,10 @@ export const BudgetItemRepository = {
 		return updated;
 	},
 
+	async removeForBudget(budgetId: string): Promise<void> {
+		await db.budgetItems.where('budgetId').equals(budgetId).delete();
+	},
+
 	async listForBudget(key: CryptoKey, budgetId: string): Promise<BudgetItem[]> {
 		const rows = await db.budgetItems.where('budgetId').equals(budgetId).toArray();
 		const items = await decryptRows<BudgetItemRow, BudgetItem>(key, rows);

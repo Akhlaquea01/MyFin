@@ -167,13 +167,11 @@ test('envelope rollover in full mode carries an overspend deficit into the next 
 	await budgetDialog.getByRole('button', { name: 'Add budget' }).click();
 	await expect(budgetDialog).not.toBeVisible();
 
-	// Overspend THIS month by 50 (150 actual vs. 100 planned). Note: this month's BudgetItem was
-	// already materialized (rolloverInAmount locked at 0) the instant the budget was created
-	// above — ensureBudgetItemForPeriod never retroactively recomputes an already-existing
-	// period's rollover, only its actualAmount (budgetEngine.ts's own documented "closed period"
-	// precedent extends to rolloverInAmount for every period, not just closed ones). So the
-	// deficit can only be observed on the *next* period's BudgetItem, which is materialized for
-	// the first time below — after this month's actualAmount already reflects the overspend.
+	// Overspend THIS month by 50 (150 actual vs. 100 planned). This month's BudgetItem was already
+	// materialized the instant the budget was created above, and with no earlier period to roll
+	// anything in from its rollover stays at 0. The deficit shows on the *next* period's BudgetItem,
+	// which is materialized for the first time below — after this month's actualAmount already
+	// reflects the overspend.
 	await page.getByRole('link', { name: 'Transactions', exact: true }).click();
 	await page.getByRole('link', { name: 'New transaction' }).click();
 	await page.getByLabel('Account').click();

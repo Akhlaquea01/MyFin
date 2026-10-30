@@ -52,7 +52,8 @@ import { useSession } from '../context/SessionContext';
 import { AccountRepository } from '../data/dexie/accountRepository';
 import {
 	TransactionRepository,
-	UNCATEGORIZED_CATEGORY_ID
+	UNCATEGORIZED_CATEGORY_ID,
+	type TransactionLink
 } from '../data/dexie/transactionRepository';
 import { AttachmentRepository } from '../data/dexie/attachmentRepository';
 import { TagRepository } from '../data/dexie/tagRepository';
@@ -100,6 +101,13 @@ const ATTACHMENT_COUNT_DEBOUNCE_MS = 120;
  * never clear. Ids outside `queriedIds` are preserved so rows scrolled out of view keep their
  * counts instead of flickering when they scroll back.
  */
+/** Badge for a one-sided transfer: what record it belongs to, or plain "Movement" when none holds it. */
+function movementLabel(kind: TransactionLink['kind'] | undefined): string {
+	if (kind === 'loan' || kind === 'repayment') return 'Loan';
+	if (kind === 'investment-trade') return 'Investment';
+	return 'Movement';
+}
+
 function mergeCounts(
 	previous: Record<string, number>,
 	queriedIds: string[],
@@ -153,6 +161,7 @@ export function TransactionsPage() {
 		setSelectedTagIds([]);
 	}
 	const [savedViews, setSavedViews] = useState<SavedFilterView[]>([]);
+	const [linkKinds, setLinkKinds] = useState<Map<string, TransactionLink['kind']>>(new Map());
 	const [saveViewOpen, setSaveViewOpen] = useState(false);
 	const [newViewName, setNewViewName] = useState('');
 	const [savingView, setSavingView] = useState(false);
@@ -198,6 +207,8 @@ export function TransactionsPage() {
 			setCategories(await CategoryRepository.list(key));
 			setTags(await TagRepository.listInUse(key));
 			setSavedViews(await SavedFilterViewRepository.list(key));
+			// Only decides how a one-sided transfer is labelled, so a failure here is not worth an error.
+			setLinkKinds(await TransactionRepository.linkKindsByTransaction(key).catch(() => new Map()));
 			setTransactions(
 				await TransactionRepository.search(key, {
 					accountId: accountFilter || undefined,
@@ -750,7 +761,7 @@ export function TransactionsPage() {
 															? 'Transfer'
 															: tx.source === 'balance_adjustment'
 																? 'Adjustment'
-																: 'Loan'}
+																: movementLabel(linkKinds.get(tx.id))}
 													</Badge>
 												)}
 												{tx.purpose && (

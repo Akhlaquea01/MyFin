@@ -61,6 +61,7 @@ import {
 	type SplitInput
 } from '../data/dexie/transactionRepository';
 import { TransactionEngine } from '../domain/transactions/transactionEngine';
+import { linkedTransactionNotice } from '../domain/transactions/linkedTransactionNotice';
 import { formatTransactionLabel } from '../domain/transactions/transactionLabel';
 import { duplicateReason } from '../domain/transactions/duplicateCandidates';
 import { createRuleFromTransaction } from '../domain/recurring/recurringEngine';
@@ -667,6 +668,9 @@ export function ReviewPage() {
 	function changeAccount(tx: Transaction, accountId: string): Promise<void> {
 		if (accountId === tx.accountId) return Promise.resolve();
 		return runForRow(tx.id, 'Could not move this entry', async () => {
+			// A loan's money movement stays on the account the loan was made from.
+			const link = await TransactionRepository.getLoanLink(key, tx.id);
+			if (link) throw new Error(linkedTransactionNotice(link).message);
 			const updated = await TransactionEngine.editTransaction(key, tx.id, { accountId });
 			setItems((prev) => prev.map((t) => (t.id === tx.id ? updated : t)));
 			// The message named digits no account carried: offer to remember them on this account so

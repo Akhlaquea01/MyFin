@@ -37,7 +37,8 @@ import { CategoryRepository } from '../data/dexie/categoryRepository';
 import { BudgetRepository } from '../data/dexie/budgetRepository';
 import {
 	ensureBudgetItemForPeriod,
-	hasActiveBudgetForCategory
+	hasActiveBudgetForCategory,
+	updateBudget
 } from '../domain/budgets/budgetEngine';
 import type { Budget, BudgetItem, BudgetPeriodType, Category } from '../domain/entities';
 import { isPositiveMoney, parseMoneyOrZero, formatMoney } from '../domain/shared/money';
@@ -240,7 +241,17 @@ export function BudgetsPage() {
 				});
 				if (!confirmed) return;
 			}
-			await BudgetRepository.update(key, editTarget.id, {
+			if (values.periodType !== editTarget.periodType) {
+				const confirmed = await confirm({
+					message:
+						`Switching from ${editTarget.periodType} to ${values.periodType} starts this budget's history over: ` +
+						'its earlier periods are cleared, because they are not the same length as the new ones. Continue?',
+					confirmLabel: 'Change period',
+					destructive: true
+				});
+				if (!confirmed) return;
+			}
+			await updateBudget(key, editTarget.id, {
 				categoryId: values.categoryId,
 				periodType: values.periodType,
 				amount: parseMoneyOrZero(values.amount),

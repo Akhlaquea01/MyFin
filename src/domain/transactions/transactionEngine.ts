@@ -288,6 +288,13 @@ export const TransactionEngine = {
 	async deleteTransaction(key: CryptoKey, id: string): Promise<void> {
 		const tx = await TransactionRepository.getById(key, id);
 		if (!tx) throw new Error(`Transaction ${id} not found`);
+		// The other half of a loan, a liability payment or an investment trade is reversed from the page
+		// that owns the record; deleting it here would leave that record disagreeing with the ledger. The
+		// owners remove their record first, so by the time they delete its entry there is no link left.
+		// A payment tagged as debt is the exception: `clearPurpose` below gives its money back to the debt.
+		const link = await TransactionRepository.getLoanLink(key, id);
+		const reversedWithEntry = link?.kind === 'liability-payment' && tx.purpose?.kind === 'debt';
+		if (link && !reversedWithEntry) throw new Error(linkedTransactionNotice(link).message);
 		const pair = tx.transferPairId
 			? await TransactionRepository.getById(key, tx.transferPairId)
 			: null;
