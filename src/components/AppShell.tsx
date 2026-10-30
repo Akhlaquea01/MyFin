@@ -2,29 +2,14 @@ import { Suspense, useEffect, useRef, useState } from 'react';
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
 import {
 	ArrowLeftRight,
-	BarChart3,
 	BellRing,
-	CalendarClock,
-	CreditCard,
-	Database,
-	HeartPulse,
 	Inbox,
-	Landmark,
 	LayoutDashboard,
-	LineChart,
 	Menu,
 	MoreHorizontal,
 	Plus,
-	PiggyBank,
-	Settings,
-	Sparkles,
-	TrendingDown,
-	Tags,
-	Target,
-	TrendingUp,
-	Users,
 	Wallet,
-	Wand2
+	type LucideIcon
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { Button } from './ui/button';
@@ -41,7 +26,8 @@ import { useQuickTour } from '../hooks/useQuickTour';
 import { useUnreadAlerts } from '../hooks/useUnreadAlerts';
 import { useWaitingReview } from '../hooks/useWaitingReview';
 import { HubTabs } from './HubTabs';
-import { HUBS, hubEntryPath, hubForPath, type Hub } from '../lib/hubs';
+import { HUBS, hubEntryPath, hubForPath, type Hub, type HubItem } from '../lib/hubs';
+import { HUB_ICONS, SCREEN_ICONS } from './navIcons';
 import { useSession } from '../context/SessionContext';
 import { isNativeApp } from '../lib/native/platform';
 import { TransactionRepository } from '../data/dexie/transactionRepository';
@@ -59,76 +45,55 @@ const MOBILE_BREAKPOINT_QUERY = '(max-width: 767px)';
 
 type NavItem = {
 	label: string;
-	icon: typeof LayoutDashboard;
+	icon: LucideIcon;
 	dataTour?: string;
-} & (
-	| { to: string; end?: boolean }
-	// A folded hub: one entry for several screens, which the strip along the top of each one lists.
-	| { hub: Hub }
-);
+} &
+	// A page outside every hub: the Dashboard and Alerts.
+	(
+		| { to: string; end?: boolean }
+		// One screen of a hub the sidebar lists screen by screen.
+		| { screen: HubItem }
+		// A folded hub: one entry for several screens, which the strip along the top of each one lists.
+		| { hub: Hub }
+	);
 
-/** The sidebar entry of a folded hub (see `Hub.folded`); its name is the hub's. */
-function hubEntry(id: string, icon: NavItem['icon'], dataTour?: string): NavItem {
-	const hub = HUBS.find((h) => h.id === id);
-	if (!hub) throw new Error(`Unknown hub: ${id}`);
-	return { hub, label: hub.label, icon, dataTour };
-}
+/** The Quick Tour points at these sidebar entries (see `tourSteps.ts`). */
+const TOUR_TARGETS: Record<string, string> = {
+	'/accounts': 'accounts-nav',
+	'/transactions': 'transactions-nav',
+	'/budgets': 'budgets-nav',
+	'/categories': 'categories-nav',
+	settings: 'settings-nav'
+};
 
-// Grouped so a menu of this length can be scanned: the everyday screens first, the rarely-opened
-// ones last. The last group folds Data, Automation and Settings down to one entry each (their
-// screens are in `HUBS`), where they used to take nine.
+// The groups, their names and their screens come from `HUBS`, the same list the strip above each
+// page is drawn from, so the menu and the strip cannot disagree about what belongs together.
+// Folded hubs (Data, Automation, Settings) take one entry each, under Manage.
 const NAV_GROUPS: { label: string | null; items: NavItem[] }[] = [
 	{
 		label: null,
 		items: [
 			{ to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true },
-			{ to: '/accounts', label: 'Accounts', icon: Wallet, dataTour: 'accounts-nav' },
-			{
-				to: '/transactions',
-				label: 'Transactions',
-				icon: ArrowLeftRight,
-				dataTour: 'transactions-nav'
-			},
-			{ to: '/categories', label: 'Categories', icon: Tags, dataTour: 'categories-nav' },
-			{ to: '/quick-add', label: 'Quick Add', icon: Sparkles },
-			{ to: '/review', label: 'Review', icon: Inbox },
 			{ to: '/alerts', label: 'Alerts', icon: BellRing }
 		]
 	},
-	{
-		label: 'Planning',
-		items: [
-			{ to: '/budgets', label: 'Budgets', icon: PiggyBank, dataTour: 'budgets-nav' },
-			{ to: '/budgets/variance', label: 'Budget vs. Actual', icon: BarChart3 },
-			{ to: '/savings-goals', label: 'Savings Goals', icon: Target },
-			{ to: '/recurring', label: 'Recurring', icon: CalendarClock },
-			{ to: '/forecast', label: 'Forecast', icon: TrendingDown }
-		]
-	},
-	{
-		label: 'Wealth',
-		items: [
-			{ to: '/people', label: 'People', icon: Users },
-			{ to: '/investments', label: 'Investments', icon: LineChart },
-			{ to: '/liabilities', label: 'Liabilities', icon: CreditCard },
-			{ to: '/liabilities/payoff-planner', label: 'Payoff Planner', icon: Landmark },
-			{ to: '/net-worth', label: 'Net Worth', icon: TrendingUp }
-		]
-	},
-	{
-		label: 'Insights',
-		items: [
-			{ to: '/financial-health', label: 'Financial Health', icon: HeartPulse },
-			{ to: '/analytics', label: 'Analytics', icon: BarChart3 }
-		]
-	},
+	...HUBS.filter((hub) => !hub.folded).map((hub) => ({
+		label: hub.label,
+		items: hub.items.map((screen): NavItem => ({
+			screen,
+			label: screen.label,
+			icon: SCREEN_ICONS[screen.to],
+			dataTour: TOUR_TARGETS[screen.to]
+		}))
+	})),
 	{
 		label: 'Manage',
-		items: [
-			hubEntry('data', Database),
-			hubEntry('automation', Wand2),
-			hubEntry('settings', Settings, 'settings-nav')
-		]
+		items: HUBS.filter((hub) => hub.folded).map((hub): NavItem => ({
+			hub,
+			label: hub.label,
+			icon: HUB_ICONS[hub.id],
+			dataTour: TOUR_TARGETS[hub.id]
+		}))
 	}
 ];
 
@@ -143,7 +108,7 @@ const navItemClass = (isActive: boolean) =>
 function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
 	const unreadAlerts = useUnreadAlerts();
 	const native = isNativeApp();
-	const openHub = hubForPath(useLocation().pathname, native)?.hub.id;
+	const open = hubForPath(useLocation().pathname, native);
 	return (
 		<nav className="flex flex-col gap-1">
 			{NAV_GROUPS.map((group, index) => (
@@ -155,15 +120,21 @@ function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
 					)}
 					{group.items.map((item) => {
 						const { label, icon: Icon, dataTour } = item;
-						if ('hub' in item) {
+						if ('hub' in item || 'screen' in item) {
+							if ('screen' in item && item.screen.nativeOnly && !native) return null;
+							// The most specific screen wins, so Budget vs. Actual does not also light up Budgets.
+							const [to, isOpen] =
+								'hub' in item
+									? [hubEntryPath(item.hub, native), open?.hub.id === item.hub.id]
+									: [item.screen.to, open?.active.to === item.screen.to];
 							return (
 								<Link
-									key={item.hub.id}
-									to={hubEntryPath(item.hub, native)}
+									key={to}
+									to={to}
 									onClick={onNavigate}
 									data-tour={dataTour}
-									aria-current={openHub === item.hub.id ? 'page' : undefined}
-									className={navItemClass(openHub === item.hub.id)}
+									aria-current={isOpen ? 'page' : undefined}
+									className={navItemClass(isOpen)}
 								>
 									<Icon className="size-4" />
 									{label}
@@ -195,13 +166,20 @@ function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
 	);
 }
 
+/** The screens with a tab of their own in the bottom bar, plus Alerts (the bell in the top bar). */
+const BAR_SCREENS = ['/transactions', '/review', '/alerts'];
+
 /**
  * The phone's bottom bar: the four places used every day, a button that adds something, and the
  * full menu. Labels are drawn with CSS (`data-label`) rather than text nodes so they cannot be
  * mistaken for page content, and the whole bar is gone from md up, where the sidebar takes over.
  */
 function BottomBar({ onOpenMenu }: { onOpenMenu: () => void }) {
-	const waiting = useWaitingReview(useLocation().pathname);
+	const { pathname } = useLocation();
+	const waiting = useWaitingReview(pathname);
+	// More stands for every screen the bar has no tab for, so it is lit when one of them is open.
+	const onMoreScreen =
+		pathname !== '/' && !BAR_SCREENS.some((p) => pathname === p || pathname.startsWith(`${p}/`));
 	const tab = (isActive: boolean) =>
 		cn(
 			'relative flex flex-1 flex-col items-center justify-center gap-0.5 py-2 text-muted-foreground transition-colors',
@@ -213,9 +191,11 @@ function BottomBar({ onOpenMenu }: { onOpenMenu: () => void }) {
 			aria-label="Primary shortcuts"
 			className="fixed inset-x-0 bottom-0 z-30 flex border-t bg-background/95 pb-[env(safe-area-inset-bottom)] backdrop-blur md:hidden"
 		>
+			{/* Tabs replace the entry instead of stacking one: Back from any of them goes Home, then out. */}
 			<NavLink
 				to="/"
 				end
+				replace
 				aria-label="Home"
 				data-label="Home"
 				className={({ isActive }) => tab(isActive)}
@@ -224,9 +204,9 @@ function BottomBar({ onOpenMenu }: { onOpenMenu: () => void }) {
 			</NavLink>
 			<NavLink
 				to="/transactions"
-				end
-				aria-label="Activity"
-				data-label="Activity"
+				replace
+				aria-label="Transactions"
+				data-label="Transactions"
 				className={({ isActive }) => tab(isActive)}
 			>
 				<ArrowLeftRight className="size-5" />
@@ -257,6 +237,7 @@ function BottomBar({ onOpenMenu }: { onOpenMenu: () => void }) {
 			</div>
 			<NavLink
 				to="/review"
+				replace
 				aria-label="Review queue"
 				data-label="Review"
 				className={({ isActive }) => tab(isActive)}
@@ -272,7 +253,7 @@ function BottomBar({ onOpenMenu }: { onOpenMenu: () => void }) {
 				type="button"
 				aria-label="More"
 				data-label="More"
-				className={tab(false)}
+				className={tab(onMoreScreen)}
 				onClick={onOpenMenu}
 			>
 				<MoreHorizontal className="size-5" />
