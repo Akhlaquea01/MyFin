@@ -139,7 +139,7 @@ export function TransferPage() {
 				notes: values.notes.trim() || (isPayBill ? 'Credit card bill payment' : undefined)
 			});
 			toast.success(isPayBill ? 'Payment recorded' : 'Transfer recorded');
-			navigate('/transactions');
+			navigate('/transactions', { replace: true });
 		} catch (err) {
 			toast.error(err instanceof Error ? err.message : 'Could not record transfer.');
 		}

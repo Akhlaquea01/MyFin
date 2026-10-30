@@ -216,7 +216,7 @@ export function QuickAddPage() {
 			lockDestination: false,
 			amount: parsedAmount && parsedAmount > 0 ? formatMinorUnits(parsedAmount) : undefined
 		};
-		navigate('/transactions/transfer', { state });
+		navigate('/transactions/transfer', { state, replace: true });
 	}
 
 	async function handleConfirm() {
@@ -289,7 +289,7 @@ export function QuickAddPage() {
 					: []
 			);
 			toast.success('Transaction added to your review queue');
-			navigate('/review');
+			navigate('/review', { replace: true });
 		} catch (err) {
 			toast.error(err instanceof Error ? err.message : 'Could not save transaction.');
 		} finally {

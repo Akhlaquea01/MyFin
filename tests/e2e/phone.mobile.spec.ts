@@ -195,6 +195,32 @@ test('a possible duplicate shows what it matches, and "Keep both" settles it', a
 	await expect(page.getByRole('button', { name: 'Confirm transaction' })).toHaveCount(2);
 });
 
+test('the bottom bar shows where you are and its tabs leave no Back trail', async ({ page }) => {
+	await onboard(page, '727205');
+	const bar = page.getByRole('navigation', { name: 'Primary shortcuts' });
+	const more = bar.getByRole('button', { name: 'More' });
+
+	await bar.getByRole('link', { name: 'Transactions' }).click();
+	await expect(page.getByRole('heading', { name: 'Transactions' })).toBeVisible();
+	await bar.getByRole('link', { name: 'Review queue' }).click();
+	await expect(page.getByRole('heading', { name: 'Review Queue' })).toBeVisible();
+	await bar.getByRole('link', { name: 'Home' }).click();
+	await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible();
+	// Every tab swapped the entry, so there is nothing behind the first screen to step back through.
+	expect(await page.evaluate(() => (window.history.state as { idx: number }).idx)).toBe(0);
+	await expect(more).not.toHaveClass(/text-primary/);
+
+	// A page below a tab keeps the tab lit; a screen with no tab lights More.
+	await page.goto('/transactions/new');
+	await expect(bar.getByRole('link', { name: 'Transactions' })).toHaveAttribute(
+		'aria-current',
+		'page'
+	);
+	await expect(more).not.toHaveClass(/text-primary/);
+	await page.goto('/net-worth');
+	await expect(more).toHaveClass(/text-primary/);
+});
+
 test('related screens are one tap apart on a phone', async ({ page }) => {
 	await onboard(page, '727204');
 	await page.goto('/budgets');

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import userEvent from '@testing-library/user-event';
+import { MemoryRouter, useNavigationType } from 'react-router-dom';
 import { HubTabs } from '../../src/components/HubTabs';
 
 function setMobile(isMobile: boolean) {
@@ -59,5 +60,21 @@ describe('HubTabs', () => {
 		setMobile(true);
 		const { container } = at('/');
 		expect(container).toBeEmptyDOMElement();
+	});
+	it('swaps the open screen for the one tapped instead of stacking another history entry', async () => {
+		setMobile(true);
+		function HowWeArrived() {
+			return <output data-testid="navigation-type">{useNavigationType()}</output>;
+		}
+		render(
+			<MemoryRouter initialEntries={['/budgets']}>
+				<HubTabs />
+				<HowWeArrived />
+			</MemoryRouter>
+		);
+		expect(screen.getByTestId('navigation-type')).toHaveTextContent('POP');
+		await userEvent.click(screen.getByRole('link', { name: 'Forecast' }));
+		expect(screen.getByTestId('navigation-type')).toHaveTextContent('REPLACE');
+		expect(screen.getByRole('link', { name: 'Forecast' })).toHaveAttribute('aria-current', 'page');
 	});
 });
