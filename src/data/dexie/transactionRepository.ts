@@ -15,6 +15,7 @@ import {
 	normalizeTagText,
 	transactionMatchesFreeText
 } from '../../domain/transactions/tagFilterEngine';
+import { withinAmountRange } from '../../domain/transactions/amountFilter';
 import type {
 	CaptureInfo,
 	Transaction,
@@ -79,6 +80,9 @@ export interface TransactionFilter {
 	dateFrom?: string;
 	dateTo?: string;
 	freeText?: string;
+	/** Absolute size in minor units, so money in and money out are treated alike. Inclusive. */
+	amountMin?: number;
+	amountMax?: number;
 }
 
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;
@@ -630,6 +634,11 @@ export const TransactionRepository = {
 		if (filter.dateTo) rows = rows.filter((r) => r.date <= filter.dateTo!);
 
 		let transactions = await decryptRows<TransactionRow, Transaction>(key, rows);
+
+		if (filter.amountMin !== undefined || filter.amountMax !== undefined) {
+			const range = { min: filter.amountMin, max: filter.amountMax };
+			transactions = transactions.filter((tx) => withinAmountRange(tx.amount, range));
+		}
 
 		if (filter.categoryId) {
 			const splitRows = await db.transactionSplits
