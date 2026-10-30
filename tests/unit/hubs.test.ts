@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { HUBS, hubEntryPath, hubForPath } from '../../src/lib/hubs';
+import { HUB_ICONS, SCREEN_ICONS } from '../../src/components/navIcons';
 
 describe('hubForPath', () => {
 	it('finds the hub of a screen and marks that screen open', () => {
@@ -81,6 +82,16 @@ describe('hubForPath', () => {
 				expect(seen.has(item.to), `${item.to} is in two hubs`).toBe(false);
 				seen.set(item.to, hub.id);
 			}
+		}
+	});
+
+	it('has a sidebar icon for every screen it lists and for every folded hub', () => {
+		for (const hub of HUBS) {
+			if (hub.folded) {
+				expect(HUB_ICONS[hub.id], hub.id).toBeDefined();
+				continue;
+			}
+			for (const item of hub.items) expect(SCREEN_ICONS[item.to], item.to).toBeDefined();
 		}
 	});
 });

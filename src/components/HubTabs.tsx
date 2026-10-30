@@ -35,6 +35,8 @@ export function HubTabs() {
 							<Link
 								ref={isActive ? activeRef : undefined}
 								to={item.to}
+								// Siblings swap in place: Back leaves the group instead of replaying every tab tapped.
+								replace
 								aria-current={isActive ? 'page' : undefined}
 								className={cn(
 									'inline-flex min-h-9 items-center rounded-full px-3.5 text-sm whitespace-nowrap transition-colors',

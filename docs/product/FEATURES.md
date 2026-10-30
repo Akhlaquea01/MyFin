@@ -31,6 +31,7 @@ This document provides a comprehensive reference of the features built into the 
 23. [Feature 024: Purpose Tags, Card Capture, One Recurring Page & a Categories Revamp](#feature-024-purpose-tags-card-capture-one-recurring-page--a-categories-revamp)
 24. [Feature 025: A Shorter Sidebar — Data, Automation & Settings](#feature-025-a-shorter-sidebar--data-automation--settings)
 25. [Feature 026: Versioned Releases & In-app Updates (Android)](#feature-026-versioned-releases--in-app-updates-android)
+26. [Feature 027: Calmer Navigation — One Menu, Cleaner Back](#feature-027-calmer-navigation--one-menu-cleaner-back)
 
 ---
 
@@ -505,7 +506,7 @@ A pass over the app's flows (onboarding, lock, entry, Review, backup, notificati
 - **New Transaction**: A category chosen without an amount takes the whole total instead of being dropped; split totals that do not add up are explained in rupees ("500.00 still to allocate"); tags or a shared photo failing after the transaction saved are reported as "saved, but…" and the page moves on, so a retry cannot create a duplicate. The amount starts empty, there is a Cancel button, and a shared photo can be removed.
 - **Review**: Confirm and Discard are guarded against double taps and report failures; reloads after applying a rule or confirming in bulk no longer wipe categories and tags typed on other cards; **Confirm all categorized** leaves flagged entries (possible duplicates, captures filed on a guessed account) for a human look and says how many it left. An empty queue points to Quick Add, Import and Auto-capture.
 - **First run**: The Dashboard shows a **Get started** card until there is an account, with a one-click **Add common categories** (idempotent, matched by name). The biometric offer is snoozed for 30 days when declined, and the tour, biometric offer and notification offer appear one at a time rather than together.
-- **Navigation**: Grouped menu; on phones a bottom bar (Home, Activity, +, Check, More) with an Add menu (new transaction, paste a bank message, transfer). The Dashboard's Unreviewed card opens Review; Total Balance opens Accounts; Recent Transactions has View all. Unknown addresses show a Not-found page. On Android the Back button closes an open dialog or drawer first, then goes back, then leaves the app from the Dashboard.
+- **Navigation**: Grouped menu; on phones a bottom bar (Home, Transactions, +, Review, More) with an Add menu (new transaction, paste a bank message, transfer). The Dashboard's Unreviewed card opens Review; Total Balance opens Accounts; Recent Transactions has View all. Unknown addresses show a Not-found page. On Android the Back button closes an open dialog or drawer first, then goes back, then leaves the app from the Dashboard.
 - **Notifications**: Tapping an Android notification opens the matching screen. The Notifications page validates its fields inline and shows whether the device allows notifications, with an Allow button or a way to the system settings.
 - **Auto-capture**: A banner appears anywhere in the app when capture is on but Android no longer allows it (SMS permission revoked, notification access off). The page explains why waiting messages are not being filed, offers **File them now**, links to Accounts when there is no account to file under, and lets the discarded/overflow notices be cleared. A message that passed the "looks like a transaction" filter but could not be parsed is no longer thrown away: its text is kept (encrypted, newest 100) under **Messages MyFin could not read**, where it can be opened in Quick Add to add by hand, or dismissed.
 - **Confirmations**: Every "are you sure?" is one styled in-app dialog whose button names the action ("Delete permanently", "Write off") — red when it cannot be undone — instead of the browser's native confirm box. Deleting a record asks first; there is no Undo afterwards.
@@ -679,3 +680,36 @@ Every build from `master` used to be a zipped workflow artifact that had to be d
 
 - No automatic or background check; it is a button on purpose. A once-a-day check on launch (opt-in) would be a small addition.
 - Old releases are not pruned; delete them from the Releases page if the list grows.
+
+---
+
+## Feature 027: Calmer Navigation — One Menu, Cleaner Back
+
+### Overview
+
+The menu and the strip of sibling screens above each page were two separate lists that disagreed (Planning vs. Plan, Savings Goals vs. Goals, People first under Wealth, Categories under a different heading), and moving around stacked history entries, so Android Back replayed every tab tapped and even reopened a form that had just been saved. Nothing was added or removed: every screen keeps its address and its place in the app.
+
+### Key Capabilities
+
+- **One list behind the menu and the strip**: the sidebar's groups (Money, Plan, Wealth, Insights, Manage) and their screens are built from `HUBS`, the list the strip is drawn from, so they cannot drift apart. Dashboard and Alerts sit above the groups. The Plan screen is called **Savings Goals** in both places, matching its page title.
+- **One screen marked open**: Budget vs. Actual no longer also lights up Budgets, and Payoff Planner no longer lights up Liabilities.
+- **Bottom bar**: the second tab is **Transactions** (it was "Activity") and stays lit on New transaction and Transfer; **More** is lit while a screen with no tab of its own is open.
+- **Tabs swap, they do not stack**: tapping a bottom-bar tab or a screen in the strip replaces the entry instead of adding one, so Back from any of them goes Home and then out, rather than through every tab visited. The drawer and sidebar still push, so Back returns to the previous screen as before.
+- **Saved forms leave no trace**: saving a transaction, a transfer or a pasted bank message replaces the form with the list (or the Review queue), so Back no longer reopens the form just submitted. Switching the Type to Transfer, card bill or Person from New transaction, and handing a card payment from Quick Add to the Transfer screen, replace the screen the same way.
+- **Cancel goes back**: Cancel on New transaction returns to the screen the form was opened from; opened directly (a shared file, a bookmark) it goes to Transactions.
+
+### Domain Engine & Architecture
+
+- **Menu data**: `NAV_GROUPS` in [`AppShell.tsx`](../../src/components/AppShell.tsx) is derived from [`hubs.ts`](../../src/lib/hubs.ts); icons are looked up by address in [`navIcons.ts`](../../src/components/navIcons.ts), and the hubs test fails if a screen has none. The open screen comes from `hubForPath`, where the most specific address wins.
+- **Back**: `useGoBack` in [`useGoBack.ts`](../../src/hooks/useGoBack.ts) goes back when React Router's `history.state.idx` shows an earlier entry of the app, and to a fallback otherwise.
+- **Tests**: [`hubs.test.ts`](../../tests/unit/hubs.test.ts), [`hubTabs.test.tsx`](../../tests/component/hubTabs.test.tsx), [`useGoBack.test.tsx`](../../tests/component/useGoBack.test.tsx), [`navigationHistory.spec.ts`](../../tests/e2e/navigationHistory.spec.ts) and the bottom-bar test in [`phone.mobile.spec.ts`](../../tests/e2e/phone.mobile.spec.ts).
+- **No data, schema or address change.**
+
+### Needs a device check
+
+- Back on a real phone: Home → Transactions tab → Review tab → Back should reach Home, then leave the app. Saving a transaction opened from the list and pressing Back shows the list once more before going further back.
+
+### Not done
+
+- Budget vs. Actual and Payoff Planner still have a sidebar link each (see Feature 025).
+- Screens below another (Budget vs. Actual, Upcoming, Payoff Planner, Bulk import) have no on-screen back arrow; Android Back and the strip cover them.

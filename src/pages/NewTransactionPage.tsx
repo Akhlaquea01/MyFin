@@ -5,6 +5,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { Plus, Sparkles, Trash2, X } from 'lucide-react';
 import { toast } from 'sonner';
+import { useGoBack } from '../hooks/useGoBack';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
@@ -74,6 +75,7 @@ export function NewTransactionPage() {
 	const { getEncryptionKey } = useSession();
 	const key = getEncryptionKey();
 	const navigate = useNavigate();
+	const goBack = useGoBack('/transactions');
 	const location = useLocation();
 
 	const [accounts, setAccounts] = useState<Account[]>([]);
@@ -302,7 +304,8 @@ export function NewTransactionPage() {
 		}
 		// What marking it as debt, savings or a bill did, as its own message.
 		if (purposeEffect) toast.success(purposeEffect);
-		navigate('/transactions');
+		// Replaces the form, so Back from the list does not reopen the one just saved.
+		navigate('/transactions', { replace: true });
 	}
 
 	function removeSharedFile() {
@@ -402,7 +405,10 @@ export function NewTransactionPage() {
 																	...(typed.notes.trim() ? { notes: typed.notes.trim() } : {})
 																}
 															: route.state;
-													navigate(route.path, carried ? { state: carried } : undefined);
+													navigate(route.path, {
+														replace: true,
+														...(carried ? { state: carried } : {})
+													});
 													return;
 												}
 												field.onChange(value);
@@ -554,7 +560,7 @@ export function NewTransactionPage() {
 								type="button"
 								variant="ghost"
 								disabled={form.formState.isSubmitting}
-								onClick={() => navigate('/transactions')}
+								onClick={goBack}
 							>
 								Cancel
 							</Button>
