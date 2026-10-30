@@ -33,6 +33,7 @@ This document provides a comprehensive reference of the features built into the 
 25. [Feature 026: Versioned Releases & In-app Updates (Android)](#feature-026-versioned-releases--in-app-updates-android)
 26. [Feature 027: Calmer Navigation — One Menu, Cleaner Back](#feature-027-calmer-navigation--one-menu-cleaner-back)
 27. [Feature 028: Light & Dark Theme](#feature-028-light--dark-theme)
+28. [Feature 029: Chart Fixes, Backup Retention & a Better Transactions List](#feature-029-chart-fixes-backup-retention--a-better-transactions-list)
 
 ---
 
@@ -746,3 +747,39 @@ The app was pinned to dark (`<html class="dark">`) with no way to change it. It 
 
 - The Android launch screen and the installed PWA's splash colour stay dark (the manifest's `background_color` and the native splash cannot follow a runtime choice), so a light-theme user sees a dark splash for a moment.
 - The browser/PWA toolbar colour (`theme-color`) is the same teal in both themes.
+
+---
+
+## Feature 029: Chart Fixes, Backup Retention & a Better Transactions List
+
+### Overview
+
+The remaining items from the audit that could be done and checked: charts that drew without their area fills and rebuilt themselves on every keystroke, scheduled backups that piled up forever, and a Transactions list with no amount filter, no way to act on several entries, and a table that scrolled sideways on a phone.
+
+### Key Capabilities
+
+- **Charts**: the area under a line is drawn again (the `Filler` plugin was never registered, so `fill: true` did nothing and warned on every render). A chart is no longer rebuilt when something unrelated on its page changes — typing a threshold on the Forecast page used to destroy and redraw the chart on every keystroke. Every chart also has a visually hidden table of its numbers, so a screen reader can move through them rather than hear one long label.
+- **Automatic backups keep the newest ten**: after each successful run, older `myfin-auto-backup-YYYY-MM-DD.json` files in the folder are removed. Only files with exactly that name are ever considered, the file just written is never removed, and a failure while trimming never marks the backup itself as failed. The Backup page says so.
+- **Amount filter**: **Min amount** and **Max amount** on the Transactions list, in either direction (a ₹500 expense and a ₹500 income both count as 500), bounds included. Saved views remember the range, and so does a starter-setup template. A value that is not an amount, or a minimum above the maximum, is reported when you press Filter and the list is left alone.
+- **Act on several entries**: tick entries (or **Select all** for everything the filters show) and a bar offers **Set category**, **Delete** and **Clear**. Delete asks once; a transfer loses both sides. The result says what happened, including what was skipped and why: transfers have no category, an entry already split across categories would lose its split, and an entry that belongs to a loan, payment or investment is reversed from its own page. Reloading the list clears the selection.
+- **Cards on a phone**: below 640 px each entry is a fixed-height card (description and amount, then date · account · category, then chips and the attachment, edit and delete buttons) instead of a seven-column table that scrolled sideways. The table is unchanged from 640 px up.
+- **Saved Views menu closes** once a view is chosen; it used to stay open over the list.
+
+### Domain Engine & Architecture
+
+- **Charts**: [`ChartCanvas.tsx`](../../src/components/ChartCanvas.tsx) (`Filler`, `ChartDataTable`), [`useChartColors.ts`](../../src/hooks/useChartColors.ts) (colours resolved once per theme, so memoized configs stay stable); the four chart pages build their configs in `useMemo`.
+- **Backups**: [`autoBackupRetention.ts`](../../src/data/io/autoBackupRetention.ts) (`selectBackupsToDelete`, `KEEP_AUTO_BACKUPS`), `pruneOldBackups` in [`autoBackupService.ts`](../../src/data/io/autoBackupService.ts); on Android the plugin gained `listFiles` and `deleteFile` ([`NativeBackupFolderPlugin.java`](../../android/app/src/main/java/io/github/akhlaquea01/myfin/backup/NativeBackupFolderPlugin.java)), and `deleteFile` refuses any name but MyFin's own.
+- **Transactions**: [`amountFilter.ts`](../../src/domain/transactions/amountFilter.ts), `TransactionFilter.amountMin` / `amountMax` in [`transactionRepository.ts`](../../src/data/dexie/transactionRepository.ts), optional `amountMin` / `amountMax` on `SavedFilterView` (older views and backups still load), [`bulkActions.ts`](../../src/domain/transactions/bulkActions.ts), and `TransactionCard` in [`TransactionsPage.tsx`](../../src/pages/TransactionsPage.tsx).
+- **Tests**: [`chartCanvas.test.tsx`](../../tests/component/chartCanvas.test.tsx), [`autoBackupRetention.test.ts`](../../tests/unit/autoBackupRetention.test.ts), [`autoBackupService.test.ts`](../../tests/unit/autoBackupService.test.ts), [`amountFilter.test.ts`](../../tests/unit/amountFilter.test.ts), [`bulkSummary.test.ts`](../../tests/unit/bulkSummary.test.ts), [`transactionAmountFilter.test.ts`](../../tests/integration/transactionAmountFilter.test.ts), [`bulkTransactionActions.test.ts`](../../tests/integration/bulkTransactionActions.test.ts), [`transactionsBulk.spec.ts`](../../tests/e2e/transactionsBulk.spec.ts) and [`transactions.mobile.spec.ts`](../../tests/e2e/transactions.mobile.spec.ts).
+- **No schema or address change.**
+
+### Needs a device check
+
+- Android: trimming old backups in a real Storage Access Framework folder (`listFiles` / `deleteFile` were compiled only against stubs of the Android API; the Capacitor signatures were checked against its sources).
+- A phone with more than 200 entries, to see the card list scroll smoothly (the virtualization arithmetic uses the fixed card height).
+
+### Not done
+
+- **Private release key and non-debuggable APK**: needs a key only the owner should hold, stored as a repository secret; a new key forces a one-time reinstall. Separately, the CI build is `assembleDebug`, so the APK is `debuggable`; a release build signed with the same key would close that without forcing a reinstall, but it changes the shipping pipeline and cannot be built or run here.
+- **Keystore-wrapped device key**: a change to the key hierarchy that needs a device to test.
+- **Moving work to a Worker**: measured instead (see the audit log, §4.3); PBKDF2 does not block the main thread and the other costs are bounded.

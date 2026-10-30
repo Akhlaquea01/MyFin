@@ -7,7 +7,7 @@ export default defineConfig({
 	// regressions. The whole suite takes roughly ten minutes serially, build included.
 	workers: 1,
 	// Playwright's 5s default is tight for this app: every spec onboards or unlocks, and each
-	// of those runs a 210,000-iteration PBKDF2 derivation on the main thread before the UI
+	// of those runs a 210,000-iteration PBKDF2 derivation that must finish before the UI
 	// responds. Under load that pushed assertions past the deadline and failed a different
 	// spec on each run.
 	expect: { timeout: 15_000 },
