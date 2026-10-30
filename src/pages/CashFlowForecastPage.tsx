@@ -21,6 +21,7 @@ import type { BalanceForecast, ForecastHorizonDays } from '../domain/forecast/ty
 import type { Account } from '../domain/entities';
 import { isValidMoney, parseMoneyOrZero, formatMoney } from '../domain/shared/money';
 import { getPrimaryColor, withAlpha, getAxisColor, getGridColor } from '../lib/chartColors';
+import { useResolvedTheme } from '../lib/theme';
 import { isoDateToLocalDate } from '../domain/shared/dateMath';
 
 const HORIZON_OPTIONS: ForecastHorizonDays[] = [30, 60, 90];
@@ -80,6 +81,8 @@ export function CashFlowForecastPage() {
 		}
 	}
 
+	// Canvas colors are read from the DOM, so a theme change has to re-render the page to redraw them.
+	useResolvedTheme();
 	const primaryColor = getPrimaryColor();
 	const selectedAccount = accounts.find((a) => a.id === accountId);
 	// A card's balance is what is owed (negative), so it is forecast and drawn as an amount owed, and

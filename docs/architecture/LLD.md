@@ -13,7 +13,7 @@ as a whole, its principles and its security model are in the [HLD](HLD.md).
 .
 ├── src/
 │   ├── main.tsx, App.tsx          Entry point; root Gate (lock → onboarding → unlock) and the route table
-│   ├── index.css                  Tailwind v4 entry, theme tokens
+│   ├── index.css                  Tailwind v4 entry, light and dark theme tokens
 │   ├── components/                Shared UI (app-specific components at this level)
 │   │   ├── ui/                    shadcn/Radix primitives only (button, dialog, ...) — added with the shadcn CLI
 │   │   ├── quick-tour/            Guided onboarding tour: provider, overlay, step list

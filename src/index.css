@@ -61,6 +61,7 @@
 }
 
 :root {
+	color-scheme: light;
 	--background: oklch(1 0 0);
 	--foreground: oklch(0.145 0 0);
 	--card: oklch(1 0 0);
@@ -72,35 +73,37 @@
 	--secondary: oklch(0.97 0 0);
 	--secondary-foreground: oklch(0.205 0 0);
 	--muted: oklch(0.97 0 0);
-	--muted-foreground: oklch(0.556 0 0);
+	--muted-foreground: oklch(0.539 0 0);
 	--accent: oklch(0.97 0 0);
 	--accent-foreground: oklch(0.205 0 0);
 	--destructive: oklch(0.577 0.245 27.325);
 	--border: oklch(0.922 0 0);
 	--input: oklch(0.922 0 0);
-	--ring: oklch(0.708 0 0);
+	--ring: oklch(0.656 0 0);
 	/* Money direction and status colours, used for amounts, chips and bars so "money in" is always
-	   green, "money out" always rose and "needs a look" always amber. */
+	   green, "money out" always rose and "needs a look" always amber. Text on white or the muted
+	   surface needs 4.5:1 (tests/unit/themeContrast.test.ts holds both themes to it). */
 	--income: oklch(0.527 0.154 150.069);
-	--expense: oklch(0.586 0.253 17.585);
-	--warning: oklch(0.666 0.179 58.318);
-	--info: oklch(0.588 0.158 241.966);
+	--expense: oklch(0.546 0.253 17.585);
+	--warning: oklch(0.551 0.179 58.318);
+	--info: oklch(0.529 0.158 241.966);
 	/* Eight categorical hues in a fixed order, checked for colour-blind separation and contrast
 	   (blue, orange, aqua, yellow, magenta, green, violet, red). A category keeps one slot; past
-	   eight the rest stay neutral rather than repeat a hue. */
+	   eight the rest stay neutral rather than repeat a hue. The aqua, yellow and magenta here are
+	   darker than their dark-theme twins: on white they need 3:1 as bars and dots. */
 	--cat-1: #2a78d6;
 	--cat-2: #eb6834;
-	--cat-3: #1baf7a;
-	--cat-4: #eda100;
-	--cat-5: #e87ba4;
+	--cat-3: #00a571;
+	--cat-4: #ca8100;
+	--cat-5: #d96e97;
 	--cat-6: #008300;
 	--cat-7: #6250d6;
 	--cat-8: #e34948;
 	/* Chart series palette: teal / indigo / amber / rose / violet — real hues instead of the
 	   previous all-grayscale placeholders, which meant nothing rendered in color by default. */
-	--chart-1: oklch(0.704 0.14 182.503);
+	--chart-1: oklch(0.629 0.14 182.503);
 	--chart-2: oklch(0.585 0.233 277.117);
-	--chart-3: oklch(0.769 0.188 70.08);
+	--chart-3: oklch(0.664 0.188 70.08);
 	--chart-4: oklch(0.645 0.246 16.439);
 	--chart-5: oklch(0.606 0.25 292.717);
 	--radius: 0.625rem;
@@ -111,10 +114,11 @@
 	--sidebar-accent: oklch(0.97 0 0);
 	--sidebar-accent-foreground: oklch(0.205 0 0);
 	--sidebar-border: oklch(0.922 0 0);
-	--sidebar-ring: oklch(0.708 0 0);
+	--sidebar-ring: oklch(0.656 0 0);
 }
 
 .dark {
+	color-scheme: dark;
 	/* Neutrals carry a faint blue-slate tint (same lightness as before, so contrast is unchanged)
 	   instead of pure grey. */
 	--background: oklch(0.15 0.014 265);

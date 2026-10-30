@@ -3,6 +3,9 @@ import { createRoot } from 'react-dom/client';
 import './lib/disableConsoleInProd';
 import './index.css';
 import App from './App';
+import { initTheme } from './lib/theme';
+
+initTheme();
 
 // Background work in this app is deliberately fire-and-forget (notification checks, index
 // maintenance, session-key writes). Without this, a rejection in any of them vanished silently

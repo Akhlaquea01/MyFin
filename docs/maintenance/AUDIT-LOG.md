@@ -69,8 +69,8 @@ throughout) all held up under review and under the new randomized ledger test.
   warns but nothing notifies).
 - Transactions list: amount-range filter, multi-select bulk edit/delete/categorise, and a card layout on
   phones (today the table scrolls sideways to reach amounts' decimals and the action buttons).
-- Light/system theme (the app is pinned to dark with no toggle; light tokens exist but the category and chart
-  palette was validated for contrast only against the dark surface, so a light theme needs that redone).
+- ~~Light/system theme~~ — done in Feature 028: a Light / Dark / System toggle, with the light palette re-tuned and
+  contrast-tested against both themes.
 - Scheduled backups never rotate (one file per run accumulates) and are not re-opened after writing.
 - Per-device encryption key (Android Keystore) so a PIN alone is not the only protection of stored data.
 

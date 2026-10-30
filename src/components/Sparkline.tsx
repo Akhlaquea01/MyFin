@@ -8,6 +8,7 @@ import {
 	CategoryScale
 } from 'chart.js';
 import { getPrimaryColor } from '../lib/chartColors';
+import { useResolvedTheme } from '../lib/theme';
 
 Chart.register(LineController, LineElement, PointElement, LinearScale, CategoryScale);
 
@@ -15,6 +16,8 @@ Chart.register(LineController, LineElement, PointElement, LinearScale, CategoryS
 export function Sparkline({ values, color }: { values: number[]; color?: string }) {
 	const canvasRef = useRef<HTMLCanvasElement>(null);
 	const chartRef = useRef<Chart | null>(null);
+	// The line color is read from the DOM, so a theme change has to redraw it.
+	const theme = useResolvedTheme();
 
 	useEffect(() => {
 		if (!canvasRef.current) return;
@@ -41,7 +44,7 @@ export function Sparkline({ values, color }: { values: number[]; color?: string 
 			}
 		});
 		return () => chartRef.current?.destroy();
-	}, [values, color]);
+	}, [values, color, theme]);
 
 	return (
 		<div className="h-10 w-full">

@@ -23,7 +23,14 @@ import { CategoryRepository } from '../data/dexie/categoryRepository';
 import { DateRangeSelector, type DateRange } from '../components/DateRangeSelector';
 import { useSession } from '../context/SessionContext';
 import { describeNetWorthSeries } from '../lib/netWorthSeriesLabel';
-import { getChartPalette, getAxisColor, getGridColor, withAlpha } from '../lib/chartColors';
+import {
+	getChartPalette,
+	getAxisColor,
+	getGridColor,
+	resolveCssColor,
+	withAlpha
+} from '../lib/chartColors';
+import { useResolvedTheme } from '../lib/theme';
 import {
 	categoryBreakdown,
 	purposeBreakdown,
@@ -72,6 +79,8 @@ export function AnalyticsPage() {
 
 	// Resolved once per render from CSS custom properties (index.css) rather than hardcoded —
 	// see src/lib/chartColors.ts for why canvas needs literal color strings, not var(...).
+	// Canvas colors are read from the DOM, so a theme change has to re-render the page to redraw them.
+	useResolvedTheme();
 	const palette = getChartPalette();
 	const axisColor = getAxisColor();
 	const gridColor = getGridColor();
@@ -256,12 +265,12 @@ export function AnalyticsPage() {
 												{
 													label: 'Income',
 													data: trend.map((t) => t.income / 100),
-													backgroundColor: 'rgba(34, 197, 94, 0.7)'
+													backgroundColor: withAlpha(resolveCssColor('--income'), 0.8)
 												},
 												{
 													label: 'Expense',
 													data: trend.map((t) => t.expense / 100),
-													backgroundColor: 'rgba(239, 68, 68, 0.7)'
+													backgroundColor: withAlpha(resolveCssColor('--expense'), 0.8)
 												}
 											]
 										},

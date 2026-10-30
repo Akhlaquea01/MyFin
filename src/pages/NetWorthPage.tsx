@@ -20,6 +20,7 @@ import { useSession } from '../context/SessionContext';
 import { useShowMore } from '../hooks/useShowMore';
 import { describeNetWorthSeries } from '../lib/netWorthSeriesLabel';
 import { getChartPalette, getAxisColor, getGridColor, withAlpha } from '../lib/chartColors';
+import { useResolvedTheme } from '../lib/theme';
 import {
 	computeNetWorth,
 	ensureDailyNetWorthSnapshot,
@@ -59,6 +60,8 @@ export function NetWorthPage() {
 	const { getEncryptionKey } = useSession();
 	const key = getEncryptionKey();
 
+	// Canvas colors are read from the DOM, so a theme change has to re-render the page to redraw them.
+	useResolvedTheme();
 	const palette = getChartPalette();
 	const axisColor = getAxisColor();
 	const gridColor = getGridColor();

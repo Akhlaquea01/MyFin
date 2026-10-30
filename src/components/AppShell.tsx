@@ -22,6 +22,7 @@ import {
 } from './ui/dropdown-menu';
 import { PageErrorBoundary } from './PageErrorBoundary';
 import { CommandPalette } from './CommandPalette';
+import { ThemeToggle } from './ThemeToggle';
 import { useQuickTour } from '../hooks/useQuickTour';
 import { useUnreadAlerts } from '../hooks/useUnreadAlerts';
 import { useWaitingReview } from '../hooks/useWaitingReview';
@@ -351,6 +352,7 @@ export function AppShell() {
 				<div className="mb-6 flex items-center gap-2 px-2">
 					<Wallet className="size-5 text-primary" />
 					<span className="font-semibold">MyFin</span>
+					<ThemeToggle className="ml-auto" />
 				</div>
 				<NavLinks />
 			</aside>
@@ -384,6 +386,7 @@ export function AppShell() {
 							</span>
 						)}
 					</Link>
+					<ThemeToggle />
 				</header>
 
 				<main id="main-content" tabIndex={-1} className="min-w-0 flex-1 pb-20 outline-none md:pb-0">
