@@ -11,6 +11,7 @@ import android.util.Base64;
 
 import androidx.activity.result.ActivityResult;
 
+import com.getcapacitor.JSArray;
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
@@ -20,6 +21,8 @@ import com.getcapacitor.annotation.CapacitorPlugin;
 
 import java.io.IOException;
 import java.io.OutputStream;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.regex.Pattern;
 
 /**
@@ -39,6 +42,10 @@ public class NativeBackupFolderPlugin extends Plugin {
 
     /** What the web layer names backup files; anything else is refused rather than escaped. */
     private static final Pattern SAFE_FILE_NAME = Pattern.compile("[A-Za-z0-9._-]{1,100}");
+
+    /** The only files {@link #deleteFile} will remove: MyFin's own scheduled backups, never anything else in the folder. */
+    private static final Pattern AUTO_BACKUP_NAME =
+            Pattern.compile("myfin-auto-backup-\\d{4}-\\d{2}-\\d{2}\\.json");
 
     /** Opens Android's folder picker. Resolves {@code {uri, name}}; rejects with code "cancelled". */
     @PluginMethod
@@ -107,6 +114,84 @@ public class NativeBackupFolderPlugin extends Plugin {
                 call.reject("Could not write the backup file.", "write-failed", e);
             }
         });
+    }
+
+    /** The names of the files directly inside the chosen folder, so the web layer can trim old backups. */
+    @PluginMethod
+    public void listFiles(PluginCall call) {
+        final String uri = call.getString("uri");
+        if (uri == null) {
+            call.reject("uri is required.");
+            return;
+        }
+        getBridge().execute(() -> {
+            try {
+                JSObject result = new JSObject();
+                result.put("names", new JSArray(childNames(Uri.parse(uri))));
+                call.resolve(result);
+            } catch (RuntimeException e) {
+                call.reject("Could not list the backup folder.", "list-failed", e);
+            }
+        });
+    }
+
+    /**
+     * Deletes one scheduled backup from the folder. The name is checked here as well as in the web
+     * layer: this is the only place a file is ever removed, and it must never be anything but one
+     * of MyFin's own backups.
+     */
+    @PluginMethod
+    public void deleteFile(PluginCall call) {
+        final String uri = call.getString("uri");
+        final String filename = call.getString("filename");
+        if (uri == null || filename == null) {
+            call.reject("uri and filename are required.");
+            return;
+        }
+        if (!AUTO_BACKUP_NAME.matcher(filename).matches()) {
+            call.reject("That file name is not allowed.");
+            return;
+        }
+        getBridge().execute(() -> {
+            try {
+                delete(Uri.parse(uri), filename);
+                call.resolve();
+            } catch (IOException | RuntimeException e) {
+                call.reject("Could not delete the backup file.", "delete-failed", e);
+            }
+        });
+    }
+
+    private void delete(Uri tree, String filename) throws IOException {
+        ContentResolver resolver = getContext().getContentResolver();
+        if (!hasWriteAccess(resolver, tree)) throw new IOException("Access to the folder was removed.");
+
+        Uri children = DocumentsContract.buildChildDocumentsUriUsingTree(tree, DocumentsContract.getTreeDocumentId(tree));
+        String[] columns = {
+            DocumentsContract.Document.COLUMN_DOCUMENT_ID, DocumentsContract.Document.COLUMN_DISPLAY_NAME
+        };
+        try (Cursor cursor = resolver.query(children, columns, null, null, null)) {
+            while (cursor != null && cursor.moveToNext()) {
+                if (filename.equals(cursor.getString(1))) {
+                    DocumentsContract.deleteDocument(
+                            resolver, DocumentsContract.buildDocumentUriUsingTree(tree, cursor.getString(0)));
+                    return;
+                }
+            }
+        }
+    }
+
+    private List<String> childNames(Uri tree) {
+        List<String> names = new ArrayList<>();
+        Uri children = DocumentsContract.buildChildDocumentsUriUsingTree(tree, DocumentsContract.getTreeDocumentId(tree));
+        try (Cursor cursor = getContext().getContentResolver().query(
+                children, new String[] {DocumentsContract.Document.COLUMN_DISPLAY_NAME}, null, null, null)) {
+            while (cursor != null && cursor.moveToNext()) {
+                String name = cursor.getString(0);
+                if (name != null) names.add(name);
+            }
+        }
+        return names;
     }
 
     private void write(Uri tree, String filename, String base64) throws IOException {
