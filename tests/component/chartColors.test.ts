@@ -42,6 +42,23 @@ describe('withAlpha', () => {
 		expect(withAlpha('rgba(15, 118, 110, 0.9)', 0.2)).toBe('rgba(15, 118, 110, 0.2)');
 	});
 
+	it('applies alpha to an oklch() color, which is how browsers return the theme colours', () => {
+		expect(withAlpha('oklch(0.511 0.096 186.391)', 0.15)).toBe('oklch(0.511 0.096 186.391 / 0.15)');
+	});
+
+	it('applies alpha to a color(srgb ...) color', () => {
+		expect(withAlpha('color(srgb 0.05 0.46 0.43)', 0.2)).toBe('color(srgb 0.05 0.46 0.43 / 0.2)');
+	});
+
+	it('replaces the alpha already on a modern color', () => {
+		expect(withAlpha('oklch(0.6 0.1 180 / 50%)', 0.2)).toBe('oklch(0.6 0.1 180 / 0.2)');
+		expect(withAlpha('color(srgb 0.1 0.2 0.3 / 0.9)', 0.2)).toBe('color(srgb 0.1 0.2 0.3 / 0.2)');
+	});
+
+	it('applies alpha to a space-separated rgb()', () => {
+		expect(withAlpha('rgb(15 118 110)', 0.2)).toBe('rgba(15, 118, 110, 0.2)');
+	});
+
 	it('passes through an unparseable color unchanged', () => {
 		expect(withAlpha('not-a-color', 0.2)).toBe('not-a-color');
 	});

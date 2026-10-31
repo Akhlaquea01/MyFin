@@ -33,10 +33,17 @@ export function getPrimaryColor(): string {
 	return resolveCssColor('--primary');
 }
 
-/** Applies a fixed alpha to an `rgb(r, g, b)`/`rgba(r, g, b, a)` string, for chart fills. */
-export function withAlpha(rgbColor: string, alpha: number): string {
-	const match = /rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)/.exec(rgbColor);
-	if (!match) return rgbColor;
-	const [, r, g, b] = match;
-	return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+/**
+ * Applies a fixed alpha to a color string, for chart fills. Browsers keep a computed `oklch()` (the
+ * format index.css is written in) as `oklch(...)` or `color(srgb ...)` rather than converting it to
+ * `rgb()`, so those take the alpha after a slash; without this the fill came out fully opaque.
+ */
+export function withAlpha(color: string, alpha: number): string {
+	const rgb = /rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)/.exec(color);
+	if (rgb) {
+		const [, r, g, b] = rgb;
+		return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+	}
+	const modern = /^(oklch|oklab|lch|lab|hwb|color)\((.*?)(?:\s*\/\s*[^)]*)?\)$/.exec(color.trim());
+	return modern ? `${modern[1]}(${modern[2]} / ${alpha})` : color;
 }

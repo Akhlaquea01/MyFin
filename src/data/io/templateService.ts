@@ -905,7 +905,9 @@ async function runTemplateImport(
 				dateFrom: v.dateFrom,
 				dateTo: v.dateTo,
 				freeText: v.freeText,
-				tagIds
+				tagIds,
+				amountMin: v.amountMin ?? null,
+				amountMax: v.amountMax ?? null
 			});
 			recordCreated('savedFilterViews');
 		}

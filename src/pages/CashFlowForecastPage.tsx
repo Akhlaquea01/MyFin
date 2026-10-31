@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import type { ChartConfiguration } from 'chart.js';
 import { TrendingDown } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '../components/ui/button';
@@ -20,7 +21,8 @@ import { projectAccountBalance } from '../domain/forecast/forecastEngine';
 import type { BalanceForecast, ForecastHorizonDays } from '../domain/forecast/types';
 import type { Account } from '../domain/entities';
 import { isValidMoney, parseMoneyOrZero, formatMoney } from '../domain/shared/money';
-import { getPrimaryColor, withAlpha, getAxisColor, getGridColor } from '../lib/chartColors';
+import { withAlpha } from '../lib/chartColors';
+import { useChartColors } from '../hooks/useChartColors';
 import { isoDateToLocalDate } from '../domain/shared/dateMath';
 
 const HORIZON_OPTIONS: ForecastHorizonDays[] = [30, 60, 90];
@@ -80,11 +82,44 @@ export function CashFlowForecastPage() {
 		}
 	}
 
-	const primaryColor = getPrimaryColor();
+	const colors = useChartColors();
 	const selectedAccount = accounts.find((a) => a.id === accountId);
 	// A card's balance is what is owed (negative), so it is forecast and drawn as an amount owed, and
 	// warned about against its credit limit rather than a low-balance threshold.
 	const isCard = selectedAccount?.type === 'credit_card';
+
+	// Memoized: typing in the threshold box re-renders the page and must not rebuild the chart.
+	const forecastConfig = useMemo<ChartConfiguration>(
+		() => ({
+			type: 'line',
+			data: {
+				labels: (forecast?.points ?? []).map((p) => formatDate(p.date)),
+				datasets: [
+					{
+						label: isCard ? 'Projected amount owed' : 'Projected balance',
+						data: (forecast?.points ?? []).map(
+							(p) => (isCard ? -p.projectedBalanceMinor : p.projectedBalanceMinor) / 100
+						),
+						borderColor: colors.primary,
+						backgroundColor: withAlpha(colors.primary, 0.15),
+						fill: true,
+						tension: 0.25,
+						pointRadius: 0
+					}
+				]
+			},
+			options: {
+				responsive: true,
+				maintainAspectRatio: false,
+				scales: {
+					x: { ticks: { color: colors.axis }, grid: { color: colors.grid } },
+					y: { ticks: { color: colors.axis }, grid: { color: colors.grid } }
+				},
+				plugins: { legend: { display: false } }
+			}
+		}),
+		[forecast, isCard, colors]
+	);
 
 	return (
 		<div className="mx-auto max-w-3xl px-4 py-8 sm:px-6">
@@ -205,35 +240,8 @@ export function CashFlowForecastPage() {
 								<CardContent className="pt-6">
 									<ChartCanvas
 										label={`${isCard ? 'Projected amount owed' : 'Projected balance'} for the next ${horizonDays} days`}
-										config={{
-											type: 'line',
-											data: {
-												labels: forecast.points.map((p) => formatDate(p.date)),
-												datasets: [
-													{
-														label: isCard ? 'Projected amount owed' : 'Projected balance',
-														data: forecast.points.map(
-															(p) =>
-																(isCard ? -p.projectedBalanceMinor : p.projectedBalanceMinor) / 100
-														),
-														borderColor: primaryColor,
-														backgroundColor: withAlpha(primaryColor, 0.15),
-														fill: true,
-														tension: 0.25,
-														pointRadius: 0
-													}
-												]
-											},
-											options: {
-												responsive: true,
-												maintainAspectRatio: false,
-												scales: {
-													x: { ticks: { color: getAxisColor() }, grid: { color: getGridColor() } },
-													y: { ticks: { color: getAxisColor() }, grid: { color: getGridColor() } }
-												},
-												plugins: { legend: { display: false } }
-											}
-										}}
+										config={forecastConfig}
+										formatValue={(value) => formatMoney(Math.round(value * 100))}
 									/>
 								</CardContent>
 							</Card>

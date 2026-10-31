@@ -655,4 +655,7 @@ export interface SavedFilterView extends Timestamped {
 	dateTo: ISODateString | null;
 	freeText: string | null;
 	tagIds: ID[];
+	/** Absolute size bounds in minor units. Absent on views saved before the amount filter existed. */
+	amountMin?: number | null;
+	amountMax?: number | null;
 }

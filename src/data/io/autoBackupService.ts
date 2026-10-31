@@ -2,12 +2,15 @@ import { AutoBackupSettingsRepository } from '../dexie/autoBackupSettingsReposit
 import { createBackup } from './backupService';
 import type { UserProfile } from '../../domain/entities';
 import {
+	deleteNativeBackupFile,
 	isNativeBackupFolderAvailable,
+	listNativeBackupFiles,
 	nativeBackupFolderHasAccess,
 	pickNativeBackupFolder,
 	writeNativeBackupFile,
 	type NativeBackupFolder
 } from '../../lib/native/nativeBackupFolder';
+import { selectBackupsToDelete } from './autoBackupRetention';
 import { todayLocalISO } from '../../domain/shared/dateMath';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -70,6 +73,31 @@ function backupFilename(now: Date): string {
 }
 
 /**
+ * Trims the folder to the newest automatic backups once a new one is safely written. Housekeeping
+ * only: a failure here costs a little disk space, never the backup just made, so it is not
+ * reported as one.
+ */
+async function pruneOldBackups(
+	justWritten: string,
+	list: () => Promise<string[]>,
+	remove: (name: string) => Promise<void>
+): Promise<void> {
+	try {
+		for (const name of selectBackupsToDelete(await list(), [justWritten])) await remove(name);
+	} catch {
+		// Leave whatever could not be removed for the next run.
+	}
+}
+
+async function listDirectory(handle: FileSystemDirectoryHandle): Promise<string[]> {
+	const names: string[] = [];
+	for await (const entry of handle.values()) {
+		if (entry.kind === 'file') names.push(entry.name);
+	}
+	return names;
+}
+
+/**
  * Runs a scheduled backup when due (FR-026, contracts/scheduled-backup.md). MUST be called only
  * from the unlock callback (`LockScreen`'s `onunlock(pin)`, wired in App.tsx) — `pin` is
  * required to derive the same higher-cost backup encryption key `createBackup()` already uses
@@ -110,7 +138,8 @@ export async function maybeRunScheduledBackup(
 		const backup = await createBackup(key, profile.encryptionSalt, pin);
 
 		const now = new Date();
-		const fileHandle = await handle.getFileHandle(backupFilename(now), { create: true });
+		const filename = backupFilename(now);
+		const fileHandle = await handle.getFileHandle(filename, { create: true });
 		// createWritable()/write()/close() replaces the target file only on a fully successful
 		// close() — a failure mid-write never leaves a corrupted file visible under the final
 		// filename (Constitution Principle VI).
@@ -122,6 +151,11 @@ export async function maybeRunScheduledBackup(
 			lastBackupAt: now.toISOString(),
 			lastBackupStatus: 'success'
 		});
+		await pruneOldBackups(
+			filename,
+			() => listDirectory(handle),
+			(name) => handle.removeEntry(name)
+		);
 	} catch {
 		// Never touches existing data or any previously-written backup file — only records the
 		// failure so BackupSettingsPage can surface it (FR-030).
@@ -145,9 +179,15 @@ async function runNativeBackup(
 	}
 	const backup = await createBackup(key, profile.encryptionSalt, pin);
 	const now = new Date();
-	await writeNativeBackupFile(folder, backupFilename(now), JSON.stringify(backup));
+	const filename = backupFilename(now);
+	await writeNativeBackupFile(folder, filename, JSON.stringify(backup));
 	await AutoBackupSettingsRepository.update({
 		lastBackupAt: now.toISOString(),
 		lastBackupStatus: 'success'
 	});
+	await pruneOldBackups(
+		filename,
+		() => listNativeBackupFiles(folder),
+		(name) => deleteNativeBackupFile(folder, name)
+	);
 }

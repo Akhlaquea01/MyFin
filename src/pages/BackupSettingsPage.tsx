@@ -48,6 +48,7 @@ import type { AutoBackupSettings as ScheduledBackupSettings } from '../domain/en
 import { enableBackupReminder, syncBackupReminder } from '../data/io/backupReminderService';
 import { isNativeApp } from '../lib/native/platform';
 import { isFolderPickCancelled } from '../lib/native/nativeBackupFolder';
+import { KEEP_AUTO_BACKUPS } from '../data/io/autoBackupRetention';
 import {
 	BACKUP_REMINDER_INTERVAL_DAYS,
 	daysSinceLastBackup,
@@ -435,12 +436,15 @@ export function BackupSettingsPage() {
 									</SelectContent>
 								</Select>
 							</div>
-							{scheduled.nativeFolder && (
-								<p className="text-sm text-muted-foreground">
-									Saving to <strong>{scheduled.nativeFolder.name}</strong>. Each backup is a new
-									file; old ones are not deleted.
-								</p>
-							)}
+							<p className="text-sm text-muted-foreground">
+								{scheduled.nativeFolder && (
+									<>
+										Saving to <strong>{scheduled.nativeFolder.name}</strong>.{' '}
+									</>
+								)}
+								Each backup is a new file. The newest {KEEP_AUTO_BACKUPS} are kept and older
+								automatic backups are removed; other files in the folder are never touched.
+							</p>
 							<p className="text-sm text-muted-foreground">
 								{scheduled.lastBackupAt
 									? `Last successful backup: ${formatBackupDate(scheduled.lastBackupAt)}`

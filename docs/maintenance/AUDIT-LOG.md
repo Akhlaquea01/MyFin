@@ -67,11 +67,12 @@ throughout) all held up under review and under the new randomized ledger test.
 - Multi-currency (the app is INR-only by design: one symbol, no FX).
 - Low-balance and card **payment-due** reminders (only the statement day is stored; the forecast page
   warns but nothing notifies).
-- Transactions list: amount-range filter, multi-select bulk edit/delete/categorise, and a card layout on
-  phones (today the table scrolls sideways to reach amounts' decimals and the action buttons).
-- Light/system theme (the app is pinned to dark with no toggle; light tokens exist but the category and chart
-  palette was validated for contrast only against the dark surface, so a light theme needs that redone).
-- Scheduled backups never rotate (one file per run accumulates) and are not re-opened after writing.
+- ~~Transactions list: amount-range filter, multi-select bulk edit/delete/categorise, and a card layout on
+  phones~~ — done in Feature 029.
+- ~~Light/system theme~~ — done in Feature 028: a Light / Dark / System toggle, with the light palette re-tuned and
+  contrast-tested against both themes.
+- ~~Scheduled backups never rotate~~ — done in Feature 029 (newest ten kept). They are still not re-opened after
+  writing.
 - Per-device encryption key (Android Keystore) so a PIN alone is not the only protection of stored data.
 
 ## 4. Remaining risks (prioritised)
@@ -86,9 +87,12 @@ throughout) all held up under review and under the new randomized ledger test.
    (`pinVerifierHash`, 210,000 PBKDF2 rounds) sits unencrypted in `userProfile`; with the storage extracted
    (item 1, a rooted/stolen unlocked device) a 6-digit PIN is ~10⁶ offline guesses. Mitigations to consider:
    longer passphrase option, Argon2/scrypt in a worker, a Keystore-wrapped device key.
-3. **Medium — Heavy work runs on the main thread** (PBKDF2 on every unlock, CSV/XLSX parsing up to
-   20,000 rows, PDF generation, decrypting the whole ledger on every Transactions refresh). Large ledgers
-   will stutter on low-end phones; move crypto/parsing to a Worker and page the ledger.
+3. **Low — Heavy work on the main thread, measured (2026-10-30), not as bad as first written.** PBKDF2 is
+   WebCrypto, which runs off the main thread: 600,000 rounds took 81 ms with a 4 ms longest stall in
+   Chromium. At the 20,000-row import cap a CSV parses in 18 ms and an Excel file in 403 ms; decrypting
+   10,000 ledger rows takes 343 ms (50 ms with a date range, which uses the index); the list is already
+   virtualized. Desktop-class timings: a low-end phone will be several times slower, but each cost is bounded
+   and starts from something the user asked for. A Worker is not warranted without real-device numbers.
 4. **Low — `recalculateAccountBalance` is read-modify-write and not serialised per account.** A stale
    write is theoretically possible if two saves interleave on real IndexedDB (not reproducible against
    `fake-indexeddb`, even with staggered concurrent saves). _Check my data → Rebuild balances_ repairs it.

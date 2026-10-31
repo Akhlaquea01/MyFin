@@ -19,6 +19,8 @@ interface NativeBackupFolderPlugin {
 	pickFolder(): Promise<NativeBackupFolder>;
 	checkAccess(options: { uri: string }): Promise<{ ok: boolean }>;
 	writeFile(options: { uri: string; filename: string; base64: string }): Promise<void>;
+	listFiles(options: { uri: string }): Promise<{ names: string[] }>;
+	deleteFile(options: { uri: string; filename: string }): Promise<void>;
 }
 
 let plugin: NativeBackupFolderPlugin | undefined;
@@ -70,4 +72,17 @@ export function writeNativeBackupFile(
 	text: string
 ): Promise<void> {
 	return getPlugin().writeFile({ uri: folder.uri, filename, base64: utf8ToBase64(text) });
+}
+
+/** The names of the files directly inside the chosen folder. */
+export async function listNativeBackupFiles(folder: NativeBackupFolder): Promise<string[]> {
+	return (await getPlugin().listFiles({ uri: folder.uri })).names;
+}
+
+/** Deletes one of MyFin's own automatic backups; the Android side refuses any other file name. */
+export function deleteNativeBackupFile(
+	folder: NativeBackupFolder,
+	filename: string
+): Promise<void> {
+	return getPlugin().deleteFile({ uri: folder.uri, filename });
 }

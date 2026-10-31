@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Camera, TrendingUp, TrendingDown, Minus, ChevronDown, ChevronRight } from 'lucide-react';
 import {
 	Chart,
+	type ChartConfiguration,
 	LineController,
 	LineElement,
 	PointElement,
@@ -19,7 +20,8 @@ import { ShowMoreButton } from '../components/ShowMoreButton';
 import { useSession } from '../context/SessionContext';
 import { useShowMore } from '../hooks/useShowMore';
 import { describeNetWorthSeries } from '../lib/netWorthSeriesLabel';
-import { getChartPalette, getAxisColor, getGridColor, withAlpha } from '../lib/chartColors';
+import { withAlpha } from '../lib/chartColors';
+import { useChartColors } from '../hooks/useChartColors';
 import {
 	computeNetWorth,
 	ensureDailyNetWorthSnapshot,
@@ -59,9 +61,7 @@ export function NetWorthPage() {
 	const { getEncryptionKey } = useSession();
 	const key = getEncryptionKey();
 
-	const palette = getChartPalette();
-	const axisColor = getAxisColor();
-	const gridColor = getGridColor();
+	const colors = useChartColors();
 
 	const [breakdown, setBreakdown] = useState<NetWorthBreakdown | null>(null);
 	const [history, setHistory] = useState<NetWorthSnapshot[]>([]);
@@ -108,6 +108,36 @@ export function NetWorthPage() {
 			toast.error(err instanceof Error ? err.message : 'Could not record snapshot.');
 		}
 	}
+
+	// Memoized: a new config rebuilds the chart. Above the early returns, as hooks must be.
+	const historyConfig = useMemo<ChartConfiguration>(
+		() => ({
+			type: 'line',
+			data: {
+				labels: history.map((s) => s.date),
+				datasets: [
+					{
+						label: 'Net worth',
+						data: history.map((s) => s.netWorth / 100),
+						borderColor: colors.palette[0],
+						backgroundColor: withAlpha(colors.palette[0], 0.2),
+						fill: true,
+						tension: 0.3
+					}
+				]
+			},
+			options: {
+				responsive: true,
+				maintainAspectRatio: false,
+				scales: {
+					x: { ticks: { color: colors.axis }, grid: { color: colors.grid } },
+					y: { ticks: { color: colors.axis }, grid: { color: colors.grid } }
+				},
+				plugins: { legend: { display: false } }
+			}
+		}),
+		[history, colors]
+	);
 
 	if (loadError && !breakdown) {
 		return (
@@ -231,31 +261,8 @@ export function NetWorthPage() {
 							{history.length > 1 && (
 								<ChartCanvas
 									label={`Line chart of net worth history: ${describeNetWorthSeries(history)}`}
-									config={{
-										type: 'line',
-										data: {
-											labels: history.map((s) => s.date),
-											datasets: [
-												{
-													label: 'Net worth',
-													data: history.map((s) => s.netWorth / 100),
-													borderColor: palette[0],
-													backgroundColor: withAlpha(palette[0], 0.2),
-													fill: true,
-													tension: 0.3
-												}
-											]
-										},
-										options: {
-											responsive: true,
-											maintainAspectRatio: false,
-											scales: {
-												x: { ticks: { color: axisColor }, grid: { color: gridColor } },
-												y: { ticks: { color: axisColor }, grid: { color: gridColor } }
-											},
-											plugins: { legend: { display: false } }
-										}
-									}}
+									config={historyConfig}
+									formatValue={(value) => formatMoney(Math.round(value * 100))}
 								/>
 							)}
 							<ul className="flex flex-col gap-2">

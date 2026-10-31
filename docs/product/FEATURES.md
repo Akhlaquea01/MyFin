@@ -32,6 +32,8 @@ This document provides a comprehensive reference of the features built into the 
 24. [Feature 025: A Shorter Sidebar — Data, Automation & Settings](#feature-025-a-shorter-sidebar--data-automation--settings)
 25. [Feature 026: Versioned Releases & In-app Updates (Android)](#feature-026-versioned-releases--in-app-updates-android)
 26. [Feature 027: Calmer Navigation — One Menu, Cleaner Back](#feature-027-calmer-navigation--one-menu-cleaner-back)
+27. [Feature 028: Light & Dark Theme](#feature-028-light--dark-theme)
+28. [Feature 029: Chart Fixes, Backup Retention & a Better Transactions List](#feature-029-chart-fixes-backup-retention--a-better-transactions-list)
 
 ---
 
@@ -548,7 +550,7 @@ Made the captured-message flow quicker to act on and easier to read on a phone: 
 - **Quick Add**: a Category field that starts on what your rules suggest for the merchant, and "Add to review queue" (so "Confirm" only means one thing).
 - **Tab bar and toast**: the phone's tab says **Review** and shows how many entries wait; the "new transactions added" message has a Review button.
 - **Dashboard charts**: a large balance with its trend; _This month_ (money in, money out, how much of it has gone out — money that came back into a spending category, such as a refund or a friend paying you back, is taken off money out rather than counted as money in, so it always equals the _Where it went_ total); _Where it went_ (a stacked strip and ranked bars per category, top five plus a neutral Other); six months of in vs out as columns you tap for exact figures, with a table view; budget meters that go amber then red and say so in words; tiles for net worth, lending and what is waiting. Widgets can still be hidden or moved; a layout saved before these existed keeps its order and gets them added.
-- **Colour**: money in is green and money out is rose everywhere; amber means "needs a look". Each category keeps one of eight fixed hues (checked for colour-blind separation and contrast on the dark surface); a ninth category stays neutral rather than repeat a hue. Budgets, card utilisation and investment allocation use the same meters and strips.
+- **Colour**: money in is green and money out is rose everywhere; amber means "needs a look". Each category keeps one of eight fixed hues (checked for colour-blind separation and contrast on both themes — see Feature 028); a ninth category stays neutral rather than repeat a hue. Budgets, card utilisation and investment allocation use the same meters and strips.
 - **Phone navigation**: a scrollable strip of the open screen's siblings (Budgets · Budget vs. Actual · Goals · Recurring · Forecast; Accounts · Transactions · Quick Add · Review; and so on) sits above each page on a phone, so related screens are one tap apart. Every screen keeps its own address and the desktop sidebar is unchanged. Alerts says it is for bills, budgets and loans and points to Review for bank messages.
 
 ### Not done
@@ -713,3 +715,71 @@ The menu and the strip of sibling screens above each page were two separate list
 
 - Budget vs. Actual and Payoff Planner still have a sidebar link each (see Feature 025).
 - Screens below another (Budget vs. Actual, Upcoming, Payoff Planner, Bulk import) have no on-screen back arrow; Android Back and the strip cover them.
+
+---
+
+## Feature 028: Light & Dark Theme
+
+### Overview
+
+The app was pinned to dark (`<html class="dark">`) with no way to change it. It now offers **Light**, **Dark** and **System** (the default, which follows the device and switches live when the device does).
+
+### Key Capabilities
+
+- **Theme button**: a sun/moon button beside the bell on a phone and beside the app name in the sidebar opens a Light / Dark / System menu. The icon shows what is on screen, so under System it is whichever the device picked.
+- **No flash**: the choice is applied before the first paint, including on the lock screen, so a light-theme user never sees a dark frame. It is kept in this device's `localStorage` (a display preference, not part of the encrypted profile) and survives a lock, a reload and "forgot PIN".
+- **Charts follow**: the Analytics, Financial Health, Net Worth and Forecast charts and the dashboard sparkline redraw in the new theme's colours the moment it changes; the Income vs. expense bars now use the same green and rose as every other money-in / money-out figure.
+- **Android**: the status-bar icons follow the app's theme rather than the device's, since the app draws behind the bar.
+- **A light palette that is checked**: the light tokens had never been used. Measured against WCAG, `warning`, `info`, `expense` and `muted-foreground` text, the aqua / yellow / magenta category hues, two chart hues and the focus ring fell short on white, so they were darkened (hue and chroma kept). Colour-blind separation of the category set is at least as good as the dark set's in every vision mode.
+
+### Domain Engine & Architecture
+
+- **Theme state**: [`theme.ts`](../../src/lib/theme.ts) (`setThemePreference`, `initTheme`, `useResolvedTheme`, `useThemePreference`), [`ThemeToggle.tsx`](../../src/components/ThemeToggle.tsx), and [`theme-init.js`](../../public/theme-init.js), the pre-paint script, an external file because the CSP forbids inline scripts. `next-themes` was removed: it always renders an inline script, which the CSP blocks in production.
+- **Tokens**: `:root` (light) and `.dark` in [`index.css`](../../src/index.css), each with its `color-scheme` so native controls and scrollbars match.
+- **Tests**: [`themeContrast.test.ts`](../../tests/unit/themeContrast.test.ts) reads the tokens from `index.css` and holds both themes to 4.5:1 for text and 3:1 for graphics; [`theme.test.tsx`](../../tests/component/theme.test.tsx) covers the preference, the system listener, the hook and the menu.
+- **No data, schema or address change.**
+
+### Needs a device check
+
+- Android: status-bar icon colour when the app theme differs from the device theme.
+
+### Not done
+
+- The Android launch screen and the installed PWA's splash colour stay dark (the manifest's `background_color` and the native splash cannot follow a runtime choice), so a light-theme user sees a dark splash for a moment.
+- The browser/PWA toolbar colour (`theme-color`) is the same teal in both themes.
+
+---
+
+## Feature 029: Chart Fixes, Backup Retention & a Better Transactions List
+
+### Overview
+
+The remaining items from the audit that could be done and checked: charts that drew without their area fills and rebuilt themselves on every keystroke, scheduled backups that piled up forever, and a Transactions list with no amount filter, no way to act on several entries, and a table that scrolled sideways on a phone.
+
+### Key Capabilities
+
+- **Charts**: the area under a line is drawn again (the `Filler` plugin was never registered, so `fill: true` did nothing and warned on every render). A chart is no longer rebuilt when something unrelated on its page changes — typing a threshold on the Forecast page used to destroy and redraw the chart on every keystroke. Every chart also has a visually hidden table of its numbers, so a screen reader can move through them rather than hear one long label.
+- **Automatic backups keep the newest ten**: after each successful run, older `myfin-auto-backup-YYYY-MM-DD.json` files in the folder are removed. Only files with exactly that name are ever considered, the file just written is never removed, and a failure while trimming never marks the backup itself as failed. The Backup page says so.
+- **Amount filter**: **Min amount** and **Max amount** on the Transactions list, in either direction (a ₹500 expense and a ₹500 income both count as 500), bounds included. Saved views remember the range, and so does a starter-setup template. A value that is not an amount, or a minimum above the maximum, is reported when you press Filter and the list is left alone.
+- **Act on several entries**: tick entries (or **Select all** for everything the filters show) and a bar offers **Set category**, **Delete** and **Clear**. Delete asks once; a transfer loses both sides. The result says what happened, including what was skipped and why: transfers have no category, an entry already split across categories would lose its split, and an entry that belongs to a loan, payment or investment is reversed from its own page. Reloading the list clears the selection.
+- **Cards on a phone**: below 640 px each entry is a fixed-height card (description and amount, then date · account · category, then chips and the attachment, edit and delete buttons) instead of a seven-column table that scrolled sideways. The table is unchanged from 640 px up.
+- **Saved Views menu closes** once a view is chosen; it used to stay open over the list.
+
+### Domain Engine & Architecture
+
+- **Charts**: [`ChartCanvas.tsx`](../../src/components/ChartCanvas.tsx) (`Filler`, `ChartDataTable`), [`useChartColors.ts`](../../src/hooks/useChartColors.ts) (colours resolved once per theme, so memoized configs stay stable); the four chart pages build their configs in `useMemo`.
+- **Backups**: [`autoBackupRetention.ts`](../../src/data/io/autoBackupRetention.ts) (`selectBackupsToDelete`, `KEEP_AUTO_BACKUPS`), `pruneOldBackups` in [`autoBackupService.ts`](../../src/data/io/autoBackupService.ts); on Android the plugin gained `listFiles` and `deleteFile` ([`NativeBackupFolderPlugin.java`](../../android/app/src/main/java/io/github/akhlaquea01/myfin/backup/NativeBackupFolderPlugin.java)), and `deleteFile` refuses any name but MyFin's own.
+- **Transactions**: [`amountFilter.ts`](../../src/domain/transactions/amountFilter.ts), `TransactionFilter.amountMin` / `amountMax` in [`transactionRepository.ts`](../../src/data/dexie/transactionRepository.ts), optional `amountMin` / `amountMax` on `SavedFilterView` (older views and backups still load), [`bulkActions.ts`](../../src/domain/transactions/bulkActions.ts), and `TransactionCard` in [`TransactionsPage.tsx`](../../src/pages/TransactionsPage.tsx).
+- **Tests**: [`chartCanvas.test.tsx`](../../tests/component/chartCanvas.test.tsx), [`autoBackupRetention.test.ts`](../../tests/unit/autoBackupRetention.test.ts), [`autoBackupService.test.ts`](../../tests/unit/autoBackupService.test.ts), [`amountFilter.test.ts`](../../tests/unit/amountFilter.test.ts), [`bulkSummary.test.ts`](../../tests/unit/bulkSummary.test.ts), [`transactionAmountFilter.test.ts`](../../tests/integration/transactionAmountFilter.test.ts), [`bulkTransactionActions.test.ts`](../../tests/integration/bulkTransactionActions.test.ts), [`transactionsBulk.spec.ts`](../../tests/e2e/transactionsBulk.spec.ts) and [`transactions.mobile.spec.ts`](../../tests/e2e/transactions.mobile.spec.ts).
+- **No schema or address change.**
+
+### Needs a device check
+
+- Android: trimming old backups in a real Storage Access Framework folder (`listFiles` / `deleteFile` were compiled only against stubs of the Android API; the Capacitor signatures were checked against its sources).
+- A phone with more than 200 entries, to see the card list scroll smoothly (the virtualization arithmetic uses the fixed card height).
+
+### Not done
+
+- **Private release key and non-debuggable APK**: needs a key only the owner should hold, stored as a repository secret; a new key forces a one-time reinstall. Separately, the CI build is `assembleDebug`, so the APK is `debuggable`; a release build signed with the same key would close that without forcing a reinstall, but it changes the shipping pipeline and cannot be built or run here.
+- **Keystore-wrapped device key**: a change to the key hierarchy that needs a device to test.
+- **Moving work to a Worker**: measured instead (see the audit log, §4.3); PBKDF2 does not block the main thread and the other costs are bounded.

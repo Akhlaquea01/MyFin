@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
 	Chart,
+	type ChartConfiguration,
 	LineController,
 	LineElement,
 	PointElement,
@@ -16,7 +17,8 @@ import { ChartCanvas } from '../components/ChartCanvas';
 import { Progress } from '../components/ui/progress';
 import { DateRangeSelector, type DateRange } from '../components/DateRangeSelector';
 import { useSession } from '../context/SessionContext';
-import { getChartPalette, getAxisColor, getGridColor, withAlpha } from '../lib/chartColors';
+import { withAlpha } from '../lib/chartColors';
+import { useChartColors } from '../hooks/useChartColors';
 import {
 	getFinancialHealthTrend,
 	getFinancialHealthScore
@@ -130,13 +132,7 @@ export function FinancialHealthPage() {
 	const { getEncryptionKey } = useSession();
 	const key = getEncryptionKey();
 
-	const palette = getChartPalette();
-	const axisColor = getAxisColor();
-	const gridColor = getGridColor();
-	const baseScales = {
-		x: { ticks: { color: axisColor }, grid: { color: gridColor } },
-		y: { ticks: { color: axisColor }, grid: { color: gridColor } }
-	};
+	const colors = useChartColors();
 
 	const [range, setRange] = useState<DateRange>(defaultRange);
 	const [loading, setLoading] = useState(true);
@@ -169,6 +165,41 @@ export function FinancialHealthPage() {
 	}, [key, range]);
 
 	const latest = trend.length > 0 ? trend[trend.length - 1] : null;
+
+	// Memoized: a new config rebuilds the chart.
+	const trendConfig = useMemo<ChartConfiguration>(
+		() => ({
+			type: 'line',
+			data: {
+				labels: trend.map((m) => m.month),
+				datasets: [
+					{
+						label: 'Savings rate (%)',
+						data: trend.map((m) => (m.savingsRate === null ? null : m.savingsRate * 100)),
+						borderColor: colors.palette[0],
+						backgroundColor: withAlpha(colors.palette[0], 0.2),
+						spanGaps: true,
+						tension: 0.3
+					},
+					{
+						label: 'Budget adherence (%)',
+						data: trend.map((m) => m.budgetAdherence),
+						borderColor: colors.palette[1],
+						backgroundColor: withAlpha(colors.palette[1], 0.2),
+						spanGaps: true,
+						tension: 0.3
+					}
+				]
+			},
+			options: {
+				responsive: true,
+				maintainAspectRatio: false,
+				scales: colors.scales,
+				plugins: { legend: { labels: { color: colors.axis } } }
+			}
+		}),
+		[trend, colors]
+	);
 
 	return (
 		<div className="mx-auto max-w-5xl px-4 py-8 sm:px-6">
@@ -215,38 +246,8 @@ export function FinancialHealthPage() {
 												`${m.month} savings rate ${formatPercent(m.savingsRate)}, budget adherence ${formatAdherence(m.budgetAdherence)}`
 										)
 										.join(', ')}`}
-									config={{
-										type: 'line',
-										data: {
-											labels: trend.map((m) => m.month),
-											datasets: [
-												{
-													label: 'Savings rate (%)',
-													data: trend.map((m) =>
-														m.savingsRate === null ? null : m.savingsRate * 100
-													),
-													borderColor: palette[0],
-													backgroundColor: withAlpha(palette[0], 0.2),
-													spanGaps: true,
-													tension: 0.3
-												},
-												{
-													label: 'Budget adherence (%)',
-													data: trend.map((m) => m.budgetAdherence),
-													borderColor: palette[1],
-													backgroundColor: withAlpha(palette[1], 0.2),
-													spanGaps: true,
-													tension: 0.3
-												}
-											]
-										},
-										options: {
-											responsive: true,
-											maintainAspectRatio: false,
-											scales: baseScales,
-											plugins: { legend: { labels: { color: axisColor } } }
-										}
-									}}
+									config={trendConfig}
+									formatValue={(value) => `${value.toFixed(1)}%`}
 								/>
 							)}
 						</CardContent>

@@ -30,6 +30,7 @@ import {
 import {
 	DropdownMenu,
 	DropdownMenuContent,
+	DropdownMenuItem,
 	DropdownMenuTrigger
 } from '../components/ui/dropdown-menu';
 import { Popover, PopoverContent, PopoverTrigger } from '../components/ui/popover';
@@ -79,7 +80,16 @@ import type {
 import { SavedFilterViewRepository } from '../data/dexie/savedFilterViewRepository';
 import { buildCategoryLabels } from '../domain/categories/categoryHierarchy';
 import { useConfirm } from '../lib/confirm';
-import { formatMoney } from '../domain/shared/money';
+import { formatMinorUnits, formatMoney } from '../domain/shared/money';
+import { parseAmountRange } from '../domain/transactions/amountFilter';
+import {
+	bulkDeleteTransactions,
+	bulkSetCategory,
+	summarizeBulkCategory,
+	summarizeBulkDelete
+} from '../domain/transactions/bulkActions';
+import { CategoryPicker } from '../components/CategoryPicker';
+import { useMediaQuery } from '../hooks/useMediaQuery';
 
 // Row-level (not library) virtualization: past this many rows, rendering every <tr> at
 // once is the actual jank source at 10k+ transactions (SC-008), so only the rows within
@@ -87,6 +97,10 @@ import { formatMoney } from '../domain/shared/money';
 // the list renders normally in the page's own scroll — no fixed-height scroll box.
 const VIRTUALIZE_THRESHOLD = 200;
 const ROW_HEIGHT_PX = 49;
+/** Below Tailwind's `sm` there is no room for seven columns, so each entry is a card instead. */
+const PHONE_QUERY = '(max-width: 639px)';
+/** Fixed, like a table row, so the virtualization arithmetic holds; content is sized to fit. */
+const CARD_HEIGHT_PX = 96;
 const OVERSCAN_ROWS = 8;
 const VIEWPORT_HEIGHT_PX = 560;
 /** Settles a scroll gesture before querying attachment counts for the new window. */
@@ -138,6 +152,8 @@ export function TransactionsPage() {
 	const [dateFrom, setDateFrom] = useState('');
 	const [dateTo, setDateTo] = useState('');
 	const [freeText, setFreeText] = useState('');
+	const [amountMin, setAmountMin] = useState('');
+	const [amountMax, setAmountMax] = useState('');
 	const [tags, setTags] = useState<TagOption[]>([]);
 	const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
 	const [tagQuery, setTagQuery] = useState('');
@@ -146,19 +162,41 @@ export function TransactionsPage() {
 	const scrollerRef = useRef<HTMLDivElement>(null);
 	const [attachmentCounts, setAttachmentCounts] = useState<Record<string, number>>({});
 	const [attachmentDialogTx, setAttachmentDialogTx] = useState<Transaction | null>(null);
+	const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+	const [bulkCategoryOpen, setBulkCategoryOpen] = useState(false);
+	const [bulkCategoryId, setBulkCategoryId] = useState(UNCATEGORIZED_CATEGORY_ID);
+	const [bulkBusy, setBulkBusy] = useState(false);
 
 	const hasActiveFilters =
 		accountFilter !== '' ||
 		dateFrom !== '' ||
 		dateTo !== '' ||
 		freeText.trim() !== '' ||
+		amountMin.trim() !== '' ||
+		amountMax.trim() !== '' ||
 		selectedTagIds.length > 0;
 	function clearAllFilters() {
 		setAccountFilter('');
 		setDateFrom('');
 		setDateTo('');
 		setFreeText('');
+		setAmountMin('');
+		setAmountMax('');
 		setSelectedTagIds([]);
+	}
+	// A half-typed amount must not hide the list while it is being edited (or after a delete), so
+	// anything unreadable here is simply left out; the Filter button reports it.
+	function amountBounds() {
+		const range = parseAmountRange(amountMin, amountMax);
+		return range.ok ? { amountMin: range.min, amountMax: range.max } : {};
+	}
+	function applyFilters() {
+		const range = parseAmountRange(amountMin, amountMax);
+		if (!range.ok) {
+			toast.error(range.message);
+			return;
+		}
+		void refresh();
 	}
 	const [savedViews, setSavedViews] = useState<SavedFilterView[]>([]);
 	const [linkKinds, setLinkKinds] = useState<Map<string, TransactionLink['kind']>>(new Map());
@@ -168,22 +206,24 @@ export function TransactionsPage() {
 	const [renamingView, setRenamingView] = useState<SavedFilterView | null>(null);
 	const [renameViewName, setRenameViewName] = useState('');
 
+	const isPhone = useMediaQuery(PHONE_QUERY);
+	const rowHeightPx = isPhone ? CARD_HEIGHT_PX : ROW_HEIGHT_PX;
 	const isVirtualized = transactions.length > VIRTUALIZE_THRESHOLD;
 	const { visibleTransactions, topSpacerPx, bottomSpacerPx } = useMemo(() => {
 		if (!isVirtualized) {
 			return { visibleTransactions: transactions, topSpacerPx: 0, bottomSpacerPx: 0 };
 		}
-		const startIndex = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT_PX) - OVERSCAN_ROWS);
+		const startIndex = Math.max(0, Math.floor(scrollTop / rowHeightPx) - OVERSCAN_ROWS);
 		const endIndex = Math.min(
 			transactions.length,
-			Math.ceil((scrollTop + VIEWPORT_HEIGHT_PX) / ROW_HEIGHT_PX) + OVERSCAN_ROWS
+			Math.ceil((scrollTop + VIEWPORT_HEIGHT_PX) / rowHeightPx) + OVERSCAN_ROWS
 		);
 		return {
 			visibleTransactions: transactions.slice(startIndex, endIndex),
-			topSpacerPx: startIndex * ROW_HEIGHT_PX,
-			bottomSpacerPx: (transactions.length - endIndex) * ROW_HEIGHT_PX
+			topSpacerPx: startIndex * rowHeightPx,
+			bottomSpacerPx: (transactions.length - endIndex) * rowHeightPx
 		};
-	}, [transactions, scrollTop, isVirtualized]);
+	}, [transactions, scrollTop, isVirtualized, rowHeightPx]);
 
 	function accountName(id: string): string {
 		return accounts.find((a) => a.id === id)?.name ?? id;
@@ -215,9 +255,12 @@ export function TransactionsPage() {
 					dateFrom: dateFrom || undefined,
 					dateTo: dateTo || undefined,
 					freeText: freeText || undefined,
-					tagIds: selectedTagIds.length > 0 ? selectedTagIds : undefined
+					tagIds: selectedTagIds.length > 0 ? selectedTagIds : undefined,
+					...amountBounds()
 				})
 			);
+			// The list was just rebuilt, so a selection could name rows that are no longer there.
+			setSelectedIds(new Set());
 			setScrollTop(0);
 			if (scrollerRef.current) scrollerRef.current.scrollTop = 0;
 		} catch (err) {
@@ -340,9 +383,80 @@ export function TransactionsPage() {
 		}
 	}
 
+	function toggleSelected(id: string) {
+		setSelectedIds((prev) => {
+			const next = new Set(prev);
+			if (next.has(id)) next.delete(id);
+			else next.add(id);
+			return next;
+		});
+	}
+
+	const allSelected = transactions.length > 0 && selectedIds.size === transactions.length;
+	function toggleAllSelected() {
+		setSelectedIds(allSelected ? new Set() : new Set(transactions.map((t) => t.id)));
+	}
+
+	const selectAll = (
+		<input
+			type="checkbox"
+			className="size-4 accent-primary"
+			aria-label="Select all transactions"
+			checked={allSelected}
+			ref={(el) => {
+				if (el) el.indeterminate = selectedIds.size > 0 && !allSelected;
+			}}
+			onChange={toggleAllSelected}
+		/>
+	);
+
+	function reportBulk({ message, partial }: { message: string; partial: boolean }) {
+		if (partial) toast.warning(message);
+		else toast.success(message);
+	}
+
+	async function bulkDelete() {
+		const count = selectedIds.size;
+		const confirmed = await confirm({
+			message: `Delete ${count} ${count === 1 ? 'transaction' : 'transactions'} and any attached receipts? A transfer loses both its sides. This cannot be undone.`,
+			confirmLabel: 'Delete permanently',
+			destructive: true
+		});
+		if (!confirmed) return;
+		setBulkBusy(true);
+		try {
+			reportBulk(summarizeBulkDelete(await bulkDeleteTransactions(key, [...selectedIds])));
+		} catch (err) {
+			toast.error(err instanceof Error ? err.message : 'Could not delete the transactions.');
+		} finally {
+			setBulkBusy(false);
+		}
+		await refresh();
+	}
+
+	async function bulkApplyCategory() {
+		setBulkBusy(true);
+		try {
+			reportBulk(
+				summarizeBulkCategory(await bulkSetCategory(key, [...selectedIds], bulkCategoryId))
+			);
+			setBulkCategoryOpen(false);
+		} catch (err) {
+			toast.error(err instanceof Error ? err.message : 'Could not change the category.');
+		} finally {
+			setBulkBusy(false);
+		}
+		await refresh();
+	}
+
 	async function handleSaveView() {
 		if (!newViewName.trim()) {
 			toast.error('Please enter a name for the view.');
+			return;
+		}
+		const range = parseAmountRange(amountMin, amountMax);
+		if (!range.ok) {
+			toast.error(range.message);
 			return;
 		}
 		setSavingView(true);
@@ -364,7 +478,9 @@ export function TransactionsPage() {
 					dateFrom: dateFrom || null,
 					dateTo: dateTo || null,
 					freeText: freeText || null,
-					tagIds: selectedTagIds
+					tagIds: selectedTagIds,
+					amountMin: range.min ?? null,
+					amountMax: range.max ?? null
 				});
 			} else {
 				await SavedFilterViewRepository.create(key, {
@@ -373,7 +489,9 @@ export function TransactionsPage() {
 					dateFrom: dateFrom || null,
 					dateTo: dateTo || null,
 					freeText: freeText || null,
-					tagIds: selectedTagIds
+					tagIds: selectedTagIds,
+					amountMin: range.min ?? null,
+					amountMax: range.max ?? null
 				});
 			}
 			toast.success('View saved successfully.');
@@ -444,6 +562,10 @@ export function TransactionsPage() {
 		setDateTo(newDateTo);
 		setFreeText(newFreeText);
 		setSelectedTagIds(newTagIds);
+		const newAmountMin = view.amountMin ?? undefined;
+		const newAmountMax = view.amountMax ?? undefined;
+		setAmountMin(newAmountMin === undefined ? '' : formatMinorUnits(newAmountMin));
+		setAmountMax(newAmountMax === undefined ? '' : formatMinorUnits(newAmountMax));
 
 		if (hasMissingAccounts || hasMissingTags) {
 			toast.warning('Some filter criteria (like a deleted account or tag) could not be applied.');
@@ -457,9 +579,14 @@ export function TransactionsPage() {
 			dateFrom: newDateFrom || undefined,
 			dateTo: newDateTo || undefined,
 			freeText: newFreeText || undefined,
-			tagIds: newTagIds.length > 0 ? newTagIds : undefined
+			tagIds: newTagIds.length > 0 ? newTagIds : undefined,
+			amountMin: newAmountMin,
+			amountMax: newAmountMax
 		})
-			.then(setTransactions)
+			.then((found) => {
+				setTransactions(found);
+				setSelectedIds(new Set());
+			})
 			.catch(() => toast.error('Failed to apply filter view.'))
 			.finally(() => setLoading(false));
 	}
@@ -525,6 +652,32 @@ export function TransactionsPage() {
 							type="date"
 							value={dateTo}
 							onChange={(e) => setDateTo(e.target.value)}
+						/>
+					</div>
+					<div className="flex flex-col gap-1.5">
+						<Label htmlFor="tx-filter-min" className="text-xs text-muted-foreground">
+							Min amount
+						</Label>
+						<Input
+							id="tx-filter-min"
+							inputMode="decimal"
+							className="w-28"
+							placeholder="Any"
+							value={amountMin}
+							onChange={(e) => setAmountMin(e.target.value)}
+						/>
+					</div>
+					<div className="flex flex-col gap-1.5">
+						<Label htmlFor="tx-filter-max" className="text-xs text-muted-foreground">
+							Max amount
+						</Label>
+						<Input
+							id="tx-filter-max"
+							inputMode="decimal"
+							className="w-28"
+							placeholder="Any"
+							value={amountMax}
+							onChange={(e) => setAmountMax(e.target.value)}
 						/>
 					</div>
 					<div className="flex flex-col gap-1.5">
@@ -600,7 +753,7 @@ export function TransactionsPage() {
 							onChange={(e) => setFreeText(e.target.value)}
 						/>
 					</div>
-					<Button variant="secondary" onClick={() => void refresh()}>
+					<Button variant="secondary" onClick={applyFilters}>
 						<Search /> Filter
 					</Button>
 					<div className="ml-auto flex gap-1.5">
@@ -621,12 +774,13 @@ export function TransactionsPage() {
 											key={view.id}
 											className="group flex items-center justify-between rounded-sm px-2 py-1.5 hover:bg-accent"
 										>
-											<button
-												className="mr-2 flex-1 truncate text-left text-sm"
-												onClick={() => applySavedView(view)}
+											{/* A menu item, so choosing a view closes the menu instead of leaving it over the list. */}
+											<DropdownMenuItem
+												className="mr-2 flex-1 truncate"
+												onSelect={() => applySavedView(view)}
 											>
 												{view.name}
-											</button>
+											</DropdownMenuItem>
 											<div className="flex gap-1 opacity-0 transition-opacity group-hover:opacity-100">
 												<button
 													className="rounded p-1 hover:bg-muted"
@@ -675,6 +829,43 @@ export function TransactionsPage() {
 				</CardContent>
 			</Card>
 
+			{selectedIds.size > 0 && (
+				<div
+					role="region"
+					aria-label="Bulk actions"
+					className="mb-3 flex flex-wrap items-center gap-2 rounded-lg border bg-card p-3 text-sm"
+				>
+					<span className="mr-auto font-medium">{selectedIds.size} selected</span>
+					<Button
+						size="sm"
+						variant="outline"
+						disabled={bulkBusy}
+						onClick={() => {
+							setBulkCategoryId(UNCATEGORIZED_CATEGORY_ID);
+							setBulkCategoryOpen(true);
+						}}
+					>
+						<TagIcon /> Set category
+					</Button>
+					<Button
+						size="sm"
+						variant="destructive"
+						disabled={bulkBusy}
+						onClick={() => void bulkDelete()}
+					>
+						<Trash2 /> Delete
+					</Button>
+					<Button
+						size="sm"
+						variant="ghost"
+						disabled={bulkBusy}
+						onClick={() => setSelectedIds(new Set())}
+					>
+						Clear
+					</Button>
+				</div>
+			)}
+
 			{loading ? (
 				<p className="text-sm text-muted-foreground">Loading…</p>
 			) : transactions.length === 0 ? (
@@ -713,139 +904,166 @@ export function TransactionsPage() {
 						style={isVirtualized ? { maxHeight: VIEWPORT_HEIGHT_PX } : undefined}
 						onScroll={isVirtualized ? (e) => setScrollTop(e.currentTarget.scrollTop) : undefined}
 					>
-						<Table>
-							<TableHeader>
-								<TableRow>
-									<TableHead>Date</TableHead>
-									<TableHead>Description</TableHead>
-									<TableHead>Account</TableHead>
-									<TableHead className="hidden md:table-cell">Category</TableHead>
-									<TableHead className="text-right">Amount</TableHead>
-									<TableHead className="w-12" />
-									<TableHead className="w-28" />
-								</TableRow>
-							</TableHeader>
-							<TableBody>
+						{isPhone ? (
+							<ul>
+								<li>
+									<label className="flex items-center gap-3 border-b px-3 py-2 text-xs text-muted-foreground">
+										{selectAll}
+										Select all {transactions.length}
+									</label>
+								</li>
 								{isVirtualized && topSpacerPx > 0 && (
-									<tr style={{ height: topSpacerPx }} aria-hidden="true">
-										<td colSpan={7} />
-									</tr>
+									<li aria-hidden="true" style={{ height: topSpacerPx }} />
 								)}
-								{visibleTransactions.map((tx) => (
-									<TableRow
-										key={tx.id}
-										style={isVirtualized ? { height: ROW_HEIGHT_PX } : undefined}
-									>
-										<TableCell className="text-muted-foreground">
-											{tx.date}
-											{tx.capture && (
-												<span
-													className="ml-1 text-xs whitespace-nowrap"
-													title={describeCaptureMoment(tx.capture)}
-												>
-													{new Date(tx.capture.txnAt ?? tx.capture.receivedAt).toLocaleTimeString(
-														undefined,
-														{ hour: 'numeric', minute: '2-digit' }
-													)}
-												</span>
-											)}
-										</TableCell>
-										<TableCell className="w-full max-w-0">
-											<div className="flex min-w-0 items-center gap-2">
-												<span className="truncate" title={formatTransactionLabel(tx, merchants)}>
-													{formatTransactionLabel(tx, merchants)}
-												</span>
-												{tx.type === 'transfer' && (
-													<Badge variant="secondary" className="shrink-0">
-														{tx.transferPairId
-															? 'Transfer'
-															: tx.source === 'balance_adjustment'
-																? 'Adjustment'
-																: movementLabel(linkKinds.get(tx.id))}
-													</Badge>
-												)}
-												{tx.purpose && (
-													<Badge variant="secondary" className="shrink-0">
-														{PURPOSE_SHORT_LABELS[tx.purpose.kind]}
-													</Badge>
-												)}
-												{tx.reviewStatus === 'unreviewed' && (
-													<Badge variant="outline" className="ml-0 shrink-0">
-														Unreviewed
-													</Badge>
-												)}
-											</div>
-										</TableCell>
-										<TableCell className="text-muted-foreground">
-											{accountName(tx.accountId)}
-											{tx.transferPairId && counterpartAccounts[tx.id] && (
-												<span className="ml-1 text-xs whitespace-nowrap">
-													{tx.amount < 0 ? 'to' : 'from'} {accountName(counterpartAccounts[tx.id])}
-												</span>
-											)}
-										</TableCell>
-										<TableCell className="hidden text-muted-foreground md:table-cell">
-											{tx.type === 'transfer'
-												? '—'
-												: (categoryLabels[tx.id] ?? '') || (
-														<span className="text-xs italic">Uncategorized</span>
-													)}
-										</TableCell>
-										<TableCell
-											className={`text-right font-mono ${tx.amount < 0 ? 'text-expense' : 'text-income'}`}
-										>
-											{formatMoney(tx.amount)}
-										</TableCell>
-										<TableCell>
-											<Button
-												variant="ghost"
-												size="icon"
-												className="relative"
-												aria-label="Attachments"
-												onClick={() => setAttachmentDialogTx(tx)}
-											>
-												<Paperclip className="size-4" />
-												{(attachmentCounts[tx.id] ?? 0) > 0 && (
-													<Badge
-														variant="secondary"
-														className="absolute -top-1 -right-1 size-4 justify-center rounded-full p-0 text-[10px]"
-													>
-														{attachmentCounts[tx.id]}
-													</Badge>
-												)}
-											</Button>
-										</TableCell>
-										<TableCell>
-											<div className="flex items-center justify-end gap-1">
-												<Button
-													variant="ghost"
-													size="icon-sm"
-													aria-label="Edit transaction"
-													onClick={() => setEditTx(tx)}
-												>
-													<Pencil className="size-4" />
-												</Button>
-												<Button
-													variant="ghost"
-													size="sm"
-													aria-label="Delete transaction"
-													onClick={() => remove(tx)}
-												>
-													{/* Icon only on a phone, where seven columns leave no room for a word. */}
-													<Trash2 className="size-4 sm:hidden" />
-													<span className="hidden sm:inline">Delete</span>
-												</Button>
-											</div>
-										</TableCell>
-									</TableRow>
-								))}
+								{visibleTransactions.map((tx) => {
+									const label = formatTransactionLabel(tx, merchants);
+									const counterpart = tx.transferPairId ? counterpartAccounts[tx.id] : undefined;
+									return (
+										<TransactionCard
+											key={tx.id}
+											tx={tx}
+											label={label}
+											details={[
+												tx.capture
+													? `${tx.date} ${new Date(tx.capture.txnAt ?? tx.capture.receivedAt).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}`
+													: tx.date,
+												counterpart
+													? `${accountName(tx.accountId)} ${tx.amount < 0 ? 'to' : 'from'} ${accountName(counterpart)}`
+													: accountName(tx.accountId),
+												tx.type === 'transfer'
+													? ''
+													: (categoryLabels[tx.id] ?? '') || 'Uncategorized'
+											]}
+											linkKind={linkKinds.get(tx.id)}
+											attachmentCount={attachmentCounts[tx.id] ?? 0}
+											selected={selectedIds.has(tx.id)}
+											onToggleSelected={() => toggleSelected(tx.id)}
+											onAttachments={() => setAttachmentDialogTx(tx)}
+											onEdit={() => setEditTx(tx)}
+											onDelete={() => void remove(tx)}
+										/>
+									);
+								})}
 								{isVirtualized && bottomSpacerPx > 0 && (
-									<tr style={{ height: bottomSpacerPx }} aria-hidden="true">
-										<td colSpan={7} />
-									</tr>
+									<li aria-hidden="true" style={{ height: bottomSpacerPx }} />
 								)}
-							</TableBody>
-						</Table>
+							</ul>
+						) : (
+							<Table>
+								<TableHeader>
+									<TableRow>
+										<TableHead className="w-8">{selectAll}</TableHead>
+										<TableHead>Date</TableHead>
+										<TableHead>Description</TableHead>
+										<TableHead>Account</TableHead>
+										<TableHead className="hidden md:table-cell">Category</TableHead>
+										<TableHead className="text-right">Amount</TableHead>
+										<TableHead className="w-12" />
+										<TableHead className="w-28" />
+									</TableRow>
+								</TableHeader>
+								<TableBody>
+									{isVirtualized && topSpacerPx > 0 && (
+										<tr style={{ height: topSpacerPx }} aria-hidden="true">
+											<td colSpan={8} />
+										</tr>
+									)}
+									{visibleTransactions.map((tx) => (
+										<TableRow
+											key={tx.id}
+											style={isVirtualized ? { height: rowHeightPx } : undefined}
+											data-state={selectedIds.has(tx.id) ? 'selected' : undefined}
+										>
+											<TableCell>
+												<input
+													type="checkbox"
+													className="size-4 accent-primary"
+													aria-label={`Select transaction ${formatTransactionLabel(tx, merchants)} on ${tx.date}`}
+													checked={selectedIds.has(tx.id)}
+													onChange={() => toggleSelected(tx.id)}
+												/>
+											</TableCell>
+											<TableCell className="text-muted-foreground">
+												{tx.date}
+												{tx.capture && (
+													<span
+														className="ml-1 text-xs whitespace-nowrap"
+														title={describeCaptureMoment(tx.capture)}
+													>
+														{new Date(tx.capture.txnAt ?? tx.capture.receivedAt).toLocaleTimeString(
+															undefined,
+															{ hour: 'numeric', minute: '2-digit' }
+														)}
+													</span>
+												)}
+											</TableCell>
+											<TableCell className="w-full max-w-0">
+												<div className="flex min-w-0 items-center gap-2">
+													<span className="truncate" title={formatTransactionLabel(tx, merchants)}>
+														{formatTransactionLabel(tx, merchants)}
+													</span>
+													<TxBadges tx={tx} linkKind={linkKinds.get(tx.id)} />
+												</div>
+											</TableCell>
+											<TableCell className="text-muted-foreground">
+												{accountName(tx.accountId)}
+												{tx.transferPairId && counterpartAccounts[tx.id] && (
+													<span className="ml-1 text-xs whitespace-nowrap">
+														{tx.amount < 0 ? 'to' : 'from'}{' '}
+														{accountName(counterpartAccounts[tx.id])}
+													</span>
+												)}
+											</TableCell>
+											<TableCell className="hidden text-muted-foreground md:table-cell">
+												{tx.type === 'transfer'
+													? '—'
+													: (categoryLabels[tx.id] ?? '') || (
+															<span className="text-xs italic">Uncategorized</span>
+														)}
+											</TableCell>
+											<TableCell
+												className={`text-right font-mono ${tx.amount < 0 ? 'text-expense' : 'text-income'}`}
+											>
+												{formatMoney(tx.amount)}
+											</TableCell>
+											<TableCell>
+												<AttachmentButton
+													count={attachmentCounts[tx.id] ?? 0}
+													onClick={() => setAttachmentDialogTx(tx)}
+												/>
+											</TableCell>
+											<TableCell>
+												<div className="flex items-center justify-end gap-1">
+													<Button
+														variant="ghost"
+														size="icon-sm"
+														aria-label="Edit transaction"
+														onClick={() => setEditTx(tx)}
+													>
+														<Pencil className="size-4" />
+													</Button>
+													<Button
+														variant="ghost"
+														size="sm"
+														aria-label="Delete transaction"
+														onClick={() => remove(tx)}
+													>
+														{/* Icon only on a phone, where seven columns leave no room for a word. */}
+														<Trash2 className="size-4 sm:hidden" />
+														<span className="hidden sm:inline">Delete</span>
+													</Button>
+												</div>
+											</TableCell>
+										</TableRow>
+									))}
+									{isVirtualized && bottomSpacerPx > 0 && (
+										<tr style={{ height: bottomSpacerPx }} aria-hidden="true">
+											<td colSpan={8} />
+										</tr>
+									)}
+								</TableBody>
+							</Table>
+						)}
 					</div>
 				</Card>
 			)}
@@ -893,6 +1111,38 @@ export function TransactionsPage() {
 					onChanged={() => void refreshAttachmentCounts()}
 				/>
 			)}
+
+			<Dialog open={bulkCategoryOpen} onOpenChange={setBulkCategoryOpen}>
+				<DialogContent>
+					<DialogHeader>
+						<DialogTitle>
+							Set category for {selectedIds.size}{' '}
+							{selectedIds.size === 1 ? 'transaction' : 'transactions'}
+						</DialogTitle>
+					</DialogHeader>
+					<div className="flex flex-col gap-2">
+						<Label htmlFor="bulk-category">Category</Label>
+						<CategoryPicker
+							id="bulk-category"
+							value={bulkCategoryId}
+							onChange={setBulkCategoryId}
+							categories={categories}
+							noneOption={{ value: UNCATEGORIZED_CATEGORY_ID, label: 'Uncategorized' }}
+						/>
+						<p className="text-xs text-muted-foreground">
+							Transfers and transactions already split across categories are left as they are.
+						</p>
+					</div>
+					<DialogFooter>
+						<Button variant="outline" onClick={() => setBulkCategoryOpen(false)}>
+							Cancel
+						</Button>
+						<Button disabled={bulkBusy} onClick={() => void bulkApplyCategory()}>
+							Apply
+						</Button>
+					</DialogFooter>
+				</DialogContent>
+			</Dialog>
 
 			<Dialog open={saveViewOpen} onOpenChange={setSaveViewOpen}>
 				<DialogContent>
@@ -946,6 +1196,132 @@ export function TransactionsPage() {
 }
 
 /** User Story 1 (spec 005): view/attach/remove receipt photos for one transaction. */
+/** The Transfer / purpose / Unreviewed chips an entry carries, shared by the table and the phone card. */
+function TxBadges({
+	tx,
+	linkKind
+}: {
+	tx: Transaction;
+	linkKind: TransactionLink['kind'] | undefined;
+}) {
+	return (
+		<>
+			{tx.type === 'transfer' && (
+				<Badge variant="secondary" className="shrink-0">
+					{tx.transferPairId
+						? 'Transfer'
+						: tx.source === 'balance_adjustment'
+							? 'Adjustment'
+							: movementLabel(linkKind)}
+				</Badge>
+			)}
+			{tx.purpose && (
+				<Badge variant="secondary" className="shrink-0">
+					{PURPOSE_SHORT_LABELS[tx.purpose.kind]}
+				</Badge>
+			)}
+			{tx.reviewStatus === 'unreviewed' && (
+				<Badge variant="outline" className="ml-0 shrink-0">
+					Unreviewed
+				</Badge>
+			)}
+		</>
+	);
+}
+
+function AttachmentButton({ count, onClick }: { count: number; onClick: () => void }) {
+	return (
+		<Button
+			variant="ghost"
+			size="icon"
+			className="relative"
+			aria-label="Attachments"
+			onClick={onClick}
+		>
+			<Paperclip className="size-4" />
+			{count > 0 && (
+				<Badge
+					variant="secondary"
+					className="absolute -top-1 -right-1 size-4 justify-center rounded-full p-0 text-[10px]"
+				>
+					{count}
+				</Badge>
+			)}
+		</Button>
+	);
+}
+
+/** One entry on a phone: what the seven table columns say, in a fixed-height card. */
+function TransactionCard({
+	tx,
+	label,
+	details,
+	linkKind,
+	attachmentCount,
+	selected,
+	onToggleSelected,
+	onAttachments,
+	onEdit,
+	onDelete
+}: {
+	tx: Transaction;
+	label: string;
+	/** Date, account and category, in the order shown; blanks are left out. */
+	details: string[];
+	linkKind: TransactionLink['kind'] | undefined;
+	attachmentCount: number;
+	selected: boolean;
+	onToggleSelected: () => void;
+	onAttachments: () => void;
+	onEdit: () => void;
+	onDelete: () => void;
+}) {
+	return (
+		<li
+			className="flex items-start gap-1 overflow-hidden border-b px-2 py-2 data-[state=selected]:bg-muted/50"
+			style={{ height: CARD_HEIGHT_PX }}
+			data-state={selected ? 'selected' : undefined}
+		>
+			<label className="flex size-8 shrink-0 items-center justify-center">
+				<input
+					type="checkbox"
+					className="size-4 accent-primary"
+					aria-label={`Select transaction ${label} on ${tx.date}`}
+					checked={selected}
+					onChange={onToggleSelected}
+				/>
+			</label>
+			<div className="flex min-w-0 flex-1 flex-col gap-0.5">
+				<div className="flex items-baseline justify-between gap-2">
+					<span className="truncate font-medium" title={label}>
+						{label}
+					</span>
+					<span
+						className={`shrink-0 font-mono text-sm ${tx.amount < 0 ? 'text-expense' : 'text-income'}`}
+					>
+						{formatMoney(tx.amount)}
+					</span>
+				</div>
+				<p className="truncate text-xs text-muted-foreground">
+					{details.filter(Boolean).join(' · ')}
+				</p>
+				<div className="flex items-center gap-1">
+					<div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
+						<TxBadges tx={tx} linkKind={linkKind} />
+					</div>
+					<AttachmentButton count={attachmentCount} onClick={onAttachments} />
+					<Button variant="ghost" size="icon" aria-label="Edit transaction" onClick={onEdit}>
+						<Pencil className="size-4" />
+					</Button>
+					<Button variant="ghost" size="icon" aria-label="Delete transaction" onClick={onDelete}>
+						<Trash2 className="size-4" />
+					</Button>
+				</div>
+			</div>
+		</li>
+	);
+}
+
 function AttachmentsDialog({
 	transaction,
 	onOpenChange,

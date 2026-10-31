@@ -4,7 +4,10 @@ const nativeFolder = vi.hoisted(() => ({
 	available: false,
 	hasAccess: true,
 	written: [] as { folder: unknown; filename: string; text: string }[],
-	failWrite: false
+	failWrite: false,
+	existing: [] as string[],
+	deleted: [] as string[],
+	failList: false
 }));
 vi.mock('../../src/lib/native/nativeBackupFolder', () => ({
 	isNativeBackupFolderAvailable: () => nativeFolder.available,
@@ -14,6 +17,14 @@ vi.mock('../../src/lib/native/nativeBackupFolder', () => ({
 	writeNativeBackupFile: async (folder: unknown, filename: string, text: string) => {
 		if (nativeFolder.failWrite) throw new Error('write-failed');
 		nativeFolder.written.push({ folder, filename, text });
+		nativeFolder.existing.push(filename);
+	},
+	listNativeBackupFiles: async () => {
+		if (nativeFolder.failList) throw new Error('list-failed');
+		return [...nativeFolder.existing];
+	},
+	deleteNativeBackupFile: async (_folder: unknown, filename: string) => {
+		nativeFolder.deleted.push(filename);
 	}
 }));
 import { db } from '../../src/data/dexie/db';
@@ -28,20 +39,27 @@ import type { UserProfile, AutoBackupSettings } from '../../src/domain/entities'
 function makeMockDirectoryHandle(opts: {
 	queryPermission?: 'granted' | 'prompt' | 'denied';
 	requestPermission?: 'granted' | 'prompt' | 'denied';
+	existing?: string[];
 }) {
 	const write = vi.fn();
 	const close = vi.fn();
 	const createWritable = vi.fn().mockResolvedValue({ write, close });
 	const getFileHandle = vi.fn().mockResolvedValue({ createWritable });
+	const removeEntry = vi.fn().mockResolvedValue(undefined);
 	return {
 		handle: {
 			queryPermission: vi.fn().mockResolvedValue(opts.queryPermission ?? 'granted'),
 			requestPermission: vi.fn().mockResolvedValue(opts.requestPermission ?? 'granted'),
-			getFileHandle
+			getFileHandle,
+			removeEntry,
+			async *values() {
+				for (const name of opts.existing ?? []) yield { kind: 'file', name };
+			}
 		} as unknown as FileSystemDirectoryHandle,
 		write,
 		close,
-		getFileHandle
+		getFileHandle,
+		removeEntry
 	};
 }
 
@@ -187,6 +205,44 @@ describe('Auto backup service', () => {
 		expect(write).not.toHaveBeenCalled();
 		expect(getCurrent().lastBackupStatus).toBe('failed');
 	});
+
+	it('removes automatic backups beyond the newest ten after a successful run, and nothing else', async () => {
+		const old = Array.from(
+			{ length: 12 },
+			(_, i) => `myfin-auto-backup-2026-01-${String(i + 1).padStart(2, '0')}.json`
+		);
+		const { handle, removeEntry } = makeMockDirectoryHandle({
+			existing: [...old, 'holiday.jpg', 'myfin-auto-backup-2026-01-05 (1).json']
+		});
+		stubSettings({ id: 'local-user', enabled: true, intervalDays: 1, directoryHandle: handle });
+
+		await maybeRunScheduledBackup(pin, key, profile);
+
+		// The mock folder does not gain the new file, so 12 old ones are listed: the two oldest go.
+		expect(removeEntry.mock.calls.map(([name]) => name).sort()).toEqual([
+			'myfin-auto-backup-2026-01-01.json',
+			'myfin-auto-backup-2026-01-02.json'
+		]);
+	});
+
+	it('still records success when trimming old backups fails', async () => {
+		const old = Array.from(
+			{ length: 12 },
+			(_, i) => `myfin-auto-backup-2026-01-${String(i + 1).padStart(2, '0')}.json`
+		);
+		const { handle, removeEntry } = makeMockDirectoryHandle({ existing: old });
+		removeEntry.mockRejectedValue(new Error('locked'));
+		const { getCurrent } = stubSettings({
+			id: 'local-user',
+			enabled: true,
+			intervalDays: 1,
+			directoryHandle: handle
+		});
+
+		await maybeRunScheduledBackup(pin, key, profile);
+
+		expect(getCurrent().lastBackupStatus).toBe('success');
+	});
 });
 
 describe('Auto backup service — Android folder', () => {
@@ -213,6 +269,9 @@ describe('Auto backup service — Android folder', () => {
 		nativeFolder.hasAccess = true;
 		nativeFolder.failWrite = false;
 		nativeFolder.written = [];
+		nativeFolder.existing = [];
+		nativeFolder.deleted = [];
+		nativeFolder.failList = false;
 	});
 
 	afterEach(() => {
@@ -288,6 +347,71 @@ describe('Auto backup service — Android folder', () => {
 		await maybeRunScheduledBackup(pin, key, profile);
 
 		expect(updateSpy).toHaveBeenCalledWith({ lastBackupStatus: 'failed' });
+	});
+
+	it('removes automatic backups beyond the newest ten, leaving other files alone', async () => {
+		nativeFolder.existing = [
+			...Array.from(
+				{ length: 12 },
+				(_, i) => `myfin-auto-backup-2026-01-${String(i + 1).padStart(2, '0')}.json`
+			),
+			'notes.txt'
+		];
+		stubSettings({ id: 'local-user', enabled: true, intervalDays: 7, nativeFolder: folder });
+
+		await maybeRunScheduledBackup(pin, key, profile);
+
+		// Twelve old backups plus today's: the three oldest go.
+		expect(nativeFolder.deleted.sort()).toEqual([
+			'myfin-auto-backup-2026-01-01.json',
+			'myfin-auto-backup-2026-01-02.json',
+			'myfin-auto-backup-2026-01-03.json'
+		]);
+		expect(nativeFolder.written).toHaveLength(1);
+	});
+
+	it('never deletes the backup it just wrote', async () => {
+		// A device clock set far back makes every other file look newer than today's.
+		nativeFolder.existing = Array.from(
+			{ length: 12 },
+			(_, i) => `myfin-auto-backup-2099-01-${String(i + 1).padStart(2, '0')}.json`
+		);
+		stubSettings({ id: 'local-user', enabled: true, intervalDays: 7, nativeFolder: folder });
+
+		await maybeRunScheduledBackup(pin, key, profile);
+
+		const [written] = nativeFolder.written;
+		expect(nativeFolder.deleted).not.toContain(written.filename);
+	});
+
+	it('still records success when the folder cannot be listed for trimming', async () => {
+		nativeFolder.failList = true;
+		const { updateSpy } = stubSettings({
+			id: 'local-user',
+			enabled: true,
+			intervalDays: 7,
+			nativeFolder: folder
+		});
+
+		await maybeRunScheduledBackup(pin, key, profile);
+
+		expect(updateSpy).toHaveBeenCalledWith(
+			expect.objectContaining({ lastBackupStatus: 'success' })
+		);
+		expect(updateSpy).not.toHaveBeenCalledWith({ lastBackupStatus: 'failed' });
+	});
+
+	it('does not trim anything when the backup itself failed', async () => {
+		nativeFolder.existing = Array.from(
+			{ length: 12 },
+			(_, i) => `myfin-auto-backup-2026-01-${String(i + 1).padStart(2, '0')}.json`
+		);
+		nativeFolder.failWrite = true;
+		stubSettings({ id: 'local-user', enabled: true, intervalDays: 7, nativeFolder: folder });
+
+		await maybeRunScheduledBackup(pin, key, profile);
+
+		expect(nativeFolder.deleted).toEqual([]);
 	});
 
 	it('does nothing when automatic backups are switched off', async () => {

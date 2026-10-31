@@ -43,8 +43,9 @@ for the design behind these features see [LLD §6](../architecture/LLD.md#6-andr
   can only touch the one folder you pick). Choose a folder that Google Drive, Syncthing or similar
   already watches, and each scheduled backup (checked every time you unlock with your PIN — the backup
   is encrypted with it) leaves the phone as a new encrypted `myfin-auto-backup-YYYY-MM-DD.json` file.
-  Old files are not deleted. If Android revokes the folder, the next run is recorded as failed and the
-  page says so. **Remind me weekly** additionally schedules a notification with fixed text (no
+  After each successful run only the newest ten of those files are kept; older ones are removed, and no
+  other file in the folder is ever touched. If Android revokes the folder, the next run is recorded as
+  failed and the page says so. **Remind me weekly** additionally schedules a notification with fixed text (no
   financial details) so a missed backup does not go unnoticed; it is the one notification MyFin hands
   to Android's scheduler.
 - **In-app updates** (**About → App updates**): MyFin looks up the newest release of its own

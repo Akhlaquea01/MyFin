@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
 	Chart,
+	type ChartConfiguration,
 	BarController,
 	BarElement,
 	LineController,
@@ -23,7 +24,8 @@ import { CategoryRepository } from '../data/dexie/categoryRepository';
 import { DateRangeSelector, type DateRange } from '../components/DateRangeSelector';
 import { useSession } from '../context/SessionContext';
 import { describeNetWorthSeries } from '../lib/netWorthSeriesLabel';
-import { getChartPalette, getAxisColor, getGridColor, withAlpha } from '../lib/chartColors';
+import { withAlpha } from '../lib/chartColors';
+import { useChartColors } from '../hooks/useChartColors';
 import {
 	categoryBreakdown,
 	purposeBreakdown,
@@ -53,6 +55,9 @@ Chart.register(
 	Legend
 );
 
+// The charts plot major units; tables for screen readers show the formatted amount.
+const chartMoney = (value: number) => formatMoney(Math.round(value * 100));
+
 // More bars than this are unreadable on a phone; the rest fold into "Other" until asked for.
 const TOP_CATEGORIES = 10;
 
@@ -70,15 +75,9 @@ export function AnalyticsPage() {
 	const { getEncryptionKey } = useSession();
 	const key = getEncryptionKey();
 
-	// Resolved once per render from CSS custom properties (index.css) rather than hardcoded —
-	// see src/lib/chartColors.ts for why canvas needs literal color strings, not var(...).
-	const palette = getChartPalette();
-	const axisColor = getAxisColor();
-	const gridColor = getGridColor();
-	const baseScales = {
-		x: { ticks: { color: axisColor }, grid: { color: gridColor } },
-		y: { ticks: { color: axisColor }, grid: { color: gridColor } }
-	};
+	// Resolved from CSS custom properties (index.css) rather than hardcoded — see
+	// src/lib/chartColors.ts for why canvas needs literal color strings, not var(...).
+	const colors = useChartColors();
 
 	const [range, setRange] = useState<DateRange>(defaultRange);
 	const [loading, setLoading] = useState(true);
@@ -130,9 +129,115 @@ export function AnalyticsPage() {
 			.catch(() => setHasSubcategories(false));
 	}, [key]);
 
-	const chartCategories = showAllCategories
-		? categories
-		: foldSmallCategories(categories, TOP_CATEGORIES);
+	const chartCategories = useMemo(
+		() => (showAllCategories ? categories : foldSmallCategories(categories, TOP_CATEGORIES)),
+		[categories, showAllCategories]
+	);
+
+	// Memoized: a new config rebuilds the chart, which unrelated state (a checkbox, "show all") must not do.
+	const categoryConfig = useMemo<ChartConfiguration>(
+		() => ({
+			type: 'bar',
+			data: {
+				labels: chartCategories.map((c) => c.categoryName),
+				datasets: [
+					{
+						label: 'Spent',
+						data: chartCategories.map((c) => c.total / 100),
+						backgroundColor: chartCategories.map((c, i) =>
+							c.categoryId === OTHER_CATEGORY_ID
+								? colors.axis
+								: colors.palette[i % colors.palette.length]
+						)
+					}
+				]
+			},
+			options: {
+				responsive: true,
+				maintainAspectRatio: false,
+				scales: colors.scales,
+				plugins: { legend: { display: false } }
+			}
+		}),
+		[chartCategories, colors]
+	);
+	const incomeExpenseConfig = useMemo<ChartConfiguration>(
+		() => ({
+			type: 'bar',
+			data: {
+				labels: trend.map((t) => t.month),
+				datasets: [
+					{
+						label: 'Income',
+						data: trend.map((t) => t.income / 100),
+						backgroundColor: withAlpha(colors.income, 0.8)
+					},
+					{
+						label: 'Expense',
+						data: trend.map((t) => t.expense / 100),
+						backgroundColor: withAlpha(colors.expense, 0.8)
+					}
+				]
+			},
+			options: {
+				responsive: true,
+				maintainAspectRatio: false,
+				scales: colors.scales,
+				plugins: { legend: { labels: { color: colors.axis } } }
+			}
+		}),
+		[trend, colors]
+	);
+	const cashFlowConfig = useMemo<ChartConfiguration>(
+		() => ({
+			type: 'line',
+			data: {
+				labels: cashFlow.map((f) => f.month),
+				datasets: [
+					{
+						label: 'Cumulative',
+						data: cashFlow.map((f) => f.cumulativeFlow / 100),
+						borderColor: colors.palette[0],
+						backgroundColor: withAlpha(colors.palette[0], 0.2),
+						fill: true,
+						tension: 0.3
+					}
+				]
+			},
+			options: {
+				responsive: true,
+				maintainAspectRatio: false,
+				scales: colors.scales,
+				plugins: { legend: { display: false } }
+			}
+		}),
+		[cashFlow, colors]
+	);
+	const netWorthConfig = useMemo<ChartConfiguration>(
+		() => ({
+			type: 'line',
+			data: {
+				labels: netWorth.map((p) => p.date),
+				datasets: [
+					{
+						label: 'Net worth',
+						data: netWorth.map((p) => p.netWorth / 100),
+						borderColor: colors.palette[1],
+						backgroundColor: withAlpha(colors.palette[1], 0.2),
+						fill: true,
+						tension: 0.3
+					}
+				]
+			},
+			options: {
+				responsive: true,
+				maintainAspectRatio: false,
+				scales: colors.scales,
+				plugins: { legend: { display: false } }
+			}
+		}),
+		[netWorth, colors]
+	);
 
 	return (
 		<div className="mx-auto max-w-5xl px-4 py-8 sm:px-6">
@@ -169,29 +274,8 @@ export function AnalyticsPage() {
 									label={`Bar chart of spending by category: ${chartCategories
 										.map((c) => `${c.categoryName} ${formatMoney(c.total)}`)
 										.join(', ')}`}
-									config={{
-										type: 'bar',
-										data: {
-											labels: chartCategories.map((c) => c.categoryName),
-											datasets: [
-												{
-													label: 'Spent',
-													data: chartCategories.map((c) => c.total / 100),
-													backgroundColor: chartCategories.map((c, i) =>
-														c.categoryId === OTHER_CATEGORY_ID
-															? axisColor
-															: palette[i % palette.length]
-													)
-												}
-											]
-										},
-										options: {
-											responsive: true,
-											maintainAspectRatio: false,
-											scales: baseScales,
-											plugins: { legend: { display: false } }
-										}
-									}}
+									config={categoryConfig}
+									formatValue={chartMoney}
 								/>
 							)}
 							{categories.length > TOP_CATEGORIES + 1 && (
@@ -248,30 +332,8 @@ export function AnalyticsPage() {
 												`${t.month} income ${formatMoney(t.income)}, expense ${formatMoney(t.expense)}`
 										)
 										.join(', ')}`}
-									config={{
-										type: 'bar',
-										data: {
-											labels: trend.map((t) => t.month),
-											datasets: [
-												{
-													label: 'Income',
-													data: trend.map((t) => t.income / 100),
-													backgroundColor: 'rgba(34, 197, 94, 0.7)'
-												},
-												{
-													label: 'Expense',
-													data: trend.map((t) => t.expense / 100),
-													backgroundColor: 'rgba(239, 68, 68, 0.7)'
-												}
-											]
-										},
-										options: {
-											responsive: true,
-											maintainAspectRatio: false,
-											scales: baseScales,
-											plugins: { legend: { labels: { color: axisColor } } }
-										}
-									}}
+									config={incomeExpenseConfig}
+									formatValue={chartMoney}
 								/>
 							)}
 						</CardContent>
@@ -291,28 +353,8 @@ export function AnalyticsPage() {
 									label={`Line chart of cumulative cash flow: ${cashFlow
 										.map((f) => `${f.month} ${formatMoney(f.cumulativeFlow)}`)
 										.join(', ')}`}
-									config={{
-										type: 'line',
-										data: {
-											labels: cashFlow.map((f) => f.month),
-											datasets: [
-												{
-													label: 'Cumulative',
-													data: cashFlow.map((f) => f.cumulativeFlow / 100),
-													borderColor: palette[0],
-													backgroundColor: withAlpha(palette[0], 0.2),
-													fill: true,
-													tension: 0.3
-												}
-											]
-										},
-										options: {
-											responsive: true,
-											maintainAspectRatio: false,
-											scales: baseScales,
-											plugins: { legend: { display: false } }
-										}
-									}}
+									config={cashFlowConfig}
+									formatValue={chartMoney}
 								/>
 							)}
 						</CardContent>
@@ -330,28 +372,8 @@ export function AnalyticsPage() {
 							) : (
 								<ChartCanvas
 									label={`Line chart of net worth trend: ${describeNetWorthSeries(netWorth)}`}
-									config={{
-										type: 'line',
-										data: {
-											labels: netWorth.map((p) => p.date),
-											datasets: [
-												{
-													label: 'Net worth',
-													data: netWorth.map((p) => p.netWorth / 100),
-													borderColor: palette[1],
-													backgroundColor: withAlpha(palette[1], 0.2),
-													fill: true,
-													tension: 0.3
-												}
-											]
-										},
-										options: {
-											responsive: true,
-											maintainAspectRatio: false,
-											scales: baseScales,
-											plugins: { legend: { display: false } }
-										}
-									}}
+									config={netWorthConfig}
+									formatValue={chartMoney}
 								/>
 							)}
 						</CardContent>
