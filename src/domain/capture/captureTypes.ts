@@ -57,6 +57,9 @@ export interface ParsedCapture {
 	/** "Credit Card", "Debit Card", UPI or a bank account, as the message words it; null when it
 	 *  does not say (a bare "Card XX1234" could be either kind). */
 	instrument: CaptureInstrument | null;
+	/** Who the card says it is from ("sbi" for "SBI Credit Card"), to pick a card by its name when
+	 *  no saved digits match. */
+	issuerWords: string[];
 	/** The direction was assumed (no debit/credit verb) because the message is about a credit card. */
 	directionGuessed: boolean;
 }

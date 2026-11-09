@@ -641,4 +641,47 @@ describe('ingestCapturedMessages credit-card alerts', () => {
 		const [tx] = await TransactionRepository.listUnreviewed(key);
 		expect(tx.accountId).toBe(bank);
 	});
+
+	// SBI Card alerts arrive over RCS, so they are only seen as a messages-app notification.
+	const sbiAlert = (body: string, receivedAt = RECEIVED): IngestMessage => ({
+		id: `q${++nextId}`,
+		payload: {
+			channel: 'notification',
+			sender: 'Google Messages',
+			title: 'SBI CARDS AND PAYMENT SERVICES',
+			body,
+			receivedAt
+		}
+	});
+
+	it('files SBI card alerts on the SBI card by its name when two untagged cards exist', async () => {
+		const hdfc = await addCard();
+		card = (
+			await AccountRepository.create(key, {
+				name: 'SBI Card',
+				type: 'credit_card',
+				openingBalance: 0,
+				creditLimit: 300_000,
+				billingCycleDay: 10
+			})
+		).id;
+		const report = await ingestCapturedMessages(
+			key,
+			[
+				sbiAlert(
+					'Rs.156.00 spent on your SBI Credit Card ending with 1752 at Flipkart on 05-10-26 via UPI (Ref No. 630790438458). Trxn. not done by you? Report at https://sbicard.com/Dispute'
+				),
+				sbiAlert(
+					'We have received payment of Rs.1,336.00 via BBPS & the same has been credited to your SBI Credit Card. Your available limit is Rs.1,774.76.',
+					RECEIVED + 60_000
+				)
+			],
+			{ defaultAccountId: bank }
+		);
+		expect(report).toMatchObject({ created: 2, needsAccountCheck: 2 });
+		const filed = await TransactionRepository.listUnreviewed(key);
+		expect(filed.map((t) => t.accountId)).toEqual([card, card]);
+		expect(filed.map((t) => t.accountId)).not.toContain(hdfc);
+		expect(await balance(bank)).toBe(100_000);
+	});
 });

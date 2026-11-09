@@ -120,6 +120,25 @@ export function extractAccountTails(text: string): {
 	};
 }
 
+// "SBI" in "your SBI Credit Card", "hdfc" in "HDFC Bank Credit Card": the two words before "card",
+// minus filler. Lets a card be told apart by its name when its digits were never saved.
+const CARD_PHRASE = /\b(?:(?:credit|debit)\s+)?cards?\b/gi;
+const NOT_AN_ISSUER =
+	/^(?:your|the|you|card|cards|credit|debit|bank|using|with|for|from|spent|used|payment|txn|transaction)$/;
+
+/** Lower-case words naming who issued the card a message talks about; empty when it names none. */
+export function extractIssuerWords(text: string): string[] {
+	const words = new Set<string>();
+	for (const phrase of text.matchAll(CARD_PHRASE)) {
+		const before = text.slice(Math.max(0, phrase.index - 40), phrase.index);
+		for (const word of (before.match(/[A-Za-z]{3,}/g) ?? []).slice(-2)) {
+			const lower = word.toLowerCase();
+			if (!NOT_AN_ISSUER.test(lower)) words.add(lower);
+		}
+	}
+	return [...words];
+}
+
 const REF_NO =
 	/\b(?:ref(?:erence)?\s*(?:no|number|#)?|refno|upi|utr|rrn|txn\s*(?:id|no)?)\.?\s*[:#-]?\s*(\d{9,18})\b/i;
 // Axis-style "UPI/P2M/548275113159/MERCHANT" carries the reference inside the path.
@@ -234,6 +253,7 @@ export function parseCapturedMessage(payload: CapturePayload): ParsedCapture | n
 		refNo: extractRefNo(text),
 		isCardPayment: detectCardPayment(text) !== null,
 		instrument,
+		issuerWords: extractIssuerWords(text),
 		directionGuessed: direction.guessed
 	};
 }

@@ -31,18 +31,33 @@ function longestOverlap(scored: { account: Account; overlap: number }[]): Accoun
 }
 
 type MatchInput = Pick<ParsedCapture, 'accountTail' | 'cardTail'> &
-	Partial<Pick<ParsedCapture, 'instrument' | 'isCardPayment'>>;
+	Partial<Pick<ParsedCapture, 'instrument' | 'isCardPayment' | 'issuerWords'>>;
+
+// Words in an account name that say nothing about who issued it.
+const GENERIC_NAME_WORDS = new Set(['card', 'cards', 'credit', 'debit', 'bank', 'pay', 'visa']);
+
+function namesIssuer(account: Account, issuerWords: string[]): boolean {
+	const nameWords = `${account.name} ${account.cardNickname ?? ''}`
+		.toLowerCase()
+		.match(/[a-z]{3,}/g);
+	return (nameWords ?? []).some((w) => !GENERIC_NAME_WORDS.has(w) && issuerWords.includes(w));
+}
 
 /**
  * The one credit-card account a "Credit Card" message can only be about, when the digits did not
- * settle it. Refuses to guess when the message names a bank account, is about paying the bill
- * (that debit belongs to the bank account), or names card digits that a differently-tagged card
- * does not share — that is probably a card the user has not added.
+ * settle it: the only card, or with several, the only one whose name says who issued it ("SBI
+ * Card" for "your SBI Credit Card"). Refuses to guess when the message names a bank account, is
+ * about paying the bill (that debit belongs to the bank account), or names card digits that a
+ * differently-tagged card does not share — that is probably a card the user has not added.
  */
 function soleCreditCard(parsed: MatchInput, active: Account[]): Account | null {
 	if (parsed.instrument !== 'credit_card' || parsed.isCardPayment) return null;
 	if (parsed.accountTail && !parsed.cardTail) return null;
-	const cards = active.filter((a) => a.type === 'credit_card');
+	let cards = active.filter((a) => a.type === 'credit_card');
+	const issuerWords = parsed.issuerWords ?? [];
+	if (cards.length > 1 && issuerWords.length > 0) {
+		cards = cards.filter((a) => namesIssuer(a, issuerWords));
+	}
 	if (cards.length !== 1) return null;
 	const [card] = cards;
 	if (parsed.cardTail && card.cardLast4 && tailOverlap(card.cardLast4, parsed.cardTail) === 0) {

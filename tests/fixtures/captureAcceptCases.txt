@@ -45,3 +45,9 @@ A/c no. XX0146
 UPI/P2M/548275113159/MDMAHFOOZ
 Not you? SMS BLOCKUPI Cust ID to 919951860002
 Axis Bank
+----
+sender: +919876543210
+We have received payment of Rs.133,612.00 via BBPS & the same has been credited to your SBI Credit Card. Your available limit is Rs.177,452.76.
+----
+sender: CP-SBICRD
+Rs.156.00 spent on your SBI Credit Card ending with 1752 at Flipkart on 03-11-26 via UPI (Ref No. 630790438458). Trxn. not done by you? Report at https://sbicard.com/Dispute

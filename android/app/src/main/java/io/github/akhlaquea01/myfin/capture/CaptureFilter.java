@@ -52,6 +52,12 @@ public final class CaptureFilter {
     private static final Pattern ACCOUNT_OR_CARD = Pattern.compile(
             "\\b(?:a/?c|acct?|account|card)\\b[^0-9]{0,15}\\d{3,}", Pattern.CASE_INSENSITIVE);
 
+    // Card alerts that name no digits ("...credited to your SBI Credit Card. Your available limit
+    // is..."). "your ... card" keeps a friend's "I paid on my card" out. Mirrors YOUR_CARD in
+    // captureFilter.ts.
+    private static final Pattern YOUR_CARD = Pattern.compile(
+            "\\byour\\b[^.!?\\n\\d]{0,30}\\bcards?\\b", Pattern.CASE_INSENSITIVE);
+
     /**
      * Payment and banking apps whose notifications are read. Everything else is ignored without
      * even looking at its text. The values are the names shown to the user. Package names change
@@ -124,12 +130,12 @@ public final class CaptureFilter {
     /**
      * Stricter than {@link #looksLikeTransaction}, for sources that also carry personal chat (a
      * number-sender SMS, a messaging app's notification): the text must read like a bank alert,
-     * with a currency amount and the account or card digits it is about.
+     * with a currency amount and the account or card it is about (its digits, or "your ... card").
      */
     public static boolean looksLikeBankAlert(String text) {
         return looksLikeTransaction(text)
                 && CURRENCY_AMOUNT.matcher(text).find()
-                && ACCOUNT_OR_CARD.matcher(text).find();
+                && (ACCOUNT_OR_CARD.matcher(text).find() || YOUR_CARD.matcher(text).find());
     }
 
     public static boolean isCandidateSms(String sender, String body) {

@@ -221,6 +221,67 @@ describe('matchCaptureAccount — credit-card messages the digits cannot settle'
 		).toMatchObject({ accountId: 'bank', accountCheck: 'default-account' });
 	});
 
+	it('picks among several cards by the issuer the message names', () => {
+		const sbi = account('sbi', { type: 'credit_card', name: 'SBI Card' });
+		const hdfc = account('hdfc-card', { type: 'credit_card', name: 'HDFC Regalia' });
+		expect(
+			matchCaptureAccount(
+				{ ...tails(null, '1752'), ...creditCard, issuerWords: ['sbi'] },
+				[bank, hdfc, sbi],
+				'bank'
+			)
+		).toEqual({
+			accountId: 'sbi',
+			how: 'card-type',
+			accountCheck: 'card-type-guess',
+			tailHint: '1752'
+		});
+	});
+
+	it('also reads the issuer from a nickname', () => {
+		const sbi = account('sbi', {
+			type: 'credit_card',
+			name: 'Card 1',
+			cardNickname: 'SBI Cashback'
+		});
+		const other = account('other', { type: 'credit_card', name: 'Card 2' });
+		expect(
+			matchCaptureAccount(
+				{ ...tails(null), ...creditCard, issuerWords: ['sbi'] },
+				[sbi, other],
+				'bank'
+			)?.accountId
+		).toBe('sbi');
+	});
+
+	it('does not guess when two cards share the issuer, or none carries it', () => {
+		const a = account('a', { type: 'credit_card', name: 'SBI Card' });
+		const b = account('b', { type: 'credit_card', name: 'SBI Elite' });
+		const c = account('c', { type: 'credit_card', name: 'Axis Card' });
+		const input = { ...tails(null), ...creditCard, issuerWords: ['sbi'] };
+		expect(matchCaptureAccount(input, [bank, a, b], 'bank')?.accountId).toBe('bank');
+		expect(matchCaptureAccount(input, [bank, c, onlyCard], 'bank')?.accountId).toBe('bank');
+	});
+
+	it('does not take a generic word in the name for an issuer', () => {
+		const a = account('a', { type: 'credit_card', name: 'Credit Card' });
+		const b = account('b', { type: 'credit_card', name: 'Bank Card' });
+		const input = { ...tails(null), ...creditCard, issuerWords: ['credit', 'bank'] };
+		expect(matchCaptureAccount(input, [bank, a, b], 'bank')?.accountId).toBe('bank');
+	});
+
+	it('still refuses a same-issuer card whose saved digits differ from the message', () => {
+		const sbi = account('sbi', { type: 'credit_card', name: 'SBI Card', cardLast4: '1111' });
+		const other = account('other', { type: 'credit_card', name: 'Axis Card' });
+		expect(
+			matchCaptureAccount(
+				{ ...tails(null, '1752'), ...creditCard, issuerWords: ['sbi'] },
+				[bank, sbi, other],
+				'bank'
+			)
+		).toMatchObject({ accountId: 'bank', accountCheck: 'unmatched-tail' });
+	});
+
 	it('does not file a card with different saved digits: that is probably another card', () => {
 		const tagged = account('tagged', { type: 'credit_card', cardLast4: '5678' });
 		expect(

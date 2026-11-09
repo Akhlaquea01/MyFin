@@ -18,6 +18,9 @@ const PHONE_NUMBER_SENDER = /^\+?\d{8,}$/;
 // forward, or a bank that texts from a number). Mirrors CaptureFilter.looksLikeBankAlert on Android.
 const CURRENCY_AMOUNT = /(?:\b(?:rs\.?|inr)|₹)\s*\d/i;
 const ACCOUNT_OR_CARD = /\b(?:a\/?c|acct?|account|card)\b[^0-9]{0,15}\d{3,}/i;
+// Card alerts that name no digits ("...credited to your SBI Credit Card. Your available limit is...").
+// "your ... card" keeps a friend's "I paid on my card" out.
+const YOUR_CARD = /\byour\b[^.!?\n\d]{0,30}\bcards?\b/i;
 
 const OTP =
 	/\botp\b|one[- ]?time (?:password|pin|passcode)|verification code|\bcvv\b|\bpasscode\b|do not share|don'?t share|never share/i;
@@ -84,7 +87,7 @@ export function classifyMessage(payload: CapturePayload): ClassifyResult {
 	if (
 		payload.channel === 'sms' &&
 		PHONE_NUMBER_SENDER.test(payload.sender.replace(/[\s-]/g, '')) &&
-		!(CURRENCY_AMOUNT.test(text) && ACCOUNT_OR_CARD.test(text))
+		!(CURRENCY_AMOUNT.test(text) && (ACCOUNT_OR_CARD.test(text) || YOUR_CARD.test(text)))
 	) {
 		return { ok: false, reason: 'personal-sender' };
 	}
