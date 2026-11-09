@@ -114,8 +114,8 @@ function describeCaptureSource(capture: CaptureInfo): string {
 	if (capture.accountCheck === 'card-type-guess') {
 		parts.push(
 			capture.tailHint
-				? `message says credit card ending ${capture.tailHint}; filed on your only credit card`
-				: 'message says credit card; filed on your only credit card'
+				? `message says credit card ending ${capture.tailHint}; filed on the card it most likely belongs to`
+				: 'message says credit card; filed on the card it most likely belongs to'
 		);
 	}
 	if (capture.directionGuessed) {

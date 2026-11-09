@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { extractAccountTails, parseCapturedMessage } from '../../src/domain/capture/captureParser';
+import {
+	extractAccountTails,
+	extractIssuerWords,
+	parseCapturedMessage
+} from '../../src/domain/capture/captureParser';
 import type { CapturePayload } from '../../src/domain/capture/captureTypes';
 
 const sms = (body: string): CapturePayload => ({
@@ -382,5 +386,26 @@ describe('parseCapturedMessage — merchant names on card alerts', () => {
 		expect(
 			parseCapturedMessage(sms('Rs.300.00 spent on Credit Card XX1234 at Sun Pharma'))?.merchantText
 		).toBe('Sun Pharma');
+	});
+});
+
+describe('extractIssuerWords', () => {
+	it.each<[string, string[]]>([
+		['Rs.29,844.00 spent on your SBI Credit Card ending 1752 at FLIPKART', ['sbi']],
+		['Your HDFC Bank Credit Card ending 1234 has been used', ['hdfc']],
+		['Txn of INR 649.00 done on ICICI Bank Credit Card XX1234 at NETFLIX', ['icici']],
+		['SBI CARDS AND PAYMENT SERVICES credited to your SBI Credit Card', ['sbi']],
+		['Rs.500 debited from A/c XX1234 to AMAZON', []]
+	])('reads the issuer from: %s', (text, expected) => {
+		expect(extractIssuerWords(text)).toEqual(expected);
+	});
+
+	it('is on the parsed capture of an SBI card alert', () => {
+		const parsed = parseCapturedMessage(
+			sms(
+				'Rs.156.00 spent on your SBI Credit Card ending with 1752 at Flipkart on 03-11-26 via UPI (Ref No. 630790438458).'
+			)
+		);
+		expect(parsed).toMatchObject({ cardTail: '1752', issuerWords: ['sbi'], type: 'expense' });
 	});
 });

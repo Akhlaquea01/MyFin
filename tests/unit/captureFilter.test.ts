@@ -74,6 +74,31 @@ describe('classifyMessage — accepts completed money movements', () => {
 	});
 });
 
+describe('classifyMessage — card alerts that name no digits', () => {
+	const sbiPayment =
+		'We have received payment of Rs.133,612.00 via BBPS & the same has been credited to your SBI Credit Card. Your available limit is Rs.177,452.76.';
+
+	it('accepts it as an SMS from a phone number and as a messages-app notification', () => {
+		expect(classifyMessage(sms(sbiPayment, '+919876543210'))).toEqual({ ok: true });
+		expect(
+			classifyMessage({
+				channel: 'notification',
+				sender: 'Google Messages',
+				title: 'SBI CARDS AND PAYMENT SERVICES',
+				body: sbiPayment,
+				receivedAt: Date.UTC(2026, 10, 4, 6, 18)
+			})
+		).toEqual({ ok: true });
+	});
+
+	it('still rejects a friend who mentions a card without saying "your card"', () => {
+		expect(classifyMessage(sms('I paid Rs 500 on my card yesterday', '+919876543210'))).toEqual({
+			ok: false,
+			reason: 'personal-sender'
+		});
+	});
+});
+
 describe('classifyMessage — credit-card charges that used to be dropped', () => {
 	it.each(sharedAcceptCases().map((c) => [c.body.split('\n')[0], c] as const))(
 		'accepts the shared case: %s',

@@ -79,6 +79,17 @@ public class CaptureFilterTest {
     }
 
     @Test
+    public void aCardAlertWithNoDigitsStillReadsAsABankAlert() {
+        // SBI Card's "payment received" alert names the card only as "your SBI Credit Card".
+        String payment = "SBI CARDS AND PAYMENT SERVICES We have received payment of Rs.133,612.00 via BBPS"
+                + " & the same has been credited to your SBI Credit Card. Your available limit is Rs.177,452.76.";
+        assertTrue(CaptureFilter.looksLikeBankAlert(payment));
+        assertTrue(CaptureFilter.isCandidateSms("+919876543210", payment));
+        assertFalse(CaptureFilter.looksLikeBankAlert("I credited Rs 500 to your account"));
+        assertFalse(CaptureFilter.looksLikeBankAlert("I paid Rs 500 on my card yesterday"));
+    }
+
+    @Test
     public void onlyNamedMessagingAppsAreRead() {
         assertEquals("Google Messages", CaptureFilter.messagingAppName("com.google.android.apps.messaging"));
         assertEquals("Samsung Messages", CaptureFilter.messagingAppName("com.samsung.android.messaging"));
